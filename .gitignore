@@ -1,0 +1,15 @@
+node_modules/
+dist/
+dist-ssr/
+*.local
+.DS_Store
+.claude/
+
+# data pipeline: raw PokeAPI cache is resumable/regenerable, don't commit
+data-pipeline/cache/
+
+# generated dataset IS committed (see src/data/generated/) so the app works
+# without running the pipeline — do not ignore it.
+
+*.log
+npm-debug.log*

@@ -1,0 +1,370 @@
+import type {
+  MatchConfig,
+  MoveDefinition,
+  PokemonInstance,
+  SimEvent,
+  SimState,
+  StageKey,
+  Vec2,
+} from './types';
+import type { MoveLookup, SpeciesData } from './matchSetup';
+import { createMatch } from './matchSetup';
+import { createRng, rngChance, type Rng } from './rng';
+import {
+  applyMovement,
+  buildNeighborListFromPositions,
+  CHASE_MOVE_SPEED,
+  distance,
+  pickWanderWaypoint,
+  steerToward,
+  WANDER_MOVE_SPEED,
+} from './movement';
+import { chooseMove, findSelfBuffMove, retaliate, updateTargeting } from './ai';
+import { getEffectiveStat } from './statCalc';
+import { resolveDamage } from './damage';
+import {
+  applyStatus,
+  canApplyStatus,
+  gateAction,
+  maybeThawOnFireHit,
+  tickStatusDamage,
+} from './statusEffects';
+import { STRUGGLE_MOVE, STRUGGLE_MOVE_ID, STRUGGLE_RECOIL_FRACTION } from './struggle';
+import {
+  BASELINE_SPEED,
+  BASE_ACTION_COOLDOWN_MS,
+  INTRO_DURATION_MS,
+  MAX_ACTION_COOLDOWN_MS,
+  MIN_ACTION_COOLDOWN_MS,
+  PRIORITY_COOLDOWN_DISCOUNT,
+  SPREAD_MOVE_RADIUS,
+  TICK_MS,
+} from './constants';
+
+export class SimulationEngine {
+  private state: SimState;
+  private readonly events: SimEvent[] = [];
+  private seq = 0;
+  private readonly rng: Rng;
+  private readonly moves: MoveLookup;
+  private accumulatorMs = 0;
+
+  constructor(config: MatchConfig, species: Record<number, SpeciesData>, moves: MoveLookup, seed: number) {
+    this.rng = createRng(seed);
+    this.moves = moves;
+    this.state = createMatch(config, species, moves, this.rng);
+    this.events.push({ seq: this.nextSeq(), atMs: 0, type: 'milestone', kind: 'matchStart' });
+  }
+
+  getState(): Readonly<SimState> {
+    return this.state;
+  }
+
+  getEventsSince(seq: number): SimEvent[] {
+    return this.events.filter((e) => e.seq > seq);
+  }
+
+  tick(dtMs: number): void {
+    if (this.state.phase === 'complete') return;
+    this.accumulatorMs += dtMs;
+    while (this.accumulatorMs >= TICK_MS) {
+      this.accumulatorMs -= TICK_MS;
+      this.stepOnce();
+    }
+  }
+
+  private nextSeq(): number {
+    this.seq += 1;
+    return this.seq;
+  }
+
+  private stepOnce(): void {
+    this.state.tick += 1;
+    this.state.elapsedMs += TICK_MS;
+    const nowMs = this.state.elapsedMs;
+
+    if (this.state.phase === 'intro') {
+      if (nowMs >= INTRO_DURATION_MS) this.state.phase = 'battle';
+      return;
+    }
+
+    const livingIds = [...this.state.livingOrder];
+    const positions = new Map<string, Vec2>();
+    for (const id of livingIds) positions.set(id, { ...this.state.pokemon[id].position });
+    const neighbors = buildNeighborListFromPositions(livingIds, positions);
+
+    for (const id of livingIds) {
+      const self = this.state.pokemon[id];
+      if (self.currentHp <= 0) continue;
+      updateTargeting(self, this.state, positions, nowMs);
+      this.stepMovement(self, positions, neighbors);
+      if (self.actionCooldownMs > 0) self.actionCooldownMs -= TICK_MS;
+    }
+
+    for (const id of livingIds) {
+      const self = this.state.pokemon[id];
+      if (self.currentHp <= 0) continue;
+      this.maybeAct(self, nowMs);
+    }
+
+    for (const id of livingIds) {
+      const self = this.state.pokemon[id];
+      if (self.currentHp <= 0) continue;
+      this.applyStatusTick(self, nowMs);
+    }
+
+    this.sweepFaints(nowMs);
+    this.checkMilestones(nowMs);
+  }
+
+  private stepMovement(
+    self: PokemonInstance,
+    positions: ReadonlyMap<string, Vec2>,
+    neighbors: ReturnType<typeof buildNeighborListFromPositions>
+  ): void {
+    if (self.aiState === 'incapacitated') {
+      self.velocity = { x: 0, y: 0 };
+      return;
+    }
+
+    if (self.aiState === 'wander') {
+      const selfPos = positions.get(self.instanceId) ?? self.position;
+      if (!self.wanderWaypoint || distance(selfPos, self.wanderWaypoint) < 12) {
+        self.wanderWaypoint = pickWanderWaypoint(this.rng, this.state.arena);
+      }
+      steerToward(self, self.wanderWaypoint, WANDER_MOVE_SPEED, neighbors);
+    } else if (self.aiState === 'chase' && self.targetInstanceId) {
+      const target = this.state.pokemon[self.targetInstanceId];
+      const targetPos = positions.get(target.instanceId) ?? target.position;
+      steerToward(self, targetPos, CHASE_MOVE_SPEED, neighbors);
+    } else {
+      // 'attack' — hold ground, separation-only so sprites don't stack mid-fight.
+      steerToward(self, self.position, 0, neighbors);
+    }
+
+    applyMovement(self, TICK_MS, this.state.arena);
+  }
+
+  private maybeAct(self: PokemonInstance, nowMs: number): void {
+    if (self.aiState === 'incapacitated') return;
+
+    if (self.aiState === 'attack') {
+      if (self.actionCooldownMs > 0) return;
+      const target = self.targetInstanceId ? this.state.pokemon[self.targetInstanceId] : undefined;
+      if (!target || target.currentHp <= 0) return;
+      const moveId = chooseMove(self, this.rng);
+      const move = moveId === STRUGGLE_MOVE_ID ? STRUGGLE_MOVE : this.moves(moveId);
+      if (!move) return;
+      this.executeMove(self, move, moveId, target, nowMs);
+      return;
+    }
+
+    if (self.aiState === 'wander' && self.actionCooldownMs <= 0) {
+      const buffMove = findSelfBuffMove(self, this.moves);
+      if (buffMove && rngChance(this.rng, 0.3)) {
+        this.executeMove(self, buffMove, buffMove.id, null, nowMs);
+      }
+    }
+  }
+
+  private resetCooldown(attacker: PokemonInstance, move: MoveDefinition): void {
+    const speed = getEffectiveStat(
+      attacker.computedStats,
+      attacker.statStages,
+      'spe',
+      attacker.status === 'paralysis' ? 'paralysis' : null
+    );
+    let cooldown = BASE_ACTION_COOLDOWN_MS * (BASELINE_SPEED / Math.max(1, speed));
+    if (move.priority > 0) cooldown *= 1 - PRIORITY_COOLDOWN_DISCOUNT;
+    attacker.actionCooldownMs = Math.max(MIN_ACTION_COOLDOWN_MS, Math.min(MAX_ACTION_COOLDOWN_MS, cooldown));
+  }
+
+  private executeMove(
+    attacker: PokemonInstance,
+    move: MoveDefinition,
+    moveId: number,
+    primaryTarget: PokemonInstance | null,
+    nowMs: number
+  ): void {
+    if (moveId !== STRUGGLE_MOVE_ID) {
+      const slot = attacker.moves.find((m) => m.moveId === moveId);
+      if (slot) slot.ppRemaining = Math.max(0, slot.ppRemaining - 1);
+    }
+
+    this.resetCooldown(attacker, move);
+
+    if (attacker.status === 'paralysis') {
+      const gate = gateAction(attacker, this.rng);
+      if (!gate.canAct) return;
+    }
+
+    if (move.targeting === 'self') {
+      this.applyMoveEffect(move, attacker, attacker);
+      this.pushMoveUsedEvent(attacker, move, [], {}, {}, {}, {}, nowMs);
+      return;
+    }
+
+    if (!primaryTarget || primaryTarget.currentHp <= 0) return;
+
+    const targets = this.resolveTargets(attacker, primaryTarget, move);
+    const hit: Record<string, boolean> = {};
+    const crit: Record<string, boolean> = {};
+    const effectiveness: Record<string, number> = {};
+    const damage: Record<string, number> = {};
+
+    for (const target of targets) {
+      const result = resolveDamage(this.rng, move, attacker, target, this.state.elapsedMs);
+      hit[target.instanceId] = result.hit;
+      crit[target.instanceId] = result.crit;
+      effectiveness[target.instanceId] = result.effectiveness;
+      damage[target.instanceId] = result.damage;
+
+      if (!result.hit) continue;
+
+      if (target.aiState === 'wander' || !target.targetInstanceId) {
+        retaliate(target, attacker.instanceId, nowMs);
+      }
+      if (result.damage > 0) {
+        target.currentHp = Math.max(0, target.currentHp - result.damage);
+        target.lastHitAtMs = nowMs;
+        target.lastDamagedByInstanceId = attacker.instanceId;
+      }
+      maybeThawOnFireHit(target, move.type === 'fire' && !move.typeless);
+      this.applyMoveEffect(move, attacker, target);
+    }
+
+    if (moveId === STRUGGLE_MOVE_ID) {
+      const recoil = Math.max(1, Math.floor(attacker.maxHp * STRUGGLE_RECOIL_FRACTION));
+      attacker.currentHp = Math.max(0, attacker.currentHp - recoil);
+    }
+
+    this.pushMoveUsedEvent(
+      attacker,
+      move,
+      targets.map((t) => t.instanceId),
+      hit,
+      crit,
+      effectiveness,
+      damage,
+      nowMs
+    );
+  }
+
+  private resolveTargets(
+    attacker: PokemonInstance,
+    primary: PokemonInstance,
+    move: MoveDefinition
+  ): PokemonInstance[] {
+    if (move.targeting !== 'all-enemies-in-radius') return [primary];
+    const result: PokemonInstance[] = [];
+    for (const id of this.state.livingOrder) {
+      if (id === attacker.instanceId) continue;
+      const p = this.state.pokemon[id];
+      if (distance(p.position, primary.position) <= SPREAD_MOVE_RADIUS) result.push(p);
+    }
+    return result.length > 0 ? result : [primary];
+  }
+
+  private applyMoveEffect(move: MoveDefinition, attacker: PokemonInstance, target: PokemonInstance): void {
+    const effect = move.effect;
+    if (!effect) return;
+    const chance = effect.chance ?? 100;
+    if (!rngChance(this.rng, chance / 100)) return;
+
+    const recipient = effect.target === 'self' ? attacker : target;
+
+    if (effect.kind === 'statusInflict' && effect.status) {
+      if (canApplyStatus(recipient)) {
+        applyStatus(recipient, effect.status, this.rng);
+        this.events.push({
+          seq: this.nextSeq(),
+          atMs: this.state.elapsedMs,
+          type: 'statusApplied',
+          instanceId: recipient.instanceId,
+          status: effect.status,
+        });
+      }
+    } else if (effect.kind === 'statStage' && effect.statChanges) {
+      for (const [key, delta] of Object.entries(effect.statChanges) as [StageKey, number][]) {
+        const current = recipient.statStages[key];
+        recipient.statStages[key] = Math.max(-6, Math.min(6, current + delta));
+      }
+    }
+  }
+
+  private pushMoveUsedEvent(
+    attacker: PokemonInstance,
+    move: MoveDefinition,
+    targetIds: string[],
+    hit: Record<string, boolean>,
+    crit: Record<string, boolean>,
+    effectiveness: Record<string, number>,
+    damage: Record<string, number>,
+    nowMs: number
+  ): void {
+    this.events.push({
+      seq: this.nextSeq(),
+      atMs: nowMs,
+      type: 'moveUsed',
+      attackerId: attacker.instanceId,
+      targetIds,
+      moveId: move.id,
+      hit,
+      crit,
+      effectiveness,
+      damage,
+    });
+  }
+
+  private applyStatusTick(self: PokemonInstance, nowMs: number): void {
+    const { event, damage } = tickStatusDamage(self, TICK_MS, () => this.nextSeq(), nowMs);
+    if (event) this.events.push(event);
+    if (damage > 0) self.currentHp = Math.max(0, self.currentHp - damage);
+  }
+
+  private sweepFaints(nowMs: number): void {
+    const stillLiving: string[] = [];
+    let anyFainted = false;
+
+    for (const id of this.state.livingOrder) {
+      const p = this.state.pokemon[id];
+      if (p.currentHp <= 0) {
+        anyFainted = true;
+        this.state.eliminationOrder.push(id);
+        this.events.push({
+          seq: this.nextSeq(),
+          atMs: nowMs,
+          type: 'fainted',
+          instanceId: id,
+          byInstanceId: p.lastDamagedByInstanceId ?? null,
+        });
+      } else {
+        stillLiving.push(id);
+      }
+    }
+
+    if (!anyFainted) return;
+    this.state.livingOrder = stillLiving;
+    for (const id of stillLiving) {
+      const p = this.state.pokemon[id];
+      if (p.targetInstanceId && !stillLiving.includes(p.targetInstanceId)) {
+        p.targetInstanceId = null;
+      }
+    }
+  }
+
+  private checkMilestones(nowMs: number): void {
+    if (this.state.phase === 'complete') return;
+
+    if (this.state.livingOrder.length === 2 && this.state.phase !== 'finalTwo') {
+      this.state.phase = 'finalTwo';
+      this.events.push({ seq: this.nextSeq(), atMs: nowMs, type: 'milestone', kind: 'finalTwo' });
+    }
+
+    if (this.state.livingOrder.length <= 1) {
+      this.state.phase = 'complete';
+      this.state.winnerInstanceId = this.state.livingOrder[0] ?? null;
+      this.events.push({ seq: this.nextSeq(), atMs: nowMs, type: 'milestone', kind: 'matchEnd' });
+    }
+  }
+}
