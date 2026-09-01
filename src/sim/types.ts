@@ -127,7 +127,11 @@ export interface SimState {
   tick: number;
   elapsedMs: number;
   pokemon: Record<string, PokemonInstance>;
-  /** Living instance IDs in stable (spawn) order — the HUD roster panel iterates this directly. */
+  /** Every instance ID in original spawn order, fixed for the whole match — the
+   * HUD roster panel iterates this (not livingOrder) so a fainted Pokémon's row
+   * stays put and just empties out, instead of disappearing. */
+  allInstanceIds: string[];
+  /** Living instance IDs in stable (spawn) order — a shrinking subset of allInstanceIds. */
   livingOrder: string[];
   /** Fainted instance IDs in the order they fainted — used for the elimination log. */
   eliminationOrder: string[];

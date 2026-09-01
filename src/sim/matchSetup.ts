@@ -96,6 +96,7 @@ export function createMatch(
     tick: 0,
     elapsedMs: 0,
     pokemon,
+    allInstanceIds: [...livingOrder],
     livingOrder,
     eliminationOrder: [],
     phase: 'intro',
