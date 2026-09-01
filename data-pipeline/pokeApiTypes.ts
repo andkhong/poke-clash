@@ -29,8 +29,12 @@ export interface ApiPokemonMove {
 
 export interface ApiPokemon {
   id: number;
+  /** The "variety" name — carries a form suffix even for the default variety of
+   * some species (e.g. "deoxys-normal"). Use `species.name` for display/slug
+   * purposes instead; it's always the bare species name ("deoxys"). */
   name: string;
   is_default: boolean;
+  species: NamedApiResource;
   stats: ApiPokemonStat[];
   types: ApiPokemonType[];
   moves: ApiPokemonMove[];

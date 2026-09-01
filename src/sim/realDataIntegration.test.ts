@@ -56,7 +56,7 @@ describe('end-to-end: real PokeAPI-derived dataset through a full 16-Pokémon ma
 
   it('handles a legendary-only roster (very high base stats, often sparse level-up movesets)', () => {
     const byName = new Map(listAllSpecies().map((s) => [s.name, s.id]));
-    const speciesIds = ['ho-oh', 'lugia', 'groudon', 'kyogre', 'rayquaza', 'giratina-altered']
+    const speciesIds = ['ho-oh', 'lugia', 'groudon', 'kyogre', 'rayquaza', 'giratina']
       .map((n) => byName.get(n))
       .filter((id): id is number => id !== undefined);
     expect(speciesIds.length).toBeGreaterThanOrEqual(4);

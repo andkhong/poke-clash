@@ -157,7 +157,7 @@ async function main(): Promise<void> {
 
     species.push({
       id: pokemon.id,
-      name: pokemon.name,
+      name: pokemon.species.name,
       types: pokemon.types.sort((a, b) => a.slot - b.slot).map((t) => t.type.name as PokemonTypeName),
       baseStats: extractBaseStats(pokemon),
       levelUpMoves: supportedLevelUp,
