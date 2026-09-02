@@ -198,15 +198,28 @@ export class PokemonSprite {
     if (this.scene.textures.exists(key)) return true;
     await acquireSpriteSlot();
     return new Promise((resolve) => {
+      // Phaser has no per-file error event (unlike `filecomplete-image-{key}`
+      // for success) — 'loaderror' fires generically for every failed file in
+      // the shared loader, so with many Pokémon loading concurrently this
+      // MUST be a persistent `.on()` + manual filter-and-remove, not
+      // `.once()`: a `.once()` listener consumes itself on the very first
+      // loaderror it sees even when that error belongs to a different
+      // Pokémon's sprite, silently orphaning this call's Promise forever and
+      // gating the entire fallback chain from ever reaching the next tier.
+      const onError = (file: { key: string }): void => {
+        if (file.key === key) finish(false);
+      };
+      const onComplete = (): void => finish(true);
       const finish = (ok: boolean): void => {
+        this.scene.load.off(`filecomplete-image-${key}`, onComplete);
+        this.scene.load.off('loaderror', onError);
         releaseSpriteSlot();
         resolve(ok);
       };
+
       this.scene.load.image(key, url);
-      this.scene.load.once(`filecomplete-image-${key}`, () => finish(true));
-      this.scene.load.once('loaderror', (file: { key: string }) => {
-        if (file.key === key) finish(false);
-      });
+      this.scene.load.once(`filecomplete-image-${key}`, onComplete);
+      this.scene.load.on('loaderror', onError);
       if (!this.scene.load.isLoading()) this.scene.load.start();
     });
   }
