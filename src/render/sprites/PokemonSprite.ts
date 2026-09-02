@@ -7,6 +7,7 @@ import { acquireSpriteSlot, releaseSpriteSlot } from './fetchQueue';
 import { getMoveTypeColor } from '../vfx/typeColor';
 import { POKEBALL_TEXTURE_KEY } from './pokeballAsset';
 import { playCry } from './cryAudio';
+import { playSparkleReveal } from '../vfx/sparkle';
 import type { MoveDefinition } from '../../sim/types';
 import { BALL_DROP_DURATION_MS, BALL_DROP_STAGGER_MS } from '../../sim/constants';
 
@@ -91,6 +92,11 @@ export class PokemonSprite {
 
     this.container = scene.add.container(pokemon.position.x, pokemon.position.y - BALL_DROP_HEIGHT);
     this.container.setDepth(pokemon.position.y);
+    // Nothing (not even the Pokéball) shows until this Pokémon's own staggered
+    // turn comes up — otherwise every ball is visible from t=0, sitting in a
+    // static row above the arena for its whole wait, which reads as a
+    // pre-rendered/uneven "waiting in line" look rather than a clockwise drop.
+    this.container.setVisible(false);
 
     this.placeholder = scene.add.circle(0, 0, PLACEHOLDER_RADIUS, 0xcccccc).setStrokeStyle(2, 0x888888);
     this.placeholder.setVisible(false);
@@ -129,6 +135,7 @@ export class PokemonSprite {
 
   private playEntrance(targetPos: Vec2): void {
     if (this.container.scene === undefined) return; // destroyed before its turn came up
+    this.container.setVisible(true);
     this.scene.tweens.add({
       targets: this.container,
       y: targetPos.y,
@@ -150,6 +157,7 @@ export class PokemonSprite {
     this.hpBarFill.setVisible(true);
     this.hasRevealed = true;
     playCry(this.scene, this.speciesId);
+    playSparkleReveal(this.scene, targetPos.x, targetPos.y);
 
     this.container.setScale(0.5);
     this.scene.tweens.add({
