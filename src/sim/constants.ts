@@ -21,8 +21,10 @@ export function computeIntroDurationMs(rosterSize: number): number {
   return rosterSize * BALL_DROP_STAGGER_MS + BALL_DROP_DURATION_MS + INTRO_BUFFER_MS;
 }
 
-export const ARENA_WIDTH = 960;
-export const ARENA_HEIGHT = 1600;
+// ~9:19.5 — a modern phone-portrait ratio (edge-to-edge on current devices
+// like iPhone 14/15 and most current Android), rather than the old 3:5 shape.
+export const ARENA_WIDTH = 900;
+export const ARENA_HEIGHT = 1950;
 
 /** Distance at which a Pokémon notices a living enemy and begins chasing. */
 export const AGGRO_RADIUS = 320;

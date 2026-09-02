@@ -1,4 +1,5 @@
 import { listAllSpecies } from '../data/loader';
+import { ARENA_HEIGHT, ARENA_WIDTH } from '../sim/constants';
 
 export const LEVEL_OPTIONS = [50, 60, 70, 80, 90, 100] as const;
 export type SelectableLevel = (typeof LEVEL_OPTIONS)[number];
@@ -7,8 +8,9 @@ export const MIN_ROSTER_SIZE = 2;
 export const MAX_ROSTER_SIZE = 16;
 export const DEFAULT_ROSTER_SIZE = 16;
 
-export const ARENA_WIDTH = 960;
-export const ARENA_HEIGHT = 1600;
+// Single source of truth is sim/constants.ts — re-exported here so UI code
+// only ever needs to import from app/config.
+export { ARENA_WIDTH, ARENA_HEIGHT };
 
 interface ThemePreset {
   id: string;
