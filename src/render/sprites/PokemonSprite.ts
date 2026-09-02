@@ -6,15 +6,21 @@ import { loadGifAsAnimatedTexture } from './gifTexture';
 import { acquireSpriteSlot, releaseSpriteSlot } from './fetchQueue';
 import { getMoveTypeColor } from '../vfx/typeColor';
 import { POKEBALL_TEXTURE_KEY } from './pokeballAsset';
+import { playCry } from './cryAudio';
 import type { MoveDefinition } from '../../sim/types';
 import { BALL_DROP_DURATION_MS, BALL_DROP_STAGGER_MS } from '../../sim/constants';
 
 /** Target on-screen size (px, longest side) — sprite sources range from ~50px
  * animated GIFs to several-hundred-px official artwork, so every sprite gets
  * scaled to fit this regardless of its native resolution. */
-const TARGET_SPRITE_SIZE = 36;
-const HP_BAR_WIDTH = 40;
-const HP_BAR_HEIGHT = 5;
+const TARGET_SPRITE_SIZE = 64;
+const POKEBALL_ICON_SIZE = 34;
+const PLACEHOLDER_RADIUS = 24;
+const HP_BAR_WIDTH = 56;
+const HP_BAR_HEIGHT = 6;
+const HP_BAR_Y = 38;
+const STATUS_TEXT_Y = -44;
+const MOVE_LABEL_Y = -58;
 const HIT_FLASH_MS = 160;
 const MOVE_LABEL_MS = 1300;
 const BALL_DROP_HEIGHT = 260;
@@ -45,6 +51,7 @@ export class PokemonSprite {
   readonly instanceId: string;
 
   private readonly scene: Phaser.Scene;
+  private readonly speciesId: number;
   private readonly container: Phaser.GameObjects.Container;
   private readonly placeholder: Phaser.GameObjects.Arc;
   private body: Phaser.GameObjects.Sprite | Phaser.GameObjects.Image | null = null;
@@ -79,33 +86,35 @@ export class PokemonSprite {
   ) {
     this.scene = scene;
     this.instanceId = pokemon.instanceId;
+    this.speciesId = pokemon.speciesId;
     this.renderPos = { x: pokemon.position.x, y: pokemon.position.y };
 
     this.container = scene.add.container(pokemon.position.x, pokemon.position.y - BALL_DROP_HEIGHT);
     this.container.setDepth(pokemon.position.y);
 
-    this.placeholder = scene.add.circle(0, 0, 14, 0xcccccc).setStrokeStyle(2, 0x888888);
+    this.placeholder = scene.add.circle(0, 0, PLACEHOLDER_RADIUS, 0xcccccc).setStrokeStyle(2, 0x888888);
     this.placeholder.setVisible(false);
     this.container.add(this.placeholder);
 
     this.hpBarBg = scene.add
-      .rectangle(0, 22, HP_BAR_WIDTH, HP_BAR_HEIGHT, 0x1a1a1a, 0.85)
+      .rectangle(0, HP_BAR_Y, HP_BAR_WIDTH, HP_BAR_HEIGHT, 0x1a1a1a, 0.85)
       .setOrigin(0.5, 0.5);
     this.hpBarFill = scene.add
-      .rectangle(-HP_BAR_WIDTH / 2, 22, HP_BAR_WIDTH, HP_BAR_HEIGHT - 1.5, 0x4caf50)
+      .rectangle(-HP_BAR_WIDTH / 2, HP_BAR_Y, HP_BAR_WIDTH, HP_BAR_HEIGHT - 1.5, 0x4caf50)
       .setOrigin(0, 0.5);
     this.hpBarBg.setVisible(false);
     this.hpBarFill.setVisible(false);
     this.container.add([this.hpBarBg, this.hpBarFill]);
 
     this.statusText = scene.add
-      .text(0, -26, '', { fontSize: '9px', fontFamily: 'monospace', fontStyle: 'bold' })
+      .text(0, STATUS_TEXT_Y, '', { fontSize: '9px', fontFamily: 'monospace', fontStyle: 'bold' })
       .setOrigin(0.5, 0.5)
       .setPadding(2, 1, 2, 1);
     this.statusText.setVisible(false);
     this.container.add(this.statusText);
 
     this.pokeball = scene.add.image(0, 0, POKEBALL_TEXTURE_KEY);
+    this.pokeball.setDisplaySize(POKEBALL_ICON_SIZE, POKEBALL_ICON_SIZE);
     this.container.add(this.pokeball);
 
     // Kick off sprite loading immediately (in parallel with the drop
@@ -140,6 +149,7 @@ export class PokemonSprite {
     this.hpBarBg.setVisible(true);
     this.hpBarFill.setVisible(true);
     this.hasRevealed = true;
+    playCry(this.scene, this.speciesId);
 
     this.container.setScale(0.5);
     this.scene.tweens.add({
@@ -338,7 +348,7 @@ export class PokemonSprite {
       .setOrigin(0.5, 0.5)
       .setPadding(4, 2, 4, 2);
     const bg = this.scene.add.rectangle(0, 0, text.width + 8, text.height + 4, color, 0.92).setStrokeStyle(1, 0x000000, 0.3);
-    this.moveLabel = this.scene.add.container(0, -38, [bg, text]);
+    this.moveLabel = this.scene.add.container(0, MOVE_LABEL_Y, [bg, text]);
     this.container.add(this.moveLabel);
     this.moveLabelHideAt = this.scene.time.now + MOVE_LABEL_MS;
   }
