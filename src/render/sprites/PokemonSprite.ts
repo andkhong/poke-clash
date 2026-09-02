@@ -1,11 +1,13 @@
 import Phaser from 'phaser';
-import type { PokemonInstance, StatusCondition } from '../../sim/types';
+import type { PokemonInstance, StatusCondition, Vec2 } from '../../sim/types';
 import type { SpriteIndex } from '../../data/types';
 import { downgradeTier, resolveSpriteUrls, type SpriteUrls } from './spriteResolver';
 import { loadGifAsAnimatedTexture } from './gifTexture';
 import { acquireSpriteSlot, releaseSpriteSlot } from './fetchQueue';
 import { getMoveTypeColor } from '../vfx/typeColor';
+import { POKEBALL_TEXTURE_KEY } from './pokeballAsset';
 import type { MoveDefinition } from '../../sim/types';
+import { BALL_DROP_DURATION_MS, BALL_DROP_STAGGER_MS } from '../../sim/constants';
 
 /** Target on-screen size (px, longest side) — sprite sources range from ~50px
  * animated GIFs to several-hundred-px official artwork, so every sprite gets
@@ -15,6 +17,12 @@ const HP_BAR_WIDTH = 40;
 const HP_BAR_HEIGHT = 5;
 const HIT_FLASH_MS = 160;
 const MOVE_LABEL_MS = 1300;
+const BALL_DROP_HEIGHT = 260;
+const BALL_STAGGER_JITTER_MS = 40;
+/** How much of the gap to the true sim position to close each render frame —
+ * gives smooth 60fps motion from a 20Hz sim without needing fixed-timestep
+ * interpolation bookkeeping in the engine. */
+const POSITION_SMOOTHING = 0.25;
 const STATUS_LABELS: Record<StatusCondition, string> = {
   sleep: 'ZZZ',
   paralysis: 'PAR',
@@ -53,14 +61,31 @@ export class PokemonSprite {
   private hasFainted = false;
   private idleTween: Phaser.Tweens.Tween | null = null;
 
-  constructor(scene: Phaser.Scene, pokemon: PokemonInstance, spriteIndex: SpriteIndex | null) {
+  private hasRevealed = false;
+  private pokeball: Phaser.GameObjects.Image | null = null;
+  private renderPos: Vec2;
+
+  /**
+   * `spawnIndex`/`totalCount` drive the clockwise Pokéball-drop entrance —
+   * matchSetup.ts's circlePosition already assigns spawn indices in clockwise
+   * order starting from the top, so index order alone gives the right
+   * sequence; this sprite just staggers its own reveal by that index.
+   */
+  constructor(
+    scene: Phaser.Scene,
+    pokemon: PokemonInstance,
+    spriteIndex: SpriteIndex | null,
+    spawnIndex: number
+  ) {
     this.scene = scene;
     this.instanceId = pokemon.instanceId;
+    this.renderPos = { x: pokemon.position.x, y: pokemon.position.y };
 
-    this.container = scene.add.container(pokemon.position.x, pokemon.position.y);
+    this.container = scene.add.container(pokemon.position.x, pokemon.position.y - BALL_DROP_HEIGHT);
     this.container.setDepth(pokemon.position.y);
 
     this.placeholder = scene.add.circle(0, 0, 14, 0xcccccc).setStrokeStyle(2, 0x888888);
+    this.placeholder.setVisible(false);
     this.container.add(this.placeholder);
 
     this.hpBarBg = scene.add
@@ -69,6 +94,8 @@ export class PokemonSprite {
     this.hpBarFill = scene.add
       .rectangle(-HP_BAR_WIDTH / 2, 22, HP_BAR_WIDTH, HP_BAR_HEIGHT - 1.5, 0x4caf50)
       .setOrigin(0, 0.5);
+    this.hpBarBg.setVisible(false);
+    this.hpBarFill.setVisible(false);
     this.container.add([this.hpBarBg, this.hpBarFill]);
 
     this.statusText = scene.add
@@ -78,7 +105,49 @@ export class PokemonSprite {
     this.statusText.setVisible(false);
     this.container.add(this.statusText);
 
+    this.pokeball = scene.add.image(0, 0, POKEBALL_TEXTURE_KEY);
+    this.container.add(this.pokeball);
+
+    // Kick off sprite loading immediately (in parallel with the drop
+    // animation) so the real art is often already in hand by the time the
+    // ball pops open — no separate "loading" flash.
     void this.loadSprites(pokemon, spriteIndex);
+
+    const jitter = Phaser.Math.Between(-BALL_STAGGER_JITTER_MS, BALL_STAGGER_JITTER_MS);
+    const delay = Math.max(0, spawnIndex * BALL_DROP_STAGGER_MS + jitter);
+    scene.time.delayedCall(delay, () => this.playEntrance(pokemon.position));
+  }
+
+  private playEntrance(targetPos: Vec2): void {
+    if (this.container.scene === undefined) return; // destroyed before its turn came up
+    this.scene.tweens.add({
+      targets: this.container,
+      y: targetPos.y,
+      duration: BALL_DROP_DURATION_MS,
+      ease: 'Bounce.easeOut',
+      onComplete: () => this.completeEntrance(targetPos),
+    });
+  }
+
+  private completeEntrance(targetPos: Vec2): void {
+    if (this.container.scene === undefined) return;
+    this.renderPos = { x: targetPos.x, y: targetPos.y };
+    this.pokeball?.destroy();
+    this.pokeball = null;
+
+    this.placeholder.setVisible(this.body === null);
+    this.body?.setVisible(true);
+    this.hpBarBg.setVisible(true);
+    this.hpBarFill.setVisible(true);
+    this.hasRevealed = true;
+
+    this.container.setScale(0.5);
+    this.scene.tweens.add({
+      targets: this.container,
+      scale: 1,
+      duration: 180,
+      ease: 'Back.easeOut',
+    });
   }
 
   private async loadSprites(pokemon: PokemonInstance, spriteIndex: SpriteIndex | null): Promise<void> {
@@ -151,6 +220,7 @@ export class PokemonSprite {
     sprite.setData('backKey', backKey);
     const scale = TARGET_SPRITE_SIZE / Math.max(sprite.width, sprite.height, 1);
     sprite.setScale(scale);
+    sprite.setVisible(this.hasRevealed); // stays hidden under the Pokéball until it pops open
     this.container.addAt(sprite, 0);
     this.body = sprite;
 
@@ -169,8 +239,12 @@ export class PokemonSprite {
   }
 
   update(pokemon: PokemonInstance, screenX: number, screenY: number, nowMs: number): void {
-    this.container.setPosition(screenX, screenY);
-    this.container.setDepth(screenY);
+    if (!this.hasRevealed) return; // entrance tween owns position/visibility until it lands
+
+    this.renderPos.x += (screenX - this.renderPos.x) * POSITION_SMOOTHING;
+    this.renderPos.y += (screenY - this.renderPos.y) * POSITION_SMOOTHING;
+    this.container.setPosition(this.renderPos.x, this.renderPos.y);
+    this.container.setDepth(this.renderPos.y);
 
     this.updateFacing(pokemon);
     this.updateHpBar(pokemon);

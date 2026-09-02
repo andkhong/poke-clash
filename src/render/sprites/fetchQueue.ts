@@ -30,11 +30,15 @@ export async function throttledFetch(url: string): Promise<Response> {
   await acquireSpriteSlot();
   try {
     let last: Response | null = null;
-    for (let attempt = 0; attempt < 3; attempt++) {
+    // Only 2 attempts, short backoff: this feeds the sprite-reveal fallback
+    // chain (ani -> static-gen5 -> static-official), and every extra ms spent
+    // retrying a struggling tier is a Pokémon sitting on a placeholder circle
+    // instead of already showing real art from the next tier down.
+    for (let attempt = 0; attempt < 2; attempt++) {
       const res = await fetch(url);
       if (res.status !== 503) return res;
       last = res;
-      await new Promise((r) => setTimeout(r, 350 * (attempt + 1)));
+      await new Promise((r) => setTimeout(r, 250 * (attempt + 1)));
     }
     return last!;
   } finally {

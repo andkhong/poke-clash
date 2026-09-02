@@ -4,6 +4,7 @@ import { EventCursor } from '../../sim/events';
 import { STRUGGLE_MOVE, STRUGGLE_MOVE_ID } from '../../sim/struggle';
 import { PokemonSprite } from '../sprites/PokemonSprite';
 import { preloadArenaTileset, createArenaBackground } from '../tileset/arenaBackground';
+import { preloadPokeballAsset } from '../sprites/pokeballAsset';
 import { playMoveImpact } from '../vfx/moveEffects';
 import { getMoveDefinition } from '../../data/loader';
 import type { SpriteIndex } from '../../data/types';
@@ -39,6 +40,7 @@ export class ArenaScene extends Phaser.Scene {
 
   preload(): void {
     preloadArenaTileset(this);
+    preloadPokeballAsset(this);
   }
 
   create(): void {
@@ -46,10 +48,13 @@ export class ArenaScene extends Phaser.Scene {
     const state = this.engine.getState();
     createArenaBackground(this, state.arena.width, state.arena.height);
 
-    for (const id of state.livingOrder) {
+    // allInstanceIds is spawn order, which circlePosition() (matchSetup.ts)
+    // already lays out clockwise from the top — so index order here is
+    // exactly the clockwise Pokéball-drop sequence the sprite needs.
+    state.allInstanceIds.forEach((id, index) => {
       const pokemon = state.pokemon[id];
-      this.sprites.set(id, new PokemonSprite(this, pokemon, spriteIndex));
-    }
+      this.sprites.set(id, new PokemonSprite(this, pokemon, spriteIndex, index));
+    });
 
     this.cameras.main.setBackgroundColor('#1a1a1a');
   }

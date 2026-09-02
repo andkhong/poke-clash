@@ -138,6 +138,8 @@ export interface SimState {
   phase: MatchPhase;
   winnerInstanceId: string | null;
   arena: ArenaBounds;
+  /** Computed from roster size — see constants.ts computeIntroDurationMs. */
+  introDurationMs: number;
 }
 
 export type SimEvent =

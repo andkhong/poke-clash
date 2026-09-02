@@ -11,6 +11,7 @@ import type {
 import type { Rng } from './rng';
 import { rngShuffle } from './rng';
 import { computeStats, createNeutralStages } from './statCalc';
+import { computeIntroDurationMs } from './constants';
 
 export interface SpeciesData {
   id: number;
@@ -102,5 +103,6 @@ export function createMatch(
     phase: 'intro',
     winnerInstanceId: null,
     arena: config.arena,
+    introDurationMs: computeIntroDurationMs(count),
   };
 }

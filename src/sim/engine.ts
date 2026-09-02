@@ -33,7 +33,6 @@ import { STRUGGLE_MOVE, STRUGGLE_MOVE_ID, STRUGGLE_RECOIL_FRACTION } from './str
 import {
   BASELINE_SPEED,
   BASE_ACTION_COOLDOWN_MS,
-  INTRO_DURATION_MS,
   MAX_ACTION_COOLDOWN_MS,
   MIN_ACTION_COOLDOWN_MS,
   PRIORITY_COOLDOWN_DISCOUNT,
@@ -84,7 +83,7 @@ export class SimulationEngine {
     const nowMs = this.state.elapsedMs;
 
     if (this.state.phase === 'intro') {
-      if (nowMs >= INTRO_DURATION_MS) this.state.phase = 'battle';
+      if (nowMs >= this.state.introDurationMs) this.state.phase = 'battle';
       return;
     }
 

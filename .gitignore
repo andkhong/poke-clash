@@ -13,3 +13,4 @@ data-pipeline/cache/
 
 *.log
 npm-debug.log*
+*.tsbuildinfo

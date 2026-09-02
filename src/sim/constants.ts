@@ -4,8 +4,22 @@
 export const TICK_RATE_HZ = 20;
 export const TICK_MS = 1000 / TICK_RATE_HZ;
 
-/** Opening beat: Pokémon hold their spawn-circle formation under the "WHO WILL WIN?" banner. */
-export const INTRO_DURATION_MS = 2500;
+/**
+ * Opening beat: a Pokéball drops in at each spawn position in clockwise order
+ * (see matchSetup.ts's circlePosition — index 0..N-1 already runs clockwise
+ * from the top), then pops open to reveal the Pokémon. Pokémon hold their
+ * spawn-circle formation (no movement/actions) for the whole intro, under the
+ * "WHO WILL WIN?" banner. Both the sim (gating movement) and the renderer
+ * (staggering each ball's drop) derive timing from this one formula so they
+ * never drift out of sync.
+ */
+export const BALL_DROP_STAGGER_MS = 130;
+export const BALL_DROP_DURATION_MS = 550;
+export const INTRO_BUFFER_MS = 400;
+
+export function computeIntroDurationMs(rosterSize: number): number {
+  return rosterSize * BALL_DROP_STAGGER_MS + BALL_DROP_DURATION_MS + INTRO_BUFFER_MS;
+}
 
 export const ARENA_WIDTH = 960;
 export const ARENA_HEIGHT = 1600;
