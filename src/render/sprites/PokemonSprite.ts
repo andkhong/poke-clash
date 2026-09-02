@@ -3,9 +3,14 @@ import type { PokemonInstance, StatusCondition } from '../../sim/types';
 import type { SpriteIndex } from '../../data/types';
 import { downgradeTier, resolveSpriteUrls, type SpriteUrls } from './spriteResolver';
 import { loadGifAsAnimatedTexture } from './gifTexture';
+import { acquireSpriteSlot, releaseSpriteSlot } from './fetchQueue';
 import { getMoveTypeColor } from '../vfx/typeColor';
 import type { MoveDefinition } from '../../sim/types';
 
+/** Target on-screen size (px, longest side) — sprite sources range from ~50px
+ * animated GIFs to several-hundred-px official artwork, so every sprite gets
+ * scaled to fit this regardless of its native resolution. */
+const TARGET_SPRITE_SIZE = 36;
 const HP_BAR_WIDTH = 40;
 const HP_BAR_HEIGHT = 5;
 const HIT_FLASH_MS = 160;
@@ -120,13 +125,18 @@ export class PokemonSprite {
     void this.tryLoadTier(pokemon, urls);
   }
 
-  private loadStaticImage(key: string, url: string): Promise<boolean> {
-    if (this.scene.textures.exists(key)) return Promise.resolve(true);
+  private async loadStaticImage(key: string, url: string): Promise<boolean> {
+    if (this.scene.textures.exists(key)) return true;
+    await acquireSpriteSlot();
     return new Promise((resolve) => {
+      const finish = (ok: boolean): void => {
+        releaseSpriteSlot();
+        resolve(ok);
+      };
       this.scene.load.image(key, url);
-      this.scene.load.once(`filecomplete-image-${key}`, () => resolve(true));
+      this.scene.load.once(`filecomplete-image-${key}`, () => finish(true));
       this.scene.load.once('loaderror', (file: { key: string }) => {
-        if (file.key === key) resolve(false);
+        if (file.key === key) finish(false);
       });
       if (!this.scene.load.isLoading()) this.scene.load.start();
     });
@@ -139,6 +149,8 @@ export class PokemonSprite {
     const sprite = this.scene.add.sprite(0, 0, frontKey).setOrigin(0.5, 0.7);
     sprite.setData('frontKey', frontKey);
     sprite.setData('backKey', backKey);
+    const scale = TARGET_SPRITE_SIZE / Math.max(sprite.width, sprite.height, 1);
+    sprite.setScale(scale);
     this.container.addAt(sprite, 0);
     this.body = sprite;
 

@@ -26,7 +26,12 @@ export class ArenaScene extends Phaser.Scene {
     super('Arena');
   }
 
-  init(data: ArenaSceneData): void {
+  init(data: ArenaSceneData | undefined): void {
+    // Defensive: this scene is registered inactive and always started
+    // explicitly with real data (see PhaserGame.tsx) — but guard anyway
+    // against any Phaser-internal restart/boot path that might invoke init()
+    // without it.
+    if (!data?.engine) return;
     this.engine = data.engine;
     this.cursor = new EventCursor(this.engine);
     this.sprites.clear();
@@ -37,6 +42,7 @@ export class ArenaScene extends Phaser.Scene {
   }
 
   create(): void {
+    if (!this.engine) return; // init() was skipped (no data) — see init()
     const state = this.engine.getState();
     createArenaBackground(this, state.arena.width, state.arena.height);
 
@@ -49,6 +55,7 @@ export class ArenaScene extends Phaser.Scene {
   }
 
   update(_time: number, delta: number): void {
+    if (!this.engine) return;
     this.engine.tick(delta);
     const state = this.engine.getState();
     const now = state.elapsedMs;

@@ -1,6 +1,7 @@
 import { parseGIF, decompressFrames, type ParsedFrame } from 'gifuct-js';
 import Phaser from 'phaser';
 import { compositeGifFrames } from './gifCompositor';
+import { throttledFetch } from './fetchQueue';
 
 export interface LoadedGifAnimation {
   textureKey: string;
@@ -56,7 +57,7 @@ async function decodeAndRegister(
 
   let buffer: ArrayBuffer;
   try {
-    const res = await fetch(url);
+    const res = await throttledFetch(url);
     if (!res.ok) return null;
     buffer = await res.arrayBuffer();
   } catch {
