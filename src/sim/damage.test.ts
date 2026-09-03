@@ -53,7 +53,7 @@ describe('resolveDamage', () => {
     // sequence: [crit-roll (>= critChance -> no crit), random-damage-factor -> 0.925]
     const rng = fakeRng([0.99, 0.5]);
 
-    const result = resolveDamage(rng, tackle, attacker, defender, 0);
+    const result = resolveDamage(rng, tackle, attacker, defender);
 
     expect(result.hit).toBe(true);
     expect(result.crit).toBe(false);
@@ -65,11 +65,11 @@ describe('resolveDamage', () => {
     const rng1 = fakeRng([0.99, 0.5]);
     const attackerWithStab = makeInstance({ types: ['normal'] });
     const defender = makeInstance({ types: ['water'] });
-    const withStab = resolveDamage(rng1, tackle, attackerWithStab, defender, 0);
+    const withStab = resolveDamage(rng1, tackle, attackerWithStab, defender);
 
     const rng2 = fakeRng([0.99, 0.5]);
     const attackerNoStab = makeInstance({ types: ['fighting'] });
-    const withoutStab = resolveDamage(rng2, tackle, attackerNoStab, defender, 0);
+    const withoutStab = resolveDamage(rng2, tackle, attackerNoStab, defender);
 
     expect(withStab.damage).toBeGreaterThan(withoutStab.damage);
   });
@@ -80,7 +80,7 @@ describe('resolveDamage', () => {
     const flyingDefender = makeInstance({ types: ['flying'] });
     const rng = fakeRng([0.99, 0.5]);
 
-    const result = resolveDamage(rng, groundMove, attacker, flyingDefender, 0);
+    const result = resolveDamage(rng, groundMove, attacker, flyingDefender);
     expect(result.damage).toBe(0);
     expect(result.effectiveness).toBe(0);
   });
@@ -90,8 +90,8 @@ describe('resolveDamage', () => {
     const attackerBurned = makeInstance({ types: ['normal'], status: 'burn' });
     const defender = makeInstance({ types: ['water'] });
 
-    const healthy = resolveDamage(fakeRng([0.99, 0.5]), tackle, attackerHealthy, defender, 0);
-    const burned = resolveDamage(fakeRng([0.99, 0.5]), tackle, attackerBurned, defender, 0);
+    const healthy = resolveDamage(fakeRng([0.99, 0.5]), tackle, attackerHealthy, defender);
+    const burned = resolveDamage(fakeRng([0.99, 0.5]), tackle, attackerBurned, defender);
 
     expect(burned.damage).toBeLessThan(healthy.damage);
   });
@@ -109,7 +109,7 @@ describe('resolveDamage', () => {
     const defender = makeInstance({ types: ['water'] }); // fire vs water would normally be 0.5x
     const rng = fakeRng([0.99, 0.5]);
 
-    const result = resolveDamage(rng, typelessMove, attacker, defender, 0);
+    const result = resolveDamage(rng, typelessMove, attacker, defender);
     expect(result.effectiveness).toBe(1);
   });
 });

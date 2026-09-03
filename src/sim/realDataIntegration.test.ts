@@ -12,7 +12,8 @@ function runFullMatch(seed: number, speciesIds: number[], level: 50 | 60 | 70 | 
     seed
   );
 
-  const maxSteps = Math.ceil((6 * 60 * 1000) / TICK_MS);
+  // The 90s match-time hard cap guarantees completion well within this budget.
+  const maxSteps = Math.ceil(95_000 / TICK_MS);
   for (let i = 0; i < maxSteps; i++) {
     if (engine.getState().phase === 'complete') break;
     engine.tick(TICK_MS);
@@ -21,7 +22,7 @@ function runFullMatch(seed: number, speciesIds: number[], level: 50 | 60 | 70 | 
 }
 
 describe('end-to-end: real PokeAPI-derived dataset through a full 16-Pokémon match', () => {
-  it('resolves to a single winner with no invalid state, across several random rosters/levels/seeds', () => {
+  it('resolves to one or more winners with no invalid state, across several random rosters/levels/seeds', () => {
     const levels: (50 | 60 | 70 | 80 | 90 | 100)[] = [50, 100];
     for (let i = 0; i < 5; i++) {
       const speciesIds = pickRandomSpeciesIds(16);
@@ -30,8 +31,11 @@ describe('end-to-end: real PokeAPI-derived dataset through a full 16-Pokémon ma
       const state = engine.getState();
 
       expect(state.phase).toBe('complete');
-      expect(state.livingOrder.length).toBe(1);
-      expect(state.eliminationOrder.length).toBe(15);
+      // Co-winners are possible if the 90s hard time limit is hit with
+      // several Pokémon still standing, rather than a clean last-one-standing.
+      expect(state.livingOrder.length).toBeGreaterThanOrEqual(1);
+      expect(state.eliminationOrder.length).toBe(16 - state.livingOrder.length);
+      expect([...state.winnerInstanceIds].sort()).toEqual([...state.livingOrder].sort());
 
       for (const p of Object.values(state.pokemon)) {
         expect(Number.isNaN(p.currentHp)).toBe(false);
@@ -51,7 +55,7 @@ describe('end-to-end: real PokeAPI-derived dataset through a full 16-Pokémon ma
 
     const engine = runFullMatch(42, speciesIds, 50);
     expect(engine.getState().phase).toBe('complete');
-    expect(engine.getState().livingOrder.length).toBe(1);
+    expect(engine.getState().livingOrder.length).toBeGreaterThanOrEqual(1);
   });
 
   it('handles a legendary-only roster (very high base stats, often sparse level-up movesets)', () => {

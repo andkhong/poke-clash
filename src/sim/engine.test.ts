@@ -35,9 +35,10 @@ function runFullMatch(seed: number, speciesIds: number[]): SimulationEngine {
     seed
   );
 
-  // Advance in real tick-sized steps up to a generous cap so a stuck match fails
-  // the test loudly instead of hanging.
-  const maxSteps = Math.ceil((6 * 60 * 1000) / TICK_MS); // 6 sim-minutes of headroom
+  // The 90s match-time hard cap guarantees completion well within this
+  // budget — a bit of headroom over that so a genuine hang still fails the
+  // test loudly instead of looping forever.
+  const maxSteps = Math.ceil(95_000 / TICK_MS);
   for (let i = 0; i < maxSteps; i++) {
     if (engine.getState().phase === 'complete') break;
     engine.tick(TICK_MS);
@@ -46,14 +47,16 @@ function runFullMatch(seed: number, speciesIds: number[]): SimulationEngine {
 }
 
 describe('SimulationEngine full match', () => {
-  it('always resolves to exactly one winner with valid HP for every seed in a sample', () => {
+  it('always resolves to one or more winners with valid HP for every seed in a sample', () => {
     for (let seed = 1; seed <= 8; seed++) {
       const engine = runFullMatch(seed, [1, 2, 3, 4, 5, 6]);
       const state = engine.getState();
 
       expect(state.phase).toBe('complete');
-      expect(state.livingOrder.length).toBe(1);
-      expect(state.winnerInstanceId).toBe(state.livingOrder[0]);
+      expect(state.livingOrder.length).toBeGreaterThanOrEqual(1);
+      // Co-winners are possible if the 90s cap is hit with several still
+      // standing — winnerInstanceIds should always match livingOrder exactly.
+      expect([...state.winnerInstanceIds].sort()).toEqual([...state.livingOrder].sort());
 
       for (const p of Object.values(state.pokemon)) {
         expect(Number.isNaN(p.currentHp)).toBe(false);
@@ -61,6 +64,19 @@ describe('SimulationEngine full match', () => {
         expect(p.currentHp).toBeLessThanOrEqual(p.maxHp);
       }
     }
+  });
+
+  it('never lets a match run past the 90s hard time limit, even forced far beyond it', () => {
+    const engine = runFullMatch(11, [1, 2, 3, 4, 5, 6]);
+    // Keep ticking well past 90s regardless of whether it already finished —
+    // the cap must hold no matter how much extra time is thrown at it.
+    for (let i = 0; i < Math.ceil(30_000 / TICK_MS); i++) {
+      engine.tick(TICK_MS);
+    }
+    const state = engine.getState();
+    expect(state.phase).toBe('complete');
+    expect(state.elapsedMs).toBeLessThanOrEqual(90_000 + TICK_MS);
+    expect([...state.winnerInstanceIds].sort()).toEqual([...state.livingOrder].sort());
   });
 
   it('emits a matchStart milestone immediately and a matchEnd milestone on completion', () => {

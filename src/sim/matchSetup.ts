@@ -101,7 +101,7 @@ export function createMatch(
     livingOrder,
     eliminationOrder: [],
     phase: 'intro',
-    winnerInstanceId: null,
+    winnerInstanceIds: [],
     arena: config.arena,
     introDurationMs: computeIntroDurationMs(count),
   };

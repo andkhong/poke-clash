@@ -2,7 +2,17 @@ import type { MoveDefinition, PokemonInstance, SimState } from './types';
 import type { Rng } from './rng';
 import { rngPick } from './rng';
 import { distance } from './movement';
-import { AGGRO_RADIUS, ENGAGE_RANGE, LEASH_MULTIPLIER, RETARGET_INTERVAL_MS } from './constants';
+import {
+  AGGRO_RADIUS,
+  AGGRO_RADIUS_AGGRESSIVE,
+  ENGAGE_RANGE,
+  ENGAGE_RANGE_AGGRESSIVE,
+  isAggressivePhase,
+  LEASH_MULTIPLIER,
+  LEASH_MULTIPLIER_AGGRESSIVE,
+  RETARGET_INTERVAL_MS,
+  RETARGET_INTERVAL_MS_AGGRESSIVE,
+} from './constants';
 import { STRUGGLE_MOVE_ID } from './struggle';
 
 export function findNearestLivingEnemy(
@@ -41,6 +51,16 @@ export function updateTargeting(
     return;
   }
 
+  // From AGGRESSION_TRIGGER_MS (45s) on, every Pokémon hunts more
+  // relentlessly — bigger notice radius, longer leash before disengaging,
+  // faster re-evaluation of a better target — which is what actually pushes
+  // stalled matches toward a real resolution before the 90s hard cutoff.
+  const aggressive = isAggressivePhase(nowMs);
+  const aggroRadius = aggressive ? AGGRO_RADIUS_AGGRESSIVE : AGGRO_RADIUS;
+  const engageRange = aggressive ? ENGAGE_RANGE_AGGRESSIVE : ENGAGE_RANGE;
+  const leashMultiplier = aggressive ? LEASH_MULTIPLIER_AGGRESSIVE : LEASH_MULTIPLIER;
+  const retargetIntervalMs = aggressive ? RETARGET_INTERVAL_MS_AGGRESSIVE : RETARGET_INTERVAL_MS;
+
   const current = self.targetInstanceId ? state.pokemon[self.targetInstanceId] : undefined;
   const currentAlive = !!current && state.livingOrder.includes(current.instanceId);
   const selfPos = positions.get(self.instanceId) ?? self.position;
@@ -48,15 +68,15 @@ export function updateTargeting(
   let shouldRetarget = !currentAlive;
   if (currentAlive && current) {
     const d = distance(selfPos, positions.get(current.instanceId) ?? current.position);
-    if (d > AGGRO_RADIUS * LEASH_MULTIPLIER) shouldRetarget = true;
-    if (nowMs - self.lastRetargetMs > RETARGET_INTERVAL_MS) shouldRetarget = true;
+    if (d > aggroRadius * leashMultiplier) shouldRetarget = true;
+    if (nowMs - self.lastRetargetMs > retargetIntervalMs) shouldRetarget = true;
   }
 
   if (shouldRetarget) {
     const nearest = findNearestLivingEnemy(self, state, positions);
     if (nearest) {
       const d = distance(selfPos, positions.get(nearest.instanceId) ?? nearest.position);
-      self.targetInstanceId = d <= AGGRO_RADIUS ? nearest.instanceId : currentAlive ? self.targetInstanceId : null;
+      self.targetInstanceId = d <= aggroRadius ? nearest.instanceId : currentAlive ? self.targetInstanceId : null;
     } else if (!currentAlive) {
       self.targetInstanceId = null;
     }
@@ -69,7 +89,7 @@ export function updateTargeting(
     return;
   }
   const d = distance(selfPos, positions.get(target.instanceId) ?? target.position);
-  self.aiState = d <= ENGAGE_RANGE ? 'attack' : 'chase';
+  self.aiState = d <= engageRange ? 'attack' : 'chase';
 }
 
 /** Being hit by someone you're not already engaged with pulls their aggro onto the attacker. */

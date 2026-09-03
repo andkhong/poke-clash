@@ -136,7 +136,10 @@ export interface SimState {
   /** Fainted instance IDs in the order they fainted — used for the elimination log. */
   eliminationOrder: string[];
   phase: MatchPhase;
-  winnerInstanceId: string | null;
+  /** Empty until phase === 'complete'. More than one entry means the 90s hard
+   * time limit was hit with multiple Pokémon still standing — they're
+   * declared co-winners rather than forcing a single victor. */
+  winnerInstanceIds: string[];
   arena: ArenaBounds;
   /** Computed from roster size — see constants.ts computeIntroDurationMs. */
   introDurationMs: number;

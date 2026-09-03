@@ -26,22 +26,46 @@ export function computeIntroDurationMs(rosterSize: number): number {
 export const ARENA_WIDTH = 900;
 export const ARENA_HEIGHT = 1950;
 
+/**
+ * Match clock: a match can never run past MATCH_TIME_LIMIT_MS — whoever's
+ * still standing at that instant is declared a (possibly shared) winner. From
+ * AGGRESSION_TRIGGER_MS onward, every Pokémon moves faster, attacks more
+ * often, and hunts more relentlessly (bigger aggro radius, longer leash,
+ * faster retargeting) — this is what actually drives matches to a real
+ * resolution before the clock runs out, replacing an earlier "ramp damage
+ * after 3 minutes" failsafe that was tuned for a much longer match length.
+ */
+export const AGGRESSION_TRIGGER_MS = 45_000;
+export const MATCH_TIME_LIMIT_MS = 90_000;
+
+export function isAggressivePhase(elapsedMs: number): boolean {
+  return elapsedMs >= AGGRESSION_TRIGGER_MS;
+}
+
 /** Distance at which a Pokémon notices a living enemy and begins chasing. */
 export const AGGRO_RADIUS = 320;
+export const AGGRO_RADIUS_AGGRESSIVE = 520;
 /** Distance at which a Pokémon can execute an attack against its target. */
 export const ENGAGE_RANGE = 220;
+export const ENGAGE_RANGE_AGGRESSIVE = 280;
 /** A target further than AGGRO_RADIUS * LEASH_MULTIPLIER away is dropped (disengage). */
 export const LEASH_MULTIPLIER = 1.5;
+export const LEASH_MULTIPLIER_AGGRESSIVE = 3;
 /** How often (ms) an already-engaged Pokémon re-evaluates whether a better target exists. */
 export const RETARGET_INTERVAL_MS = 2000;
+export const RETARGET_INTERVAL_MS_AGGRESSIVE = 700;
 
 export const BASE_ACTION_COOLDOWN_MS = 1600;
 export const MIN_ACTION_COOLDOWN_MS = 800;
+export const MIN_ACTION_COOLDOWN_MS_AGGRESSIVE = 400;
 export const MAX_ACTION_COOLDOWN_MS = 3000;
 /** Reference speed stat the cooldown formula is centered on. */
 export const BASELINE_SPEED = 100;
 /** A landed priority move shortens the user's *next* cooldown by this fraction. */
 export const PRIORITY_COOLDOWN_DISCOUNT = 0.25;
+/** Applied to movement speed and inversely to action cooldown once aggressive. */
+export const AGGRESSIVE_SPEED_MULTIPLIER = 1.6;
+export const AGGRESSIVE_COOLDOWN_MULTIPLIER = 0.55;
 
 export const STATUS_TICK_INTERVAL_MS = 1000;
 export const BURN_CHIP_FRACTION = 1 / 16;
@@ -75,7 +99,3 @@ export const ARENA_PADDING = 48;
 
 /** Spread-move splash radius around the primary target. */
 export const SPREAD_MOVE_RADIUS = 180;
-
-/** Soft stalemate failsafe: past this elapsed time, damage dealt escalates to force a finish. */
-export const STALEMATE_TIMEOUT_MS = 3 * 60 * 1000;
-export const STALEMATE_DAMAGE_RAMP_PER_MS = 0.0005; // fractional bonus multiplier per ms past timeout

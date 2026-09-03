@@ -9,8 +9,6 @@ import {
   CRIT_DAMAGE_MULT,
   HIGH_CRIT_CHANCE,
   STAB_MULT,
-  STALEMATE_DAMAGE_RAMP_PER_MS,
-  STALEMATE_TIMEOUT_MS,
 } from './constants';
 
 export interface DamageResult {
@@ -37,8 +35,7 @@ export function resolveDamage(
   rng: Rng,
   move: MoveDefinition,
   attacker: PokemonInstance,
-  defender: PokemonInstance,
-  elapsedMs: number
+  defender: PokemonInstance
 ): DamageResult {
   const hit = rollAccuracy(rng, move, attacker, defender);
   if (!hit || move.category === 'status' || move.power === null) {
@@ -79,13 +76,8 @@ export function resolveDamage(
   const burnPenalty =
     move.category === 'physical' && attacker.status === 'burn' ? BURN_PHYSICAL_DAMAGE_MULT : 1;
 
-  let multiplier =
+  const multiplier =
     (crit ? CRIT_DAMAGE_MULT : 1) * randomFactor * stab * effectiveness * burnPenalty;
-
-  if (elapsedMs > STALEMATE_TIMEOUT_MS) {
-    const overtimeMs = elapsedMs - STALEMATE_TIMEOUT_MS;
-    multiplier *= 1 + overtimeMs * STALEMATE_DAMAGE_RAMP_PER_MS;
-  }
 
   const damage = Math.max(1, Math.floor(base * multiplier));
   return { damage, hit, crit, effectiveness };

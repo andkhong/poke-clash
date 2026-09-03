@@ -31,10 +31,15 @@ import {
 } from './statusEffects';
 import { STRUGGLE_MOVE, STRUGGLE_MOVE_ID, STRUGGLE_RECOIL_FRACTION } from './struggle';
 import {
+  AGGRESSIVE_COOLDOWN_MULTIPLIER,
+  AGGRESSIVE_SPEED_MULTIPLIER,
   BASELINE_SPEED,
   BASE_ACTION_COOLDOWN_MS,
+  isAggressivePhase,
+  MATCH_TIME_LIMIT_MS,
   MAX_ACTION_COOLDOWN_MS,
   MIN_ACTION_COOLDOWN_MS,
+  MIN_ACTION_COOLDOWN_MS_AGGRESSIVE,
   PRIORITY_COOLDOWN_DISCOUNT,
   SPREAD_MOVE_RADIUS,
   TICK_MS,
@@ -78,9 +83,19 @@ export class SimulationEngine {
   }
 
   private stepOnce(): void {
+    if (this.state.phase === 'complete') return;
+
     this.state.tick += 1;
     this.state.elapsedMs += TICK_MS;
     const nowMs = this.state.elapsedMs;
+
+    // Hard cap regardless of phase: a match can never run past this instant.
+    // Whoever's still standing right now is declared a (possibly shared)
+    // winner — checked first so it overrides everything else this tick.
+    if (nowMs >= MATCH_TIME_LIMIT_MS) {
+      this.forceMatchEnd(nowMs);
+      return;
+    }
 
     if (this.state.phase === 'intro') {
       if (nowMs >= this.state.introDurationMs) this.state.phase = 'battle';
@@ -126,16 +141,18 @@ export class SimulationEngine {
       return;
     }
 
+    const speedMult = isAggressivePhase(this.state.elapsedMs) ? AGGRESSIVE_SPEED_MULTIPLIER : 1;
+
     if (self.aiState === 'wander') {
       const selfPos = positions.get(self.instanceId) ?? self.position;
       if (!self.wanderWaypoint || distance(selfPos, self.wanderWaypoint) < 12) {
         self.wanderWaypoint = pickWanderWaypoint(this.rng, this.state.arena);
       }
-      steerToward(self, self.wanderWaypoint, WANDER_MOVE_SPEED, neighbors);
+      steerToward(self, self.wanderWaypoint, WANDER_MOVE_SPEED * speedMult, neighbors);
     } else if (self.aiState === 'chase' && self.targetInstanceId) {
       const target = this.state.pokemon[self.targetInstanceId];
       const targetPos = positions.get(target.instanceId) ?? target.position;
-      steerToward(self, targetPos, CHASE_MOVE_SPEED, neighbors);
+      steerToward(self, targetPos, CHASE_MOVE_SPEED * speedMult, neighbors);
     } else {
       // 'attack' — hold ground, separation-only so sprites don't stack mid-fight.
       steerToward(self, self.position, 0, neighbors);
@@ -175,7 +192,11 @@ export class SimulationEngine {
     );
     let cooldown = BASE_ACTION_COOLDOWN_MS * (BASELINE_SPEED / Math.max(1, speed));
     if (move.priority > 0) cooldown *= 1 - PRIORITY_COOLDOWN_DISCOUNT;
-    attacker.actionCooldownMs = Math.max(MIN_ACTION_COOLDOWN_MS, Math.min(MAX_ACTION_COOLDOWN_MS, cooldown));
+
+    const aggressive = isAggressivePhase(this.state.elapsedMs);
+    if (aggressive) cooldown *= AGGRESSIVE_COOLDOWN_MULTIPLIER;
+    const minCooldown = aggressive ? MIN_ACTION_COOLDOWN_MS_AGGRESSIVE : MIN_ACTION_COOLDOWN_MS;
+    attacker.actionCooldownMs = Math.max(minCooldown, Math.min(MAX_ACTION_COOLDOWN_MS, cooldown));
   }
 
   private executeMove(
@@ -212,7 +233,7 @@ export class SimulationEngine {
     const damage: Record<string, number> = {};
 
     for (const target of targets) {
-      const result = resolveDamage(this.rng, move, attacker, target, this.state.elapsedMs);
+      const result = resolveDamage(this.rng, move, attacker, target);
       hit[target.instanceId] = result.hit;
       crit[target.instanceId] = result.crit;
       effectiveness[target.instanceId] = result.effectiveness;
@@ -362,8 +383,16 @@ export class SimulationEngine {
 
     if (this.state.livingOrder.length <= 1) {
       this.state.phase = 'complete';
-      this.state.winnerInstanceId = this.state.livingOrder[0] ?? null;
+      this.state.winnerInstanceIds = [...this.state.livingOrder];
       this.events.push({ seq: this.nextSeq(), atMs: nowMs, type: 'milestone', kind: 'matchEnd' });
     }
+  }
+
+  /** The 90s hard cap: whoever's still standing is declared a (possibly shared) winner. */
+  private forceMatchEnd(nowMs: number): void {
+    if (this.state.phase === 'complete') return;
+    this.state.phase = 'complete';
+    this.state.winnerInstanceIds = [...this.state.livingOrder];
+    this.events.push({ seq: this.nextSeq(), atMs: nowMs, type: 'milestone', kind: 'matchEnd' });
   }
 }
