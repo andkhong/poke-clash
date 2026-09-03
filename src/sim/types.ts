@@ -68,7 +68,7 @@ export interface MoveSlot {
 
 export type AiState = 'wander' | 'chase' | 'attack' | 'incapacitated' | 'fainted';
 
-export type FacingDirection = 'N' | 'S' | 'E' | 'W';
+export type FacingDirection = 'N' | 'S' | 'E' | 'W' | 'NE' | 'NW' | 'SE' | 'SW';
 
 export interface Vec2 {
   x: number;

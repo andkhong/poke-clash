@@ -90,13 +90,19 @@ export function applyMovement(self: PokemonInstance, dtMs: number, arena: ArenaB
   }
 }
 
-/** Dominant axis wins; ties keep the previous facing to avoid jitter. */
+// atan2(y, x) in screen space (y-down) increases clockwise starting at East —
+// this order matches that sweep exactly, so bucketing by angle alone (no
+// dominant-axis special case) gives the nearest of the 8 compass directions.
+const EIGHT_WAY_ORDER: readonly FacingDirection[] = ['E', 'SE', 'S', 'SW', 'W', 'NW', 'N', 'NE'];
+
+/** Buckets velocity into the nearest of 8 compass directions; keeps the
+ * previous facing when nearly stationary, to avoid jitter. */
 export function velocityToFacing(v: Vec2, previous: FacingDirection): FacingDirection {
   if (Math.abs(v.x) < 1e-3 && Math.abs(v.y) < 1e-3) return previous;
-  if (Math.abs(v.x) > Math.abs(v.y)) {
-    return v.x > 0 ? 'E' : 'W';
-  }
-  return v.y > 0 ? 'S' : 'N';
+  const angle = Math.atan2(v.y, v.x);
+  const normalized = (angle + Math.PI * 2) % (Math.PI * 2); // 0..2π, 0 = East
+  const sector = Math.round(normalized / (Math.PI / 4)) % 8;
+  return EIGHT_WAY_ORDER[sector];
 }
 
 export const WANDER_MOVE_SPEED = WANDER_SPEED;

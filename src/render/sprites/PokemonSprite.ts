@@ -1,5 +1,5 @@
 import Phaser from 'phaser';
-import type { PokemonInstance, StatusCondition, Vec2 } from '../../sim/types';
+import type { FacingDirection, PokemonInstance, StatusCondition, Vec2 } from '../../sim/types';
 import type { SpriteIndex } from '../../data/types';
 import { downgradeTier, resolveSpriteUrls, type SpriteUrls } from './spriteResolver';
 import { loadGifAsAnimatedTexture } from './gifTexture';
@@ -45,6 +45,31 @@ const STATUS_COLORS: Record<StatusCondition, string> = {
   freeze: '#60c8e0',
 };
 
+/**
+ * No hand-drawn art exists for diagonal facings (or for any Pokémon facing
+ * beyond the 2 real official angles — front and back), so all 8 directions
+ * are built from those 2 textures via flip + a small rotation: N/S show the
+ * real back/front sprite outright, E/W mirror the front sprite, and the 4
+ * diagonals additionally tilt a few degrees to lean toward the direction of
+ * travel — a deliberate geometric approximation, not custom per-direction art.
+ */
+const DIAGONAL_TILT_DEGREES = 12;
+interface FacingRenderConfig {
+  useBack: boolean;
+  flip: boolean;
+  tiltDeg: number;
+}
+const FACING_CONFIG: Record<FacingDirection, FacingRenderConfig> = {
+  N: { useBack: true, flip: false, tiltDeg: 0 },
+  S: { useBack: false, flip: false, tiltDeg: 0 },
+  E: { useBack: false, flip: true, tiltDeg: 0 },
+  W: { useBack: false, flip: false, tiltDeg: 0 },
+  NE: { useBack: true, flip: true, tiltDeg: -DIAGONAL_TILT_DEGREES },
+  NW: { useBack: true, flip: false, tiltDeg: DIAGONAL_TILT_DEGREES },
+  SE: { useBack: false, flip: true, tiltDeg: DIAGONAL_TILT_DEGREES },
+  SW: { useBack: false, flip: false, tiltDeg: -DIAGONAL_TILT_DEGREES },
+};
+
 /** One on-field Pokémon's complete visual presentation: body sprite, HP bar,
  * status icon, and transient move-name callout. Reads from a PokemonInstance
  * snapshot each frame; owns no simulation state itself. */
@@ -65,7 +90,7 @@ export class PokemonSprite {
   private frontIsAnimated = false;
   private backIsAnimated = false;
   private lastSeenHitAtMs = 0;
-  private facingIsSouthOrNorth = true;
+  private isShowingBack = false;
   private hasFainted = false;
   private idleTween: Phaser.Tweens.Tween | null = null;
 
@@ -286,29 +311,20 @@ export class PokemonSprite {
 
   private updateFacing(pokemon: PokemonInstance): void {
     if (!this.body) return;
-    const wantsSouthOrNorth = pokemon.facing === 'N' || pokemon.facing === 'S';
+    const config = FACING_CONFIG[pokemon.facing];
 
-    if (wantsSouthOrNorth !== this.facingIsSouthOrNorth || this.body.texture.key === '') {
-      const key = pokemon.facing === 'N' ? this.body.getData('backKey') : this.body.getData('frontKey');
-      const isAnimated = pokemon.facing === 'N' ? this.backIsAnimated : this.frontIsAnimated;
+    if (config.useBack !== this.isShowingBack || this.body.texture.key === '') {
+      const key = config.useBack ? this.body.getData('backKey') : this.body.getData('frontKey');
+      const isAnimated = config.useBack ? this.backIsAnimated : this.frontIsAnimated;
       if (this.body instanceof Phaser.GameObjects.Sprite) {
         this.body.setTexture(key);
         if (isAnimated) this.body.play({ key, repeat: -1 }, true);
       }
-      this.facingIsSouthOrNorth = wantsSouthOrNorth;
+      this.isShowingBack = config.useBack;
     }
 
-    // East/West both reuse the front (South) texture, mirrored — only swap
-    // away from a North (back) texture when actually leaving north-facing.
-    if (pokemon.facing !== 'N' && this.body.texture.key !== this.body.getData('frontKey')) {
-      const key = this.body.getData('frontKey');
-      if (this.body instanceof Phaser.GameObjects.Sprite) {
-        this.body.setTexture(key);
-        if (this.frontIsAnimated) this.body.play({ key, repeat: -1 }, true);
-      }
-    }
-
-    this.body.setFlipX(pokemon.facing === 'E');
+    this.body.setFlipX(config.flip);
+    this.body.setAngle(config.tiltDeg);
   }
 
   private updateHpBar(pokemon: PokemonInstance): void {
