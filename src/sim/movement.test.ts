@@ -31,6 +31,20 @@ describe('velocityToFacing (8-way)', () => {
     }
   });
 
+  it('stays on the current facing when velocity sits right at a sector boundary (anti-flicker)', () => {
+    // Exactly at the E/SE boundary (22.5°) — whichever side you were already
+    // on should stick, rather than the raw nearest-sector rounding flipping
+    // it back and forth every tick as steering forces nudge the angle by a
+    // fraction of a degree either way.
+    const boundary = { x: Math.cos(Math.PI / 8), y: Math.sin(Math.PI / 8) };
+    expect(velocityToFacing(boundary, 'E')).toBe('E');
+    expect(velocityToFacing(boundary, 'SE')).toBe('SE');
+  });
+
+  it('still switches facing once the angle moves meaningfully past the boundary', () => {
+    expect(velocityToFacing({ x: 1, y: 1 }, 'E')).toBe('SE'); // a full 45° past E's center
+  });
+
   it('covers a full sweep of all 8 sectors exactly once each, in compass order', () => {
     const seen: FacingDirection[] = [];
     for (let i = 0; i < 8; i++) {

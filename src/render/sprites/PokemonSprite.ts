@@ -13,17 +13,30 @@ import { BALL_DROP_DURATION_MS, BALL_DROP_STAGGER_MS } from '../../sim/constants
 
 /** Target on-screen size (px, longest side) — sprite sources range from ~30px
  * PMD action frames to several-hundred-px official artwork, so every sprite
- * gets scaled to fit this regardless of its native resolution. 128 (rather
- * than a smaller value) keeps PMD's larger ~120x136px Attack frames close to
- * native size, avoiding blur from unnecessary upscaling. */
-const TARGET_SPRITE_SIZE = 128;
+ * gets scaled to fit this regardless of its native resolution. 192 (50%
+ * larger than a tight 128px fit) makes the arena's Pokémon read clearly at
+ * the game's actual viewing size. */
+const TARGET_SPRITE_SIZE = 192;
 const POKEBALL_ICON_SIZE = 34;
 const PLACEHOLDER_RADIUS = 24;
 const HP_BAR_WIDTH = 56;
 const HP_BAR_HEIGHT = 6;
-const HP_BAR_Y = 38;
+/** Gap (px) between the HP bar and the sprite's actual bottom edge (feet). */
+const HP_BAR_GAP = 4;
 const STATUS_TEXT_Y = -44;
-const MOVE_LABEL_Y = -58;
+/** Gap (px) between the move-name label and the sprite's actual top edge. */
+const MOVE_LABEL_GAP = 8;
+/** Retro arcade-style pixel font, matching the reference battle-UI callout style. */
+const MOVE_LABEL_FONT_FAMILY = '"Press Start 2P", monospace';
+const MOVE_LABEL_FONT_SIZE = 13;
+const MOVE_LABEL_PAD_X = 10;
+const MOVE_LABEL_PAD_Y = 7;
+const MOVE_LABEL_CORNER_RADIUS = 6;
+const MOVE_LABEL_BORDER_WIDTH = 2;
+const MOVE_LABEL_BORDER_COLOR = 0x1a1a1a;
+/** How much lighter/darker the top/bottom of the label's gradient fill are
+ * relative to the move's base type color, for a glossy beveled-button look. */
+const MOVE_LABEL_SHADE_AMOUNT = 45;
 const HIT_FLASH_MS = 160;
 const MOVE_LABEL_MS = 1300;
 const BALL_DROP_HEIGHT = 260;
@@ -58,6 +71,27 @@ const FACING_TO_ROW: Record<FacingDirection, number> = {
 };
 
 /**
+ * Unlike the hotlink tier (which normalizes every sprite to
+ * TARGET_SPRITE_SIZE regardless of source resolution, since Showdown/PokeAPI
+ * art isn't drawn at a consistent relative scale), PMD frame sizes ARE
+ * authored at consistent in-game scale across the whole roster — a Wailord's
+ * Idle frame really is bigger than a Voltorb's on purpose. Normalizing each
+ * species to the same box (as the hotlink tier does) would erase that and
+ * make every Pokémon the same apparent size, so every PMD sprite instead
+ * shares ONE multiplier applied to its native frame size, preserving
+ * relative proportions. Idle frame longest-side across the full indexed
+ * roster ranges 24-128px (median 48px); the multiplier and clamp below were
+ * picked so that range lands roughly in the same on-screen ballpark as
+ * TARGET_SPRITE_SIZE without letting the smallest/largest outliers
+ * disappear or dominate the arena. (All three values are the same 1.5x
+ * upscale applied to TARGET_SPRITE_SIZE, so the two tiers stay proportional
+ * to each other.)
+ */
+const PMD_NATIVE_SCALE = 3.375;
+const PMD_MIN_SPRITE_SIZE = 84;
+const PMD_MAX_SPRITE_SIZE = 270;
+
+/**
  * No hand-drawn art exists for diagonal facings (or for any Pokémon facing
  * beyond the 2 real official angles — front and back), so all 8 directions
  * are built from those 2 textures via flip + a small rotation: N/S show the
@@ -82,6 +116,16 @@ const FACING_CONFIG: Record<FacingDirection, FacingRenderConfig> = {
   SE: { useBack: false, flip: true, tiltDeg: DIAGONAL_TILT_DEGREES },
   SW: { useBack: false, flip: false, tiltDeg: -DIAGONAL_TILT_DEGREES },
 };
+
+/** Shifts each RGB channel of a 0xRRGGBB color by `amount` (negative to
+ * darken), clamped to the valid byte range. Used for the move label's
+ * top/bottom gradient stops. */
+function shadeColor(hex: number, amount: number): number {
+  const r = Phaser.Math.Clamp(((hex >> 16) & 0xff) + amount, 0, 255);
+  const g = Phaser.Math.Clamp(((hex >> 8) & 0xff) + amount, 0, 255);
+  const b = Phaser.Math.Clamp((hex & 0xff) + amount, 0, 255);
+  return (r << 16) | (g << 8) | b;
+}
 
 /** One on-field Pokémon's complete visual presentation: body sprite, HP bar,
  * status icon, and transient move-name callout. Reads from a PokemonInstance
@@ -148,11 +192,14 @@ export class PokemonSprite {
     this.placeholder.setVisible(false);
     this.container.add(this.placeholder);
 
+    // Y position is corrected every frame in updateHpBar() once a body
+    // exists — placed at 0 here since sprite sizes vary too much (56-180px
+    // for PMD tier) for a fixed offset to sit at everyone's feet.
     this.hpBarBg = scene.add
-      .rectangle(0, HP_BAR_Y, HP_BAR_WIDTH, HP_BAR_HEIGHT, 0x1a1a1a, 0.85)
+      .rectangle(0, 0, HP_BAR_WIDTH, HP_BAR_HEIGHT, 0x1a1a1a, 0.85)
       .setOrigin(0.5, 0.5);
     this.hpBarFill = scene.add
-      .rectangle(-HP_BAR_WIDTH / 2, HP_BAR_Y, HP_BAR_WIDTH, HP_BAR_HEIGHT - 1.5, 0x4caf50)
+      .rectangle(-HP_BAR_WIDTH / 2, 0, HP_BAR_WIDTH, HP_BAR_HEIGHT - 1.5, 0x4caf50)
       .setOrigin(0, 0.5);
     this.hpBarBg.setVisible(false);
     this.hpBarFill.setVisible(false);
@@ -261,7 +308,9 @@ export class PokemonSprite {
     }
     this.pmdActions = loaded;
     this.isPmdTier = true;
-    this.pmdScale = TARGET_SPRITE_SIZE / Math.max(loaded.Idle.frameWidth, loaded.Idle.frameHeight, 1);
+    const nativeSize = Math.max(loaded.Idle.frameWidth, loaded.Idle.frameHeight, 1);
+    const targetSize = Math.min(PMD_MAX_SPRITE_SIZE, Math.max(PMD_MIN_SPRITE_SIZE, nativeSize * PMD_NATIVE_SCALE));
+    this.pmdScale = targetSize / nativeSize;
     this.onPmdSpritesReady();
     return true;
   }
@@ -500,6 +549,10 @@ export class PokemonSprite {
   }
 
   private updateHpBar(pokemon: PokemonInstance): void {
+    const y = this.bottomOfBodyY() + HP_BAR_GAP;
+    this.hpBarBg.y = y;
+    this.hpBarFill.y = y;
+
     const ratio = pokemon.maxHp > 0 ? Math.max(0, pokemon.currentHp / pokemon.maxHp) : 0;
     this.hpBarFill.width = HP_BAR_WIDTH * ratio;
     this.hpBarFill.fillColor = ratio > 0.5 ? 0x4caf50 : ratio > 0.2 ? 0xe0b030 : 0xd9453d;
@@ -537,15 +590,58 @@ export class PokemonSprite {
     });
   }
 
+  /** Container-space Y of the body's current top edge — sprite sizes vary a
+   * lot (PMD tier alone ranges ~56-180px tall, scaled per-species), so
+   * anything anchored "above the sprite" has to be computed from the actual
+   * current body rather than a fixed offset, or it clips into bigger ones. */
+  private topOfBodyY(): number {
+    if (this.body instanceof Phaser.GameObjects.Sprite || this.body instanceof Phaser.GameObjects.Image) {
+      return -this.body.displayHeight * this.body.originY;
+    }
+    return -PLACEHOLDER_RADIUS; // no body loaded yet
+  }
+
+  /** Container-space Y of the body's current bottom edge (feet) — same
+   * reasoning as topOfBodyY(): varies with sprite size/origin, so the HP bar
+   * has to track it rather than sit at a fixed offset. */
+  private bottomOfBodyY(): number {
+    if (this.body instanceof Phaser.GameObjects.Sprite || this.body instanceof Phaser.GameObjects.Image) {
+      return this.body.displayHeight * (1 - this.body.originY);
+    }
+    return PLACEHOLDER_RADIUS; // no body loaded yet
+  }
+
   showMoveLabel(move: MoveDefinition): void {
     this.moveLabel?.destroy();
     const color = getMoveTypeColor(move.type);
     const text = this.scene.add
-      .text(0, 0, move.name.toUpperCase(), { fontSize: '9px', fontFamily: 'monospace', fontStyle: 'bold', color: '#ffffff' })
+      .text(0, 0, move.name.toUpperCase(), {
+        fontSize: `${MOVE_LABEL_FONT_SIZE}px`,
+        fontFamily: MOVE_LABEL_FONT_FAMILY,
+        color: '#ffffff',
+        stroke: '#1a1a1a',
+        strokeThickness: 3,
+      })
       .setOrigin(0.5, 0.5)
-      .setPadding(4, 2, 4, 2);
-    const bg = this.scene.add.rectangle(0, 0, text.width + 8, text.height + 4, color, 0.92).setStrokeStyle(1, 0x000000, 0.3);
-    this.moveLabel = this.scene.add.container(0, MOVE_LABEL_Y, [bg, text]);
+      .setPadding(MOVE_LABEL_PAD_X, MOVE_LABEL_PAD_Y, MOVE_LABEL_PAD_X, MOVE_LABEL_PAD_Y);
+
+    // A flat-fill rectangle (the old look) reads as a cheap tooltip; a
+    // vertically-graded, bordered, rounded pill matches the glossy "button"
+    // callout style of the reference battle UI this is modeled on.
+    const boxWidth = text.width;
+    const boxHeight = text.height;
+    const bg = this.scene.add.graphics();
+    const topColor = shadeColor(color, MOVE_LABEL_SHADE_AMOUNT);
+    const bottomColor = shadeColor(color, -MOVE_LABEL_SHADE_AMOUNT);
+    bg.fillGradientStyle(topColor, topColor, bottomColor, bottomColor, 1);
+    bg.fillRoundedRect(-boxWidth / 2, -boxHeight / 2, boxWidth, boxHeight, MOVE_LABEL_CORNER_RADIUS);
+    bg.lineStyle(MOVE_LABEL_BORDER_WIDTH, MOVE_LABEL_BORDER_COLOR, 1);
+    bg.strokeRoundedRect(-boxWidth / 2, -boxHeight / 2, boxWidth, boxHeight, MOVE_LABEL_CORNER_RADIUS);
+
+    // Anchor by the box's bottom edge (not its center) so MOVE_LABEL_GAP stays
+    // an accurate clearance above the sprite regardless of how tall the box is.
+    const containerY = this.topOfBodyY() - MOVE_LABEL_GAP - boxHeight / 2;
+    this.moveLabel = this.scene.add.container(0, containerY, [bg, text]);
     this.container.add(this.moveLabel);
     this.moveLabelHideAt = this.scene.time.now + MOVE_LABEL_MS;
   }

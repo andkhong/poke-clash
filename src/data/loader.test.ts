@@ -3,6 +3,7 @@ import {
   buildSpeciesDataForLevel,
   buildSpeciesMapForLevel,
   getMoveDefinition,
+  hasPmdSprite,
   listAllSpecies,
   pickRandomSpeciesIds,
 } from './loader';
@@ -57,5 +58,10 @@ describe('pickRandomSpeciesIds', () => {
   it('respects the exclude list', () => {
     const ids = pickRandomSpeciesIds(5, [1, 2, 3, 4, 5]);
     for (const id of ids) expect([1, 2, 3, 4, 5]).not.toContain(id);
+  });
+
+  it('never returns a species without a real PMD sprite', () => {
+    const ids = pickRandomSpeciesIds(16);
+    for (const id of ids) expect(hasPmdSprite(id)).toBe(true);
   });
 });

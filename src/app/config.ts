@@ -1,4 +1,4 @@
-import { listAllSpecies } from '../data/loader';
+import { hasPmdSprite, listAllSpecies } from '../data/loader';
 import { ARENA_HEIGHT, ARENA_WIDTH } from '../sim/constants';
 
 export const LEVEL_OPTIONS = [50, 60, 70, 80, 90, 100] as const;
@@ -69,6 +69,11 @@ export function getThemePresets(): ResolvedThemePreset[] {
     id: preset.id,
     label: preset.label,
     description: preset.description,
-    speciesIds: preset.speciesNames.map((n) => byName.get(n)).filter((id): id is number => id !== undefined),
+    // Species without a real PMD sprite are excluded here too — see
+    // hasPmdSprite() — so a preset never quietly includes the older
+    // hotlink-art fallback.
+    speciesIds: preset.speciesNames
+      .map((n) => byName.get(n))
+      .filter((id): id is number => id !== undefined && hasPmdSprite(id)),
   }));
 }

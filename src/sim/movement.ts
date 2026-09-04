@@ -94,14 +94,30 @@ export function applyMovement(self: PokemonInstance, dtMs: number, arena: ArenaB
 // this order matches that sweep exactly, so bucketing by angle alone (no
 // dominant-axis special case) gives the nearest of the 8 compass directions.
 const EIGHT_WAY_ORDER: readonly FacingDirection[] = ['E', 'SE', 'S', 'SW', 'W', 'NW', 'N', 'NE'];
+const SECTOR_SIZE_RAD = (Math.PI * 2) / 8;
+/** Extra angular buffer (beyond the sector's own half-width) the velocity must
+ * cross before facing switches away from its current sector. Without this,
+ * steering/separation forces nudging the angle back and forth across a sector
+ * boundary (common mid-crowd) flip `facing` every tick — and since the
+ * renderer restarts its walk animation on every facing change, that reads as
+ * a stuttering "hop" instead of a smooth walk cycle. */
+const HYSTERESIS_RAD = (10 * Math.PI) / 180;
 
 /** Buckets velocity into the nearest of 8 compass directions; keeps the
- * previous facing when nearly stationary, to avoid jitter. */
+ * previous facing when nearly stationary, or when the new angle hasn't moved
+ * meaningfully past the current sector's boundary, to avoid jitter. */
 export function velocityToFacing(v: Vec2, previous: FacingDirection): FacingDirection {
   if (Math.abs(v.x) < 1e-3 && Math.abs(v.y) < 1e-3) return previous;
   const angle = Math.atan2(v.y, v.x);
   const normalized = (angle + Math.PI * 2) % (Math.PI * 2); // 0..2π, 0 = East
-  const sector = Math.round(normalized / (Math.PI / 4)) % 8;
+
+  const previousIndex = EIGHT_WAY_ORDER.indexOf(previous);
+  const previousCenter = previousIndex * SECTOR_SIZE_RAD;
+  const rawDiff = Math.abs(normalized - previousCenter);
+  const angularDistanceFromPrevious = Math.min(rawDiff, Math.PI * 2 - rawDiff);
+  if (angularDistanceFromPrevious <= SECTOR_SIZE_RAD / 2 + HYSTERESIS_RAD) return previous;
+
+  const sector = Math.round(normalized / SECTOR_SIZE_RAD) % 8;
   return EIGHT_WAY_ORDER[sector];
 }
 

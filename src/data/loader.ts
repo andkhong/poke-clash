@@ -1,6 +1,7 @@
 import pokemonData from './generated/pokemon.json';
 import movesData from './generated/moves.json';
-import type { GeneratedSpecies } from './types';
+import pmdSpriteIndexData from './generated/pmdSpriteIndex.json';
+import type { GeneratedSpecies, PmdSpriteIndex } from './types';
 import type { MoveDefinition, PokemonTypeName } from '../sim/types';
 import type { MoveLookup, SpeciesData } from '../sim/matchSetup';
 
@@ -8,6 +9,16 @@ const SPECIES_LIST = pokemonData as GeneratedSpecies[];
 const MOVES_BY_ID = new Map<number, MoveDefinition>(
   Object.entries(movesData as Record<string, MoveDefinition>).map(([id, def]) => [Number(id), def])
 );
+const PMD_SPRITE_INDEX = pmdSpriteIndexData as PmdSpriteIndex;
+
+/** Only species with a real downloaded PMD sprite (see
+ * data-pipeline/fetch-pmd-sprites.ts) are selectable for a match — the ~6%
+ * without one (PMDCollab has no art yet, or their asset server currently
+ * 500s for that id) are excluded from roster selection entirely, rather than
+ * letting a match silently include the older hotlink-art fallback. */
+export function hasPmdSprite(speciesId: number): boolean {
+  return PMD_SPRITE_INDEX[String(speciesId)] !== undefined;
+}
 
 const SPECIES_BY_ID = new Map<number, GeneratedSpecies>(SPECIES_LIST.map((s) => [s.id, s]));
 
@@ -63,7 +74,7 @@ export function buildSpeciesMapForLevel(speciesIds: readonly number[], level: nu
 
 export function pickRandomSpeciesIds(count: number, exclude: readonly number[] = []): number[] {
   const excludeSet = new Set(exclude);
-  const pool = SPECIES_LIST.map((s) => s.id).filter((id) => !excludeSet.has(id));
+  const pool = SPECIES_LIST.map((s) => s.id).filter((id) => !excludeSet.has(id) && hasPmdSprite(id));
   for (let i = pool.length - 1; i > 0; i--) {
     const j = Math.floor(Math.random() * (i + 1));
     [pool[i], pool[j]] = [pool[j], pool[i]];
