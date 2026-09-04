@@ -78,7 +78,8 @@ export async function getPokeApi<T>(resourcePath: string): Promise<T> {
 export async function mapWithConcurrency<T, R>(
   items: readonly T[],
   worker: (item: T, index: number) => Promise<R>,
-  onProgress?: (done: number, total: number) => void
+  onProgress?: (done: number, total: number) => void,
+  concurrency: number = MAX_CONCURRENT
 ): Promise<R[]> {
   const results: R[] = new Array(items.length);
   let nextIndex = 0;
@@ -93,7 +94,7 @@ export async function mapWithConcurrency<T, R>(
     }
   }
 
-  const workers = Array.from({ length: Math.min(MAX_CONCURRENT, items.length) }, runOne);
+  const workers = Array.from({ length: Math.min(concurrency, items.length) }, runOne);
   await Promise.all(workers);
   return results;
 }

@@ -1,6 +1,6 @@
 import Phaser from 'phaser';
 import type { FacingDirection, PokemonInstance, StatusCondition, Vec2 } from '../../sim/types';
-import type { SpriteIndex } from '../../data/types';
+import type { PmdAnimEntry, PmdSpriteIndex, SpriteIndex } from '../../data/types';
 import { downgradeTier, resolveSpriteUrls, type SpriteUrls } from './spriteResolver';
 import { loadGifAsAnimatedTexture } from './gifTexture';
 import { acquireSpriteSlot, releaseSpriteSlot } from './fetchQueue';
@@ -11,10 +11,12 @@ import { playSparkleReveal } from '../vfx/sparkle';
 import type { MoveDefinition } from '../../sim/types';
 import { BALL_DROP_DURATION_MS, BALL_DROP_STAGGER_MS } from '../../sim/constants';
 
-/** Target on-screen size (px, longest side) — sprite sources range from ~50px
- * animated GIFs to several-hundred-px official artwork, so every sprite gets
- * scaled to fit this regardless of its native resolution. */
-const TARGET_SPRITE_SIZE = 64;
+/** Target on-screen size (px, longest side) — sprite sources range from ~30px
+ * PMD action frames to several-hundred-px official artwork, so every sprite
+ * gets scaled to fit this regardless of its native resolution. 128 (rather
+ * than a smaller value) keeps PMD's larger ~120x136px Attack frames close to
+ * native size, avoiding blur from unnecessary upscaling. */
+const TARGET_SPRITE_SIZE = 128;
 const POKEBALL_ICON_SIZE = 34;
 const PLACEHOLDER_RADIUS = 24;
 const HP_BAR_WIDTH = 56;
@@ -46,12 +48,23 @@ const STATUS_COLORS: Record<StatusCondition, string> = {
 };
 
 /**
+ * PMDCollab/SpriteCollab sheets lay out one row per compass direction, in a
+ * fixed order verified against PMD2's own game data (pmd2scriptdata.xml:
+ * "Sprites have 8 directions... DOWN is 0"). Real art exists per direction —
+ * no flip/tilt approximation needed for this tier.
+ */
+const FACING_TO_ROW: Record<FacingDirection, number> = {
+  S: 0, SE: 1, E: 2, NE: 3, N: 4, NW: 5, W: 6, SW: 7,
+};
+
+/**
  * No hand-drawn art exists for diagonal facings (or for any Pokémon facing
  * beyond the 2 real official angles — front and back), so all 8 directions
  * are built from those 2 textures via flip + a small rotation: N/S show the
  * real back/front sprite outright, E/W mirror the front sprite, and the 4
  * diagonals additionally tilt a few degrees to lean toward the direction of
  * travel — a deliberate geometric approximation, not custom per-direction art.
+ * (Fallback tier only, used when a species has no PMD sprite coverage.)
  */
 const DIAGONAL_TILT_DEGREES = 12;
 interface FacingRenderConfig {
@@ -94,6 +107,13 @@ export class PokemonSprite {
   private hasFainted = false;
   private idleTween: Phaser.Tweens.Tween | null = null;
 
+  private isPmdTier = false;
+  /** Only the actions that actually finished loading (a subset of the index entry's). */
+  private pmdActions: Record<string, PmdAnimEntry> = {};
+  private pmdScale = 1;
+  private pendingOneShot: string | null = null;
+  private lastFacing: FacingDirection = 'S';
+
   private hasRevealed = false;
   private pokeball: Phaser.GameObjects.Image | null = null;
   private renderPos: Vec2;
@@ -108,6 +128,7 @@ export class PokemonSprite {
     scene: Phaser.Scene,
     pokemon: PokemonInstance,
     spriteIndex: SpriteIndex | null,
+    pmdSpriteIndex: PmdSpriteIndex | null,
     spawnIndex: number
   ) {
     this.scene = scene;
@@ -151,7 +172,7 @@ export class PokemonSprite {
     // Kick off sprite loading immediately (in parallel with the drop
     // animation) so the real art is often already in hand by the time the
     // ball pops open — no separate "loading" flash.
-    void this.loadSprites(pokemon, spriteIndex);
+    void this.loadSprites(pokemon, spriteIndex, pmdSpriteIndex);
 
     const jitter = Phaser.Math.Between(-BALL_STAGGER_JITTER_MS, BALL_STAGGER_JITTER_MS);
     const delay = Math.max(0, spawnIndex * BALL_DROP_STAGGER_MS + jitter);
@@ -193,9 +214,115 @@ export class PokemonSprite {
     });
   }
 
-  private async loadSprites(pokemon: PokemonInstance, spriteIndex: SpriteIndex | null): Promise<void> {
+  private async loadSprites(
+    pokemon: PokemonInstance,
+    spriteIndex: SpriteIndex | null,
+    pmdSpriteIndex: PmdSpriteIndex | null
+  ): Promise<void> {
+    const pmdEntry = pmdSpriteIndex?.[String(pokemon.speciesId)];
+    if (pmdEntry) {
+      const loaded = await this.tryLoadPmdSprites(pmdEntry);
+      if (loaded) return;
+      // Committed index says this species has PMD sprites, but a file failed
+      // to actually load — fall through to the hotlink tier below rather
+      // than leaving a placeholder.
+    }
     const initial = resolveSpriteUrls(pokemon.speciesId, pokemon.name, spriteIndex);
     await this.tryLoadTier(pokemon, initial);
+  }
+
+  private pmdTextureKey(action: string): string {
+    return `poke-${this.speciesId}-pmd-${action}`;
+  }
+
+  private pmdAnimKey(action: string, row: number): string {
+    return `poke-${this.speciesId}-pmd-${action}-r${row}`;
+  }
+
+  private async tryLoadPmdSprites(entry: PmdSpriteIndex[string]): Promise<boolean> {
+    if (!entry.actions.Idle || !entry.actions.Walk) return false; // defensive re-check of the pipeline's own gate
+
+    const loaded: Record<string, PmdAnimEntry> = {};
+    await Promise.all(
+      Object.entries(entry.actions).map(async ([action, meta]) => {
+        const key = this.pmdTextureKey(action);
+        const ok = await this.loadSpriteSheet(key, `/pmd-sprites/${entry.dir}/${action}-Anim.png`, {
+          frameWidth: meta.frameWidth,
+          frameHeight: meta.frameHeight,
+        });
+        if (ok) loaded[action] = meta;
+      })
+    );
+    if (!loaded.Idle || !loaded.Walk) return false; // a required action failed to actually load
+
+    for (const action of Object.keys(loaded)) {
+      this.scene.textures.get(this.pmdTextureKey(action)).setFilter(Phaser.Textures.FilterMode.NEAREST);
+      this.registerPmdAnimations(action, loaded[action]);
+    }
+    this.pmdActions = loaded;
+    this.isPmdTier = true;
+    this.pmdScale = TARGET_SPRITE_SIZE / Math.max(loaded.Idle.frameWidth, loaded.Idle.frameHeight, 1);
+    this.onPmdSpritesReady();
+    return true;
+  }
+
+  private async loadSpriteSheet(
+    key: string,
+    url: string,
+    frameConfig: { frameWidth: number; frameHeight: number }
+  ): Promise<boolean> {
+    if (this.scene.textures.exists(key)) return true; // dedup across same-species instances
+    return new Promise((resolve) => {
+      // Same persistent-listener reasoning as loadStaticImage() below —
+      // 'loaderror' is generic across the shared loader.
+      const onError = (file: { key: string }): void => {
+        if (file.key === key) finish(false);
+      };
+      const onComplete = (): void => finish(true);
+      const finish = (ok: boolean): void => {
+        this.scene.load.off(`filecomplete-spritesheet-${key}`, onComplete);
+        this.scene.load.off('loaderror', onError);
+        resolve(ok);
+      };
+
+      this.scene.load.spritesheet(key, url, frameConfig);
+      this.scene.load.once(`filecomplete-spritesheet-${key}`, onComplete);
+      this.scene.load.on('loaderror', onError);
+      if (!this.scene.load.isLoading()) this.scene.load.start();
+    });
+  }
+
+  private registerPmdAnimations(action: string, meta: PmdAnimEntry): void {
+    const textureKey = this.pmdTextureKey(action);
+    const frameCount = meta.durationsMs.length;
+    const isOneShot = action === 'Attack' || action === 'Hurt' || action === 'Faint';
+    for (let row = 0; row < meta.directions; row++) {
+      const animKey = this.pmdAnimKey(action, row);
+      if (this.scene.anims.exists(animKey)) continue; // shared/reused across same-species instances
+      this.scene.anims.create({
+        key: animKey,
+        frames: Array.from({ length: frameCount }, (_, i) => ({
+          key: textureKey,
+          frame: row * frameCount + i,
+          duration: meta.durationsMs[i],
+        })),
+        repeat: isOneShot ? 0 : -1,
+      });
+    }
+  }
+
+  private onPmdSpritesReady(): void {
+    if (this.container.scene === undefined) return; // destroyed while loading
+    this.placeholder.setVisible(false);
+
+    const sprite = this.scene.add.sprite(0, 0, this.pmdTextureKey('Idle')).setOrigin(0.5, 0.75);
+    sprite.setScale(this.pmdScale);
+    sprite.setVisible(this.hasRevealed); // stays hidden under the Pokéball until it pops open
+    this.container.addAt(sprite, 0);
+    this.body = sprite;
+    // No synthetic idle-bob tween here — PMD's own Idle animation already has
+    // baked motion; adding the old hotlink-tier tween on top would double it.
+    sprite.play(this.pmdAnimKey('Idle', FACING_TO_ROW.S));
   }
 
   private async tryLoadTier(pokemon: PokemonInstance, urls: SpriteUrls): Promise<void> {
@@ -311,6 +438,13 @@ export class PokemonSprite {
 
   private updateFacing(pokemon: PokemonInstance): void {
     if (!this.body) return;
+    this.lastFacing = pokemon.facing;
+
+    if (this.isPmdTier) {
+      this.updatePmdAnimationState(pokemon);
+      return;
+    }
+
     const config = FACING_CONFIG[pokemon.facing];
 
     if (config.useBack !== this.isShowingBack || this.body.texture.key === '') {
@@ -325,6 +459,44 @@ export class PokemonSprite {
 
     this.body.setFlipX(config.flip);
     this.body.setAngle(config.tiltDeg);
+  }
+
+  private desiredPmdAction(pokemon: PokemonInstance): string {
+    if (pokemon.status === 'sleep' && this.pmdActions.Sleep) return 'Sleep';
+    const wantsWalk = pokemon.aiState === 'wander' || pokemon.aiState === 'chase';
+    return wantsWalk && this.pmdActions.Walk ? 'Walk' : 'Idle';
+  }
+
+  private updatePmdAnimationState(pokemon: PokemonInstance): void {
+    if (!(this.body instanceof Phaser.GameObjects.Sprite)) return;
+    const action = this.pendingOneShot ?? this.desiredPmdAction(pokemon);
+    const meta = this.pmdActions[action];
+    if (!meta) return;
+    const row = meta.directions === 8 ? FACING_TO_ROW[pokemon.facing] : 0;
+    // ignoreIfPlaying=true: no-ops if this exact key (same action AND
+    // direction) is already current, so only a genuine action/facing change
+    // restarts the animation from frame 0.
+    this.body.play(this.pmdAnimKey(action, row), true);
+  }
+
+  /** Fires a one-shot PMD action (Attack/Hurt/Faint), then lets the looping
+   * Idle/Walk state resume once it completes. No-op for non-PMD-tier sprites
+   * or actions this species doesn't have. */
+  private triggerPmdOneShot(action: string): void {
+    if (!this.isPmdTier || !this.pmdActions[action] || !(this.body instanceof Phaser.GameObjects.Sprite)) return;
+    this.pendingOneShot = action;
+    const meta = this.pmdActions[action];
+    const row = meta.directions === 8 ? FACING_TO_ROW[this.lastFacing] : 0;
+    const key = this.pmdAnimKey(action, row);
+    this.body.play(key, true);
+    this.body.once(`animationcomplete-${key}`, () => {
+      if (this.pendingOneShot === action) this.pendingOneShot = null;
+    });
+  }
+
+  /** Called by ArenaScene on a 'moveUsed' event for the attacker. */
+  playPmdAttack(): void {
+    this.triggerPmdOneShot('Attack');
   }
 
   private updateHpBar(pokemon: PokemonInstance): void {
@@ -354,6 +526,7 @@ export class PokemonSprite {
       this.scene.time.delayedCall(HIT_FLASH_MS, () => {
         if (this.body) this.body.clearTint();
       });
+      this.triggerPmdOneShot('Hurt');
     }
     this.scene.tweens.add({
       targets: this.container,
@@ -388,11 +561,15 @@ export class PokemonSprite {
     if (this.hasFainted) return;
     this.hasFainted = true;
     this.idleTween?.stop();
+    this.triggerPmdOneShot('Faint');
+    // 500 = today's baseline fade duration, kept as a floor; stretched only
+    // when a real Faint animation is playing, so it isn't cut off early.
+    const faintMs = this.pmdActions.Faint?.durationsMs.reduce((a, b) => a + b, 0) ?? 0;
     this.scene.tweens.add({
       targets: this.container,
       alpha: 0,
       scale: 0.6,
-      duration: 500,
+      duration: Math.max(500, faintMs),
       ease: 'Cubic.easeIn',
       onComplete: () => {
         this.destroy();

@@ -3,6 +3,7 @@
   "references": [
     { "path": "./tsconfig.app.json" },
     { "path": "./tsconfig.node.json" },
-    { "path": "./tsconfig.pipeline.json" }
+    { "path": "./tsconfig.pipeline.json" },
+    { "path": "./tsconfig.sprite-server.json" }
   ]
 }

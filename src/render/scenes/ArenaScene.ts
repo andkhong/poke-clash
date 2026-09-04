@@ -7,14 +7,16 @@ import { preloadArenaTileset, createArenaBackground } from '../tileset/arenaBack
 import { preloadPokeballAsset } from '../sprites/pokeballAsset';
 import { playMoveImpact } from '../vfx/moveEffects';
 import { getMoveDefinition } from '../../data/loader';
-import type { SpriteIndex } from '../../data/types';
+import type { PmdSpriteIndex, SpriteIndex } from '../../data/types';
 import spriteIndexData from '../../data/generated/spriteIndex.json';
+import pmdSpriteIndexData from '../../data/generated/pmdSpriteIndex.json';
 
 export interface ArenaSceneData {
   engine: SimulationEngine;
 }
 
 const spriteIndex = spriteIndexData as SpriteIndex;
+const pmdSpriteIndex = pmdSpriteIndexData as PmdSpriteIndex;
 
 /** Owns the tick loop (drives engine.tick each frame) and renders whatever the
  * engine's SimState says is true — it never mutates simulation state itself. */
@@ -53,7 +55,7 @@ export class ArenaScene extends Phaser.Scene {
     // exactly the clockwise Pokéball-drop sequence the sprite needs.
     state.allInstanceIds.forEach((id, index) => {
       const pokemon = state.pokemon[id];
-      this.sprites.set(id, new PokemonSprite(this, pokemon, spriteIndex, index));
+      this.sprites.set(id, new PokemonSprite(this, pokemon, spriteIndex, pmdSpriteIndex, index));
     });
 
     this.cameras.main.setBackgroundColor('#1a1a1a');
@@ -97,6 +99,7 @@ export class ArenaScene extends Phaser.Scene {
     if (!attacker || !move || !attackerSprite) return;
 
     attackerSprite.showMoveLabel(move);
+    attackerSprite.playPmdAttack();
 
     for (const targetId of event.targetIds) {
       if (!event.hit[targetId]) continue;

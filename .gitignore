@@ -11,6 +11,11 @@ data-pipeline/cache/
 # generated dataset IS committed (see src/data/generated/) so the app works
 # without running the pipeline — do not ignore it.
 
+# PMD sprite mirror: hundreds of MB of downloaded sprite art served locally by
+# sprite-server/, not committed. Re-run `npm run data:fetch-pmd-sprites` (with
+# PMD_SPRITE_ALL=true for the full roster) to repopulate.
+pmd-sprite-mirror/
+
 *.log
 npm-debug.log*
 *.tsbuildinfo

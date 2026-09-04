@@ -26,3 +26,29 @@ export interface SpriteIndexEntry {
 }
 
 export type SpriteIndex = Record<string, SpriteIndexEntry>;
+
+// Shape of src/data/generated/pmdSpriteIndex.json (see data-pipeline/fetch-pmd-sprites.ts).
+// One entry per species with usable PMDCollab/SpriteCollab coverage (at least
+// Idle+Walk) — species without an entry fall back to the hotlink tier above.
+// The raw PNGs live outside git in pmd-sprite-mirror/, served locally by
+// sprite-server/; this index carries everything needed to build Phaser
+// spritesheets/animations from them without ever parsing AnimData.xml at runtime.
+export interface PmdAnimEntry {
+  frameWidth: number;
+  frameHeight: number;
+  /** 8 = one row per compass direction (see FACING_TO_ROW in PokemonSprite.ts); 1 = a single direction-agnostic pose. */
+  directions: 1 | 8;
+  /** Per-frame duration in ms, converted from AnimData.xml's 1/60s tick units. */
+  durationsMs: number[];
+  hasShadow: boolean;
+}
+
+export interface PmdSpriteIndexEntry {
+  /** Zero-padded 4-digit species folder name under pmd-sprite-mirror/, e.g. "0025". */
+  dir: string;
+  /** Keyed by PMD action name (Idle/Walk/Attack/Hurt/Sleep/Faint — see CORE_ACTIONS). */
+  actions: Record<string, PmdAnimEntry>;
+  generatedAt: string;
+}
+
+export type PmdSpriteIndex = Record<string, PmdSpriteIndexEntry>;
