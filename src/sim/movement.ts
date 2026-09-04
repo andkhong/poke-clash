@@ -1,6 +1,5 @@
 import type { ArenaBounds, FacingDirection, PokemonInstance, Vec2 } from './types';
 import type { Rng } from './rng';
-import { rngInt } from './rng';
 import {
   ARENA_PADDING,
   ARRIVAL_SLOWDOWN_RADIUS,
@@ -40,10 +39,22 @@ export function buildNeighborListFromPositions(
   }));
 }
 
-export function pickWanderWaypoint(rng: Rng, arena: ArenaBounds): Vec2 {
+/** Minimum distance (px) a new wander waypoint must be from the Pokémon's
+ * current position. A fully position-independent uniform-random point can
+ * land close by chance, and with only a few seconds of guaranteed wander
+ * time before combat is allowed to lock in, an unlucky short pick barely
+ * moves anyone out of the tightly-packed spawn circle. Picking a random
+ * direction plus a random distance in [MIN, MIN+RANGE] instead guarantees
+ * every leg is a real trek across the arena while staying fully random. */
+const MIN_WANDER_DISTANCE = 400;
+const WANDER_DISTANCE_RANGE = 500;
+
+export function pickWanderWaypoint(rng: Rng, arena: ArenaBounds, from: Vec2): Vec2 {
+  const angle = rng() * Math.PI * 2;
+  const dist = MIN_WANDER_DISTANCE + rng() * WANDER_DISTANCE_RANGE;
   return {
-    x: rngInt(rng, ARENA_PADDING, arena.width - ARENA_PADDING),
-    y: rngInt(rng, ARENA_PADDING, arena.height - ARENA_PADDING),
+    x: Math.max(ARENA_PADDING, Math.min(arena.width - ARENA_PADDING, from.x + Math.cos(angle) * dist)),
+    y: Math.max(ARENA_PADDING, Math.min(arena.height - ARENA_PADDING, from.y + Math.sin(angle) * dist)),
   };
 }
 

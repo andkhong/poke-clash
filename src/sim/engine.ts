@@ -149,7 +149,7 @@ export class SimulationEngine {
     if (self.aiState === 'wander') {
       const selfPos = positions.get(self.instanceId) ?? self.position;
       if (!self.wanderWaypoint || distance(selfPos, self.wanderWaypoint) < 12) {
-        self.wanderWaypoint = pickWanderWaypoint(this.rng, this.state.arena);
+        self.wanderWaypoint = pickWanderWaypoint(this.rng, this.state.arena, selfPos);
       }
       steerToward(self, self.wanderWaypoint, WANDER_MOVE_SPEED * speedMult, neighbors);
     } else if (self.aiState === 'chase' && self.targetInstanceId) {

@@ -13,6 +13,7 @@ export function SetupScreen({ onStart }: SetupScreenProps) {
   const [level, setLevel] = useState<SelectableLevel>(50);
   const [speciesIds, setSpeciesIds] = useState<number[]>(() => pickRandomSpeciesIds(DEFAULT_ROSTER_SIZE));
   const [activePreset, setActivePreset] = useState<string | null>(null);
+  const [shiny, setShiny] = useState(false);
 
   const themePresets = useMemo(() => getThemePresets(), []);
   const speciesById = useMemo(() => new Map(listAllSpecies().map((s) => [s.id, s])), []);
@@ -99,9 +100,16 @@ export function SetupScreen({ onStart }: SetupScreenProps) {
         </div>
       </section>
 
+      <section style={{ width: '100%', maxWidth: 420 }}>
+        <h2 style={sectionHeading}>Special</h2>
+        <button onClick={() => setShiny((s) => !s)} style={shinyToggleButton(shiny)}>
+          ✨ Shiny {shiny ? 'ON' : 'OFF'}
+        </button>
+      </section>
+
       <button
         onClick={() =>
-          onStart({ level, speciesIds, arena: { width: ARENA_WIDTH, height: ARENA_HEIGHT } })
+          onStart({ level, speciesIds, arena: { width: ARENA_WIDTH, height: ARENA_HEIGHT }, shiny })
         }
         disabled={!canStart}
         style={{
@@ -150,6 +158,22 @@ function pillButton(active: boolean): CSSProperties {
     border: active ? '1px solid #e0b030' : '1px solid rgba(255,255,255,0.2)',
     background: active ? 'rgba(224,176,48,0.18)' : 'rgba(255,255,255,0.05)',
     color: active ? '#e0b030' : '#ddd',
+    cursor: 'pointer',
+  };
+}
+
+// Matches SHINY_TINT_COLOR (#ffd700) in PokemonSprite.ts, so the toggle's own
+// "on" look previews the gold recolor it turns on.
+function shinyToggleButton(active: boolean): CSSProperties {
+  return {
+    fontSize: 12,
+    fontFamily: 'monospace',
+    fontWeight: 'bold',
+    padding: '6px 14px',
+    borderRadius: 16,
+    border: active ? '1px solid #ffd700' : '1px solid rgba(255,255,255,0.2)',
+    background: active ? 'rgba(255,215,0,0.22)' : 'rgba(255,255,255,0.05)',
+    color: active ? '#ffd700' : '#ddd',
     cursor: 'pointer',
   };
 }

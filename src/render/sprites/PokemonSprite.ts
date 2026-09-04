@@ -46,6 +46,12 @@ const MOVE_LABEL_BORDER_COLOR = 0x1a1a1a;
 const MOVE_LABEL_SHADE_AMOUNT = 45;
 const HIT_FLASH_MS = 160;
 const MOVE_LABEL_MS = 1300;
+/** No distinct shiny art exists for any tier, so shininess is a uniform
+ * recolor tint (Phaser's multiply-tint, which preserves shading/detail)
+ * rather than genuinely different sprites — a common, well-understood
+ * simplification. Matches the gold used by the setup screen's shiny toggle
+ * and the shiny sparkle-burst color. */
+const SHINY_TINT_COLOR = 0xffd700;
 const BALL_DROP_HEIGHT = 260;
 const BALL_STAGGER_JITTER_MS = 40;
 /** How much of the gap to the true sim position to close each render frame —
@@ -140,6 +146,12 @@ export class PokemonSprite {
 
   private readonly scene: Phaser.Scene;
   private readonly speciesId: number;
+  private readonly shiny: boolean;
+  /** True only once real shiny PMD art (a genuine per-species recolor, not a
+   * tint) is actually loaded — see tryLoadPmdSprites(). Also folded into the
+   * PMD texture/anim key names, so a species played once normally and once
+   * shiny in the same session never reuses the wrong cached texture. */
+  private usingRealShinyArt = false;
   private readonly container: Phaser.GameObjects.Container;
   private readonly placeholder: Phaser.GameObjects.Arc;
   private body: Phaser.GameObjects.Sprite | Phaser.GameObjects.Image | null = null;
@@ -182,11 +194,13 @@ export class PokemonSprite {
     pokemon: PokemonInstance,
     spriteIndex: SpriteIndex | null,
     pmdSpriteIndex: PmdSpriteIndex | null,
-    spawnIndex: number
+    spawnIndex: number,
+    shiny: boolean
   ) {
     this.scene = scene;
     this.instanceId = pokemon.instanceId;
     this.speciesId = pokemon.speciesId;
+    this.shiny = shiny;
     this.renderPos = { x: pokemon.position.x, y: pokemon.position.y };
 
     this.container = scene.add.container(pokemon.position.x, pokemon.position.y - BALL_DROP_HEIGHT);
@@ -259,7 +273,7 @@ export class PokemonSprite {
     this.hpBarFill.setVisible(true);
     this.hasRevealed = true;
     playCry(this.scene, this.speciesId);
-    playSparkleReveal(this.scene, targetPos.x, targetPos.y);
+    playSparkleReveal(this.scene, targetPos.x, targetPos.y, this.shiny);
 
     this.container.setScale(0.5);
     this.scene.tweens.add({
@@ -288,21 +302,27 @@ export class PokemonSprite {
   }
 
   private pmdTextureKey(action: string): string {
-    return `poke-${this.speciesId}-pmd-${action}`;
+    return `poke-${this.speciesId}-pmd-${action}${this.usingRealShinyArt ? '-shiny' : ''}`;
   }
 
   private pmdAnimKey(action: string, row: number): string {
-    return `poke-${this.speciesId}-pmd-${action}-r${row}`;
+    return `poke-${this.speciesId}-pmd-${action}${this.usingRealShinyArt ? '-shiny' : ''}-r${row}`;
   }
 
   private async tryLoadPmdSprites(entry: PmdSpriteIndex[string]): Promise<boolean> {
     if (!entry.actions.Idle || !entry.actions.Walk) return false; // defensive re-check of the pipeline's own gate
 
+    // Real shiny art (a genuine per-species recolor) takes priority over the
+    // flat-tint fallback whenever PMDCollab actually has it for this species.
+    this.usingRealShinyArt = this.shiny && !!entry.shiny;
+    const dir = this.usingRealShinyArt ? entry.shiny!.dir : entry.dir;
+    const sourceActions = this.usingRealShinyArt ? entry.shiny!.actions : entry.actions;
+
     const loaded: Record<string, PmdAnimEntry> = {};
     await Promise.all(
-      Object.entries(entry.actions).map(async ([action, meta]) => {
+      Object.entries(sourceActions).map(async ([action, meta]) => {
         const key = this.pmdTextureKey(action);
-        const ok = await this.loadSpriteSheet(key, `/pmd-sprites/${entry.dir}/${action}-Anim.png`, {
+        const ok = await this.loadSpriteSheet(key, `/pmd-sprites/${dir}/${action}-Anim.png`, {
           frameWidth: meta.frameWidth,
           frameHeight: meta.frameHeight,
         });
@@ -378,6 +398,9 @@ export class PokemonSprite {
     sprite.setVisible(this.hasRevealed); // stays hidden under the Pokéball until it pops open
     this.container.addAt(sprite, 0);
     this.body = sprite;
+    // Real shiny art already IS the correct colors — the flat tint is only a
+    // fallback for species PMDCollab has no shiny recolor for yet.
+    if (this.shiny && !this.usingRealShinyArt) sprite.setTint(SHINY_TINT_COLOR);
     // No synthetic idle-bob tween here — PMD's own Idle animation already has
     // baked motion; adding the old hotlink-tier tween on top would double it.
     sprite.play(this.pmdAnimKey('Idle', FACING_TO_ROW.S));
@@ -464,6 +487,7 @@ export class PokemonSprite {
     sprite.setVisible(this.hasRevealed); // stays hidden under the Pokéball until it pops open
     this.container.addAt(sprite, 0);
     this.body = sprite;
+    if (this.shiny) sprite.setTint(SHINY_TINT_COLOR);
 
     if (this.frontIsAnimated) {
       sprite.play(frontKey);
@@ -647,7 +671,14 @@ export class PokemonSprite {
     if (this.body instanceof Phaser.GameObjects.Sprite) {
       this.body.setTintFill(0xffffff);
       this.scene.time.delayedCall(HIT_FLASH_MS, () => {
-        if (this.body) this.body.clearTint();
+        // clearTint() would also wipe the fallback shiny tint (Phaser has one
+        // tint slot, not layered tints) — reapply it rather than leaving a
+        // shiny Pokémon un-tinted after its first hit. Real shiny art needs
+        // no tint at all — the loaded texture's own colors are already right.
+        if (this.body) {
+          if (this.shiny && !this.usingRealShinyArt) this.body.setTint(SHINY_TINT_COLOR);
+          else this.body.clearTint();
+        }
       });
       this.triggerPmdOneShot('Hurt', this.computeHitFacing(pokemon, allPokemon));
     }

@@ -6,7 +6,7 @@ import { buildSpeciesMapForLevel, listAllSpecies, moveLookup, pickRandomSpeciesI
 function runFullMatch(seed: number, speciesIds: number[], level: 50 | 60 | 70 | 80 | 90 | 100): SimulationEngine {
   const species = buildSpeciesMapForLevel(speciesIds, level);
   const engine = new SimulationEngine(
-    { level, speciesIds, arena: { width: 960, height: 1600 } },
+    { level, speciesIds, arena: { width: 960, height: 1600 }, shiny: false },
     species,
     moveLookup,
     seed

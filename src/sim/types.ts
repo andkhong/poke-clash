@@ -148,6 +148,10 @@ export interface SimState {
   arena: ArenaBounds;
   /** Computed from roster size — see constants.ts computeIntroDurationMs. */
   introDurationMs: number;
+  /** Purely cosmetic (see MatchConfig.shiny) — echoed here, same as `arena`,
+   * so the renderer can read it off the state it already has without a
+   * separate plumbing path. The sim itself never branches on this. */
+  shiny: boolean;
 }
 
 export type SimEvent =
@@ -174,4 +178,8 @@ export interface MatchConfig {
   /** Species IDs to draw into the arena; MVP = unique species, no duplicates, length <= 16. */
   speciesIds: number[];
   arena: ArenaBounds;
+  /** Whole-roster cosmetic toggle from the setup screen — every Pokémon in
+   * the match renders with the shiny recolor/sparkle. No effect on stats,
+   * moves, or any other sim behavior. */
+  shiny: boolean;
 }

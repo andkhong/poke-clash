@@ -55,7 +55,7 @@ export class ArenaScene extends Phaser.Scene {
     // exactly the clockwise Pokéball-drop sequence the sprite needs.
     state.allInstanceIds.forEach((id, index) => {
       const pokemon = state.pokemon[id];
-      this.sprites.set(id, new PokemonSprite(this, pokemon, spriteIndex, pmdSpriteIndex, index));
+      this.sprites.set(id, new PokemonSprite(this, pokemon, spriteIndex, pmdSpriteIndex, index, state.shiny));
     });
 
     this.cameras.main.setBackgroundColor('#1a1a1a');

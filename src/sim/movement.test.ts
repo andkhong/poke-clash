@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { distance, resolveCollisions, velocityToFacing } from './movement';
+import { distance, pickWanderWaypoint, resolveCollisions, velocityToFacing } from './movement';
+import { createRng } from './rng';
 import type { FacingDirection, PokemonInstance } from './types';
 
 function makeCollider(id: string, x: number, y: number, collisionRadius: number): PokemonInstance {
@@ -109,5 +110,40 @@ describe('resolveCollisions', () => {
     const pokemonById = { a, b };
     resolveCollisions(['a', 'b'], pokemonById, { width: 2000, height: 2000 });
     expect(a.position.x).toBeGreaterThanOrEqual(48); // ARENA_PADDING
+  });
+});
+
+describe('pickWanderWaypoint', () => {
+  const arena = { width: 900, height: 1950 };
+
+  it('always picks a point a meaningful minimum distance from the current position', () => {
+    const rng = createRng(1);
+    // A large arena, from its center, so the minimum-distance guarantee isn't
+    // masked by bounds-clamping pulling a far pick back close to `from`.
+    const from = { x: 450, y: 975 };
+    for (let i = 0; i < 50; i++) {
+      const wp = pickWanderWaypoint(rng, arena, from);
+      expect(distance(from, wp)).toBeGreaterThanOrEqual(400 - 1e-6);
+    }
+  });
+
+  it('stays within the padded arena bounds even when the pick would overshoot', () => {
+    const rng = createRng(2);
+    const corner = { x: 48, y: 48 };
+    for (let i = 0; i < 50; i++) {
+      const wp = pickWanderWaypoint(rng, arena, corner);
+      expect(wp.x).toBeGreaterThanOrEqual(48);
+      expect(wp.x).toBeLessThanOrEqual(arena.width - 48);
+      expect(wp.y).toBeGreaterThanOrEqual(48);
+      expect(wp.y).toBeLessThanOrEqual(arena.height - 48);
+    }
+  });
+
+  it('varies direction across repeated calls rather than always picking the same spot', () => {
+    const rng = createRng(3);
+    const from = { x: 450, y: 975 };
+    const points = Array.from({ length: 10 }, () => pickWanderWaypoint(rng, arena, from));
+    const uniqueX = new Set(points.map((p) => Math.round(p.x)));
+    expect(uniqueX.size).toBeGreaterThan(1);
   });
 });

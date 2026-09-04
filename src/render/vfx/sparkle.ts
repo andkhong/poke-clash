@@ -1,50 +1,60 @@
 import Phaser from 'phaser';
 
 // The example videos show a small burst of white sparkle/twinkle particles
-// around a Pokémon the moment it appears — this reproduces that with a
-// procedurally-generated 4-point star texture (no sparkle asset was sourced,
-// so it's drawn once via Graphics.generateTexture and cached) fired through
-// Phaser's particle emitter.
-const SPARKLE_TEXTURE_KEY = 'vfx-sparkle-star';
-const SPARKLE_SIZE = 10;
+// around a Pokémon the moment it appears. Drawn as a hand-authored pixel
+// grid (not a smooth vector polygon) with nearest-neighbor filtering, so it
+// reads as genuine pixel art — consistent with the PMD sprites — rather than
+// an anti-aliased shape.
+const SPARKLE_TEXTURE_KEY = 'vfx-sparkle-pixel';
+const SHINY_SPARKLE_TEXTURE_KEY = 'vfx-sparkle-pixel-shiny';
+const PIXEL_UNIT = 2; // px per grid cell
 
-function ensureSparkleTexture(scene: Phaser.Scene): void {
-  if (scene.textures.exists(SPARKLE_TEXTURE_KEY)) return;
+// Classic 4-point pixel twinkle: a bright plus with dim diagonal accents.
+// '2' = full-bright cell, '1' = dim cell, '0' = empty.
+const SPARKLE_GRID = [
+  '00100',
+  '01210',
+  '22222',
+  '01210',
+  '00100',
+];
 
-  const s = SPARKLE_SIZE;
+function buildSparkleTexture(scene: Phaser.Scene, key: string, brightColor: number, dimColor: number): void {
+  if (scene.textures.exists(key)) return;
+
+  const size = SPARKLE_GRID.length * PIXEL_UNIT;
   const g = scene.make.graphics({ x: 0, y: 0 }, false);
-  g.fillStyle(0xffffff, 1);
-  g.beginPath();
-  g.moveTo(s * 0.5, 0);
-  g.lineTo(s * 0.62, s * 0.38);
-  g.lineTo(s, s * 0.5);
-  g.lineTo(s * 0.62, s * 0.62);
-  g.lineTo(s * 0.5, s);
-  g.lineTo(s * 0.38, s * 0.62);
-  g.lineTo(0, s * 0.5);
-  g.lineTo(s * 0.38, s * 0.38);
-  g.closePath();
-  g.fillPath();
-  g.generateTexture(SPARKLE_TEXTURE_KEY, s, s);
+  SPARKLE_GRID.forEach((row, ry) => {
+    [...row].forEach((cell, rx) => {
+      if (cell === '0') return;
+      g.fillStyle(cell === '2' ? brightColor : dimColor, 1);
+      g.fillRect(rx * PIXEL_UNIT, ry * PIXEL_UNIT, PIXEL_UNIT, PIXEL_UNIT);
+    });
+  });
+  g.generateTexture(key, size, size);
   g.destroy();
+  scene.textures.get(key).setFilter(Phaser.Textures.FilterMode.NEAREST);
 }
 
-/** One-shot sparkle burst around a point — call the moment a Pokémon is revealed. */
-export function playSparkleReveal(scene: Phaser.Scene, x: number, y: number): void {
-  ensureSparkleTexture(scene);
+/** One-shot sparkle burst around a point — call the moment a Pokémon is
+ * revealed. `shiny` swaps the usual white/grey twinkle for a gold one, echoing
+ * the shiny recolor tint applied to the sprite itself. */
+export function playSparkleReveal(scene: Phaser.Scene, x: number, y: number, shiny = false): void {
+  const key = shiny ? SHINY_SPARKLE_TEXTURE_KEY : SPARKLE_TEXTURE_KEY;
+  buildSparkleTexture(scene, key, shiny ? 0xfff2a8 : 0xffffff, shiny ? 0xe0a428 : 0xc8d8ff);
 
-  const emitter = scene.add.particles(x, y, SPARKLE_TEXTURE_KEY, {
+  const emitter = scene.add.particles(x, y, key, {
     speed: { min: 25, max: 65 },
     angle: { min: 0, max: 360 },
-    scale: { start: 1.3, end: 0 },
+    scale: { start: 2.2, end: 0 },
     alpha: { start: 1, end: 0 },
     lifespan: { min: 350, max: 550 },
-    quantity: 12,
+    quantity: shiny ? 20 : 12,
     blendMode: 'ADD',
     emitting: false,
   });
   emitter.setDepth(600);
-  emitter.explode(12);
+  emitter.explode(shiny ? 20 : 12);
 
   scene.time.delayedCall(700, () => emitter.destroy());
 }

@@ -29,7 +29,7 @@ const FIXTURE_SPECIES: Record<number, SpeciesData> = {
 
 function runFullMatch(seed: number, speciesIds: number[]): SimulationEngine {
   const engine = new SimulationEngine(
-    { level: 100, speciesIds, arena: { width: 960, height: 1600 } },
+    { level: 100, speciesIds, arena: { width: 960, height: 1600 }, shiny: false },
     FIXTURE_SPECIES,
     moveLookup,
     seed
@@ -94,7 +94,7 @@ describe('SimulationEngine full match', () => {
 
   it('lets nobody attack another Pokémon until COMBAT_START_DELAY_MS after the intro ends', () => {
     const engine = new SimulationEngine(
-      { level: 100, speciesIds: [1, 2, 3, 4, 5, 6], arena: { width: 960, height: 1600 } },
+      { level: 100, speciesIds: [1, 2, 3, 4, 5, 6], arena: { width: 960, height: 1600 }, shiny: false },
       FIXTURE_SPECIES,
       moveLookup,
       99
@@ -138,7 +138,7 @@ describe('SimulationEngine full match', () => {
 
   it('holds the intro circle formation without moving Pokémon before battle starts', () => {
     const engine = new SimulationEngine(
-      { level: 100, speciesIds: [1, 2, 3], arena: { width: 960, height: 1600 } },
+      { level: 100, speciesIds: [1, 2, 3], arena: { width: 960, height: 1600 }, shiny: false },
       FIXTURE_SPECIES,
       moveLookup,
       1

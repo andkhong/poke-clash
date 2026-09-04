@@ -109,5 +109,6 @@ export function createMatch(
     winnerInstanceIds: [],
     arena: config.arena,
     introDurationMs: computeIntroDurationMs(count),
+    shiny: config.shiny,
   };
 }

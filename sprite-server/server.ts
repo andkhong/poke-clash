@@ -13,8 +13,10 @@ const MIRROR_ROOT = new URL('../pmd-sprite-mirror/', import.meta.url).pathname;
 
 // Strict allowlist for both path segments — this is what actually prevents
 // path traversal (../../etc/passwd-style requests), since the matched groups
-// are joined straight onto a filesystem path below.
-const ROUTE_RE = /^\/pmd-sprites\/([0-9]{4})\/([A-Za-z]+-(?:Anim|Shadow)\.png)$/;
+// are joined straight onto a filesystem path below. The optional "-shiny"
+// suffix matches fetch-pmd-shiny-sprites.ts's mirror folder naming
+// ("{id}-shiny/"), so the exact same route serves both tiers.
+const ROUTE_RE = /^\/pmd-sprites\/([0-9]{4}(?:-shiny)?)\/([A-Za-z]+-(?:Anim|Shadow)\.png)$/;
 
 const server = createServer((req, res) => {
   const url = req.url ?? '';

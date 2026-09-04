@@ -49,6 +49,17 @@ export interface PmdSpriteIndexEntry {
   /** Keyed by PMD action name (Idle/Walk/Attack/Hurt/Sleep/Faint — see CORE_ACTIONS). */
   actions: Record<string, PmdAnimEntry>;
   generatedAt: string;
+  /** Present only when PMDCollab has real shiny recolor art for this species
+   * (see data-pipeline/fetch-pmd-shiny-sprites.ts) — a genuinely different,
+   * per-species color palette, not a uniform tint. `actions` here mirrors the
+   * same shape as the normal tier but independently measured from the shiny
+   * sheets (same layout/timing is expected since shiny is just a recolor,
+   * but never assumed). Absent for species PMDCollab hasn't gotten a shiny
+   * recolor for yet — PokemonSprite.ts falls back to a flat tint for those. */
+  shiny?: {
+    dir: string;
+    actions: Record<string, PmdAnimEntry>;
+  };
 }
 
 export type PmdSpriteIndex = Record<string, PmdSpriteIndexEntry>;
