@@ -46,6 +46,13 @@ const MOVE_LABEL_BORDER_COLOR = 0x1a1a1a;
 const MOVE_LABEL_SHADE_AMOUNT = 45;
 const HIT_FLASH_MS = 160;
 const MOVE_LABEL_MS = 1300;
+/** How far a lunge-family move (Fire Punch, Tackle, ...) dashes the attacker's
+ * sprite toward its target, at most — see playLungeAttack(). Kept well under
+ * typical inter-Pokémon spacing so a lunge reads as "closing the last bit of
+ * distance to throw a punch," not a teleport across the arena. */
+const MAX_LUNGE_DISTANCE = 130;
+const LUNGE_OUT_MS = 120;
+const LUNGE_BACK_MS = 170;
 /** No distinct shiny art exists for any tier, so shininess is a uniform
  * recolor tint (Phaser's multiply-tint, which preserves shading/detail)
  * rather than genuinely different sprites — a common, well-understood
@@ -182,6 +189,13 @@ export class PokemonSprite {
   private hasRevealed = false;
   private pokeball: Phaser.GameObjects.Image | null = null;
   private renderPos: Vec2;
+  /** Purely cosmetic, additive offset from renderPos — drives the lunge
+   * family's dash-toward-target-and-back motion (see playLungeAttack()).
+   * Never fed back into the sim; PokemonInstance.position stays the sole
+   * source of truth, per ArenaScene's "renderer never mutates simulation
+   * state" invariant. */
+  private readonly attackOffset: Vec2 = { x: 0, y: 0 };
+  private lungeTween: Phaser.Tweens.Tween | Phaser.Tweens.TweenChain | null = null;
 
   /**
    * `spawnIndex`/`totalCount` drive the clockwise Pokéball-drop entrance —
@@ -514,8 +528,8 @@ export class PokemonSprite {
 
     this.renderPos.x += (screenX - this.renderPos.x) * POSITION_SMOOTHING;
     this.renderPos.y += (screenY - this.renderPos.y) * POSITION_SMOOTHING;
-    this.container.setPosition(this.renderPos.x, this.renderPos.y);
-    this.container.setDepth(this.renderPos.y);
+    this.container.setPosition(this.renderPos.x + this.attackOffset.x, this.renderPos.y + this.attackOffset.y);
+    this.container.setDepth(this.renderPos.y + this.attackOffset.y);
 
     this.updateFacing(pokemon, allPokemon);
     this.updateHpBar(pokemon);
@@ -631,6 +645,40 @@ export class PokemonSprite {
   playPmdAttack(selfPosition: Vec2, targetPosition: Vec2 | undefined): void {
     const facing = targetPosition ? this.facingToward(selfPosition, targetPosition) : this.lastFacing;
     this.triggerPmdOneShot('Attack', facing);
+  }
+
+  /** Lunge-family move VFX (see moveAnimations.ts) — dashes this sprite's
+   * container toward `targetPosition` and back via a purely additive,
+   * cosmetic offset (attackOffset), independent of playPmdAttack's sprite-
+   * frame swing which keeps playing exactly as it does for every other
+   * family. Distance is clamped so the attacker stops just short of the
+   * target's own footprint rather than overlapping it. Kills any lunge
+   * already in flight first so a fast attacker's consecutive hits retarget
+   * smoothly instead of stacking offsets. `onImpact` fires at the apex (the
+   * moment the dash reaches the target), for a caller-supplied contact VFX. */
+  playLungeAttack(selfPosition: Vec2, targetPosition: Vec2, targetCollisionRadius: number, onImpact?: () => void): void {
+    this.lungeTween?.stop();
+
+    const dx = targetPosition.x - selfPosition.x;
+    const dy = targetPosition.y - selfPosition.y;
+    const distanceToTarget = Math.hypot(dx, dy);
+    const travel = Phaser.Math.Clamp(distanceToTarget - targetCollisionRadius, 0, MAX_LUNGE_DISTANCE);
+    const dirX = distanceToTarget > 0 ? dx / distanceToTarget : 0;
+    const dirY = distanceToTarget > 0 ? dy / distanceToTarget : 0;
+
+    this.lungeTween = this.scene.tweens.chain({
+      targets: this.attackOffset,
+      tweens: [
+        {
+          x: dirX * travel,
+          y: dirY * travel,
+          duration: LUNGE_OUT_MS,
+          ease: 'Quad.easeOut',
+          onComplete: () => onImpact?.(),
+        },
+        { x: 0, y: 0, duration: LUNGE_BACK_MS, ease: 'Quad.easeIn' },
+      ],
+    });
   }
 
   /** Direction from the defender toward whoever last hit it — i.e. the

@@ -7,9 +7,10 @@ import { ARENA_HEIGHT, ARENA_WIDTH } from '../../app/config';
 
 interface SetupScreenProps {
   onStart: (config: MatchConfig) => void;
+  onOpenCustomBattle: () => void;
 }
 
-export function SetupScreen({ onStart }: SetupScreenProps) {
+export function SetupScreen({ onStart, onOpenCustomBattle }: SetupScreenProps) {
   const [level, setLevel] = useState<SelectableLevel>(50);
   const [speciesIds, setSpeciesIds] = useState<number[]>(() => pickRandomSpeciesIds(DEFAULT_ROSTER_SIZE));
   const [activePreset, setActivePreset] = useState<string | null>(null);
@@ -51,6 +52,10 @@ export function SetupScreen({ onStart }: SetupScreenProps) {
       <p style={{ margin: 0, opacity: 0.7, fontSize: 12, textAlign: 'center' }}>
         Up to {MAX_ROSTER_SIZE} Pokémon enter. One leaves.
       </p>
+
+      <button onClick={onOpenCustomBattle} style={customBattleLink}>
+        ⚔️ Custom 1v1 — pick 2 Pokémon &amp; their exact moves
+      </button>
 
       <section style={{ width: '100%', maxWidth: 420 }}>
         <h2 style={sectionHeading}>Level</h2>
@@ -147,6 +152,17 @@ const chip: CSSProperties = {
   border: '1px solid rgba(255,255,255,0.15)',
   borderRadius: 3,
   padding: '3px 7px',
+};
+
+const customBattleLink: CSSProperties = {
+  fontSize: 11,
+  fontFamily: 'monospace',
+  padding: '6px 14px',
+  borderRadius: 16,
+  border: '1px dashed rgba(255,255,255,0.3)',
+  background: 'transparent',
+  color: '#bbb',
+  cursor: 'pointer',
 };
 
 function pillButton(active: boolean): CSSProperties {

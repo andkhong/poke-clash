@@ -22,6 +22,29 @@ export function MatchScreen({ store, onExit }: MatchScreenProps) {
 
       <BannerOverlay state={state} />
 
+      {state.phase !== 'complete' && (
+        <button
+          onClick={() => store.getEngine().endMatchNow()}
+          style={{
+            position: 'absolute',
+            bottom: 16,
+            right: 16,
+            padding: '6px 14px',
+            fontSize: 11,
+            fontFamily: 'monospace',
+            fontWeight: 'bold',
+            letterSpacing: 1,
+            color: '#e8e2d4',
+            background: 'rgba(20,22,28,0.75)',
+            border: '1px solid rgba(232,226,212,0.4)',
+            borderRadius: 5,
+            cursor: 'pointer',
+          }}
+        >
+          END MATCH
+        </button>
+      )}
+
       {state.phase === 'complete' && (
         <button
           onClick={onExit}

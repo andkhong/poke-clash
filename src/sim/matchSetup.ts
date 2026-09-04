@@ -28,10 +28,14 @@ export interface SpeciesData {
 
 export type MoveLookup = (moveId: number) => MoveDefinition | undefined;
 
-function pickMoveSlots(pool: readonly number[], moves: MoveLookup, rng: Rng): MoveSlot[] {
-  const shuffled = rngShuffle(rng, pool);
+/** `explicit` (from MatchConfig.customMoves) takes priority when it names at
+ * least one move actually in this species' pool — letting the custom-battle
+ * builder pin an exact moveset — otherwise falls back to today's random 4. */
+function pickMoveSlots(pool: readonly number[], moves: MoveLookup, rng: Rng, explicit?: readonly number[]): MoveSlot[] {
+  const validExplicit = explicit?.filter((id) => pool.includes(id));
+  const source = validExplicit && validExplicit.length > 0 ? validExplicit : rngShuffle(rng, pool);
   const slots: MoveSlot[] = [];
-  for (const moveId of shuffled) {
+  for (const moveId of source) {
     if (slots.length >= 4) break;
     const def = moves(moveId);
     if (!def) continue;
@@ -80,7 +84,7 @@ export function createMatch(
       statStages: createNeutralStages(),
       currentHp: computedStats.hp,
       maxHp: computedStats.hp,
-      moves: pickMoveSlots(data.movePool, moves, rng),
+      moves: pickMoveSlots(data.movePool, moves, rng, config.customMoves?.[speciesId]),
       status: null,
       statusTickAccumMs: 0,
       position,

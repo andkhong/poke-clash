@@ -182,4 +182,12 @@ export interface MatchConfig {
    * the match renders with the shiny recolor/sparkle. No effect on stats,
    * moves, or any other sim behavior. */
   shiny: boolean;
+  /** Explicit moveset override, keyed by species ID — up to 4 move IDs drawn
+   * from that species' own movePool (see data/loader.ts's
+   * buildSpeciesDataForLevel), used by the custom-battle builder so a player
+   * can hand-pick exactly which moves a Pokémon brings in instead of the
+   * sim's default random 4. A species with no entry here (or an entry with
+   * moves outside its real movePool) falls back to the random pick — see
+   * matchSetup.ts's pickMoveSlots. */
+  customMoves?: Record<number, number[]>;
 }

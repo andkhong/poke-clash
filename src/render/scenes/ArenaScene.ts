@@ -1,11 +1,15 @@
 import Phaser from 'phaser';
 import type { SimulationEngine } from '../../sim/engine';
+import type { PokemonInstance } from '../../sim/types';
 import { EventCursor } from '../../sim/events';
 import { STRUGGLE_MOVE, STRUGGLE_MOVE_ID } from '../../sim/struggle';
 import { PokemonSprite } from '../sprites/PokemonSprite';
 import { preloadArenaTileset, createArenaBackground } from '../tileset/arenaBackground';
 import { preloadPokeballAsset } from '../sprites/pokeballAsset';
 import { playMoveImpact } from '../vfx/moveEffects';
+import { resolveMoveAnimation } from '../vfx/moveAnimations';
+import { playBeamAttack } from '../vfx/moves/beamAttack';
+import { playImpactBurst } from '../vfx/moves/impactBurst';
 import { getMoveDefinition } from '../../data/loader';
 import type { PmdSpriteIndex, SpriteIndex } from '../../data/types';
 import spriteIndexData from '../../data/generated/spriteIndex.json';
@@ -106,11 +110,33 @@ export class ArenaScene extends Phaser.Scene {
     const engagedTarget = attacker.targetInstanceId ? state.pokemon[attacker.targetInstanceId] : undefined;
     attackerSprite.playPmdAttack(attacker.position, engagedTarget?.position);
 
+    const hitTargets: PokemonInstance[] = [];
     for (const targetId of event.targetIds) {
       if (!event.hit[targetId]) continue;
       const target = state.pokemon[targetId];
-      if (!target) continue;
-      playMoveImpact(this, attacker.position.x, attacker.position.y, target.position.x, target.position.y, move.type);
+      if (target) hitTargets.push(target);
+    }
+
+    const { family } = resolveMoveAnimation(move);
+    if (family === 'lunge') {
+      // A lunge repositions the attacker itself, so it only makes sense to
+      // dash toward one point even for a (rare) multi-hit physical move —
+      // the engaged target if there is one, else whichever hit target the
+      // sim picked first. The impact flash still plays at every hit target.
+      const lungeTarget = engagedTarget ?? hitTargets[0];
+      if (lungeTarget) {
+        attackerSprite.playLungeAttack(attacker.position, lungeTarget.position, lungeTarget.collisionRadius, () => {
+          for (const target of hitTargets) playImpactBurst(this, target.position.x, target.position.y, move.type);
+        });
+      }
+    } else if (family === 'beam') {
+      for (const target of hitTargets) {
+        playBeamAttack(this, attacker.position.x, attacker.position.y, target.position.x, target.position.y, move.type);
+      }
+    } else {
+      for (const target of hitTargets) {
+        playMoveImpact(this, attacker.position.x, attacker.position.y, target.position.x, target.position.y, move.type);
+      }
     }
   }
 }

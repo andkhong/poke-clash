@@ -69,6 +69,14 @@ export class SimulationEngine {
     return this.events.filter((e) => e.seq > seq);
   }
 
+  /** Lets the UI end the match on demand (an "End Match" control) rather than
+   * waiting out the full 90s clock — reuses the exact same rule as that hard
+   * cap: whoever's still standing at this instant is declared a (possibly
+   * shared) winner. No-op if the match has already finished. */
+  endMatchNow(): void {
+    this.forceMatchEnd(this.state.elapsedMs);
+  }
+
   tick(dtMs: number): void {
     if (this.state.phase === 'complete') return;
     this.accumulatorMs += dtMs;
