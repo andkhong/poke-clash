@@ -69,7 +69,7 @@ export class ArenaScene extends Phaser.Scene {
 
     for (const id of state.livingOrder) {
       const pokemon = state.pokemon[id];
-      this.sprites.get(id)?.update(pokemon, pokemon.position.x, pokemon.position.y, now);
+      this.sprites.get(id)?.update(pokemon, pokemon.position.x, pokemon.position.y, now, state.pokemon);
     }
 
     this.consumeEvents();
@@ -99,7 +99,12 @@ export class ArenaScene extends Phaser.Scene {
     if (!attacker || !move || !attackerSprite) return;
 
     attackerSprite.showMoveLabel(move);
-    attackerSprite.playPmdAttack();
+    // Face toward whoever the attacker is actually engaged with (not
+    // necessarily event.targetIds[0] — a spread move's target list isn't
+    // ordered by "primary"), so the swing always points the right way even
+    // though the 'attack' AI state itself never turns to face its target.
+    const engagedTarget = attacker.targetInstanceId ? state.pokemon[attacker.targetInstanceId] : undefined;
+    attackerSprite.playPmdAttack(attacker.position, engagedTarget?.position);
 
     for (const targetId of event.targetIds) {
       if (!event.hit[targetId]) continue;

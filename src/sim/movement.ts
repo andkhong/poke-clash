@@ -5,7 +5,7 @@ import {
   ARENA_PADDING,
   ARRIVAL_SLOWDOWN_RADIUS,
   CHASE_SPEED,
-  SEPARATION_RADIUS,
+  SEPARATION_INFLUENCE_MULTIPLIER,
   SEPARATION_STRENGTH,
   WANDER_SPEED,
 } from './constants';
@@ -16,6 +16,7 @@ import {
 export interface NeighborPosition {
   instanceId: string;
   position: Vec2;
+  collisionRadius: number;
 }
 
 export function distance(a: Vec2, b: Vec2): number {
@@ -29,9 +30,14 @@ function normalize(v: Vec2): Vec2 {
 
 export function buildNeighborListFromPositions(
   ids: readonly string[],
-  positions: ReadonlyMap<string, Vec2>
+  positions: ReadonlyMap<string, Vec2>,
+  pokemonById: Record<string, PokemonInstance>
 ): NeighborPosition[] {
-  return ids.map((id) => ({ instanceId: id, position: positions.get(id)! }));
+  return ids.map((id) => ({
+    instanceId: id,
+    position: positions.get(id)!,
+    collisionRadius: pokemonById[id].collisionRadius,
+  }));
 }
 
 export function pickWanderWaypoint(rng: Rng, arena: ArenaBounds): Vec2 {
@@ -64,8 +70,14 @@ export function steerToward(
   for (const other of neighbors) {
     if (other.instanceId === self.instanceId) continue;
     const d = distance(self.position, other.position);
-    if (d > 0 && d < SEPARATION_RADIUS) {
-      const push = (SEPARATION_RADIUS - d) / SEPARATION_RADIUS;
+    // Sized to each pair's actual on-screen footprint (not a fixed radius) —
+    // a Wailord and a Voltorb shouldn't start avoiding each other at the same
+    // distance. The hard correction in resolveCollisions() is what actually
+    // guarantees no overlap; this just eases the approach so it looks smooth
+    // rather than bumping into an invisible wall right at the boundary.
+    const influenceRadius = (self.collisionRadius + other.collisionRadius) * SEPARATION_INFLUENCE_MULTIPLIER;
+    if (d > 0 && d < influenceRadius) {
+      const push = (influenceRadius - d) / influenceRadius;
       sepX += ((self.position.x - other.position.x) / d) * push;
       sepY += ((self.position.y - other.position.y) / d) * push;
     }
@@ -87,6 +99,46 @@ export function applyMovement(self: PokemonInstance, dtMs: number, arena: ArenaB
 
   if (Math.abs(self.velocity.x) > 1 || Math.abs(self.velocity.y) > 1) {
     self.facing = velocityToFacing(self.velocity, self.facing);
+  }
+}
+
+/**
+ * Hard collision pass: after everyone's moved this tick, directly separate
+ * any pair still overlapping (by their combined collisionRadius) instead of
+ * only discouraging it via steering. The soft separation in steerToward()
+ * handles the common case smoothly, but under strong opposing forces (e.g. a
+ * fast chaser closing on a fleeing target) it's only a suggestion, not a
+ * constraint — this guarantees Pokémon actually can't walk through each
+ * other regardless. O(n²) over living Pokémon, trivial at this roster size.
+ */
+export function resolveCollisions(livingIds: readonly string[], pokemonById: Record<string, PokemonInstance>, arena: ArenaBounds): void {
+  for (let i = 0; i < livingIds.length; i++) {
+    const a = pokemonById[livingIds[i]];
+    for (let j = i + 1; j < livingIds.length; j++) {
+      const b = pokemonById[livingIds[j]];
+      const dx = b.position.x - a.position.x;
+      const dy = b.position.y - a.position.y;
+      const d = Math.hypot(dx, dy);
+      const minDist = a.collisionRadius + b.collisionRadius;
+      if (d >= minDist) continue;
+
+      // Exactly-coincident is a degenerate (near-impossible) case with no
+      // well-defined push direction — pick an arbitrary fixed axis rather
+      // than dividing by zero.
+      const nx = d < 1e-6 ? 1 : dx / d;
+      const ny = d < 1e-6 ? 0 : dy / d;
+      const push = (minDist - d) / 2;
+      a.position.x -= nx * push;
+      a.position.y -= ny * push;
+      b.position.x += nx * push;
+      b.position.y += ny * push;
+    }
+  }
+
+  for (const id of livingIds) {
+    const p = pokemonById[id];
+    p.position.x = Math.max(ARENA_PADDING, Math.min(arena.width - ARENA_PADDING, p.position.x));
+    p.position.y = Math.max(ARENA_PADDING, Math.min(arena.height - ARENA_PADDING, p.position.y));
   }
 }
 

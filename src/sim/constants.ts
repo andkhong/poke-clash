@@ -42,6 +42,17 @@ export function isAggressivePhase(elapsedMs: number): boolean {
   return elapsedMs >= AGGRESSION_TRIGGER_MS;
 }
 
+/** How long after the intro ends every Pokémon stays in a pure, untargeted
+ * wander — no chasing, no attacking — before real combat is allowed to
+ * begin. Measured from when battle phase actually starts (elapsedMs -
+ * introDurationMs), not raw match time, since the intro itself already takes
+ * longer for a bigger roster. */
+export const COMBAT_START_DELAY_MS = 3000;
+
+export function isBeforeCombatStart(elapsedMs: number, introDurationMs: number): boolean {
+  return elapsedMs - introDurationMs < COMBAT_START_DELAY_MS;
+}
+
 /** Distance at which a Pokémon notices a living enemy and begins chasing. */
 export const AGGRO_RADIUS = 320;
 export const AGGRO_RADIUS_AGGRESSIVE = 520;
@@ -90,12 +101,35 @@ export const SLEEP_MIN_TURNS = 1;
 export const SLEEP_MAX_TURNS = 3;
 
 /** Movement */
-export const WANDER_SPEED = 60; // px/s
-export const CHASE_SPEED = 90; // px/s
+export const WANDER_SPEED = 180; // px/s (3x)
+export const CHASE_SPEED = 270; // px/s (3x)
 export const ARRIVAL_SLOWDOWN_RADIUS = 40;
-export const SEPARATION_RADIUS = 48;
-export const SEPARATION_STRENGTH = 80;
 export const ARENA_PADDING = 48;
+
+/**
+ * On-screen sprite scale — shared with the renderer (PokemonSprite.ts uses
+ * these same 3 constants for visual size) so a Pokémon's hitbox actually
+ * matches what's drawn on screen. PMD frame sizes are authored at consistent
+ * in-game scale (a Wailord's frame really is bigger than a Voltorb's), so
+ * every species shares this one multiplier rather than being normalized to a
+ * fixed box. See PokemonSprite.ts for the full distribution/tuning rationale.
+ */
+export const PMD_NATIVE_SCALE = 3.375;
+export const PMD_MIN_SPRITE_SIZE = 84;
+export const PMD_MAX_SPRITE_SIZE = 270;
+
+/** Collision/separation radius as a fraction of a species' on-screen size —
+ * smaller than a full circumscribing circle (0.5) since sprites aren't solid
+ * squares; ~0.35 approximates the actual body footprint reasonably. */
+export const COLLISION_RADIUS_FACTOR = 0.35;
+
+/** How far beyond two Pokémon's combined collision radii (i.e. beyond
+ * actually touching) the soft steering nudge starts easing them apart. The
+ * hard positional correction in resolveCollisions() is what actually
+ * guarantees no overlap — this just makes the approach look smooth instead
+ * of Pokémon visibly bumping into an invisible wall. */
+export const SEPARATION_INFLUENCE_MULTIPLIER = 1.15;
+export const SEPARATION_STRENGTH = 35;
 
 /** Spread-move splash radius around the primary target. */
 export const SPREAD_MOVE_RADIUS = 180;

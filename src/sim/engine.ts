@@ -16,6 +16,7 @@ import {
   CHASE_MOVE_SPEED,
   distance,
   pickWanderWaypoint,
+  resolveCollisions,
   steerToward,
   WANDER_MOVE_SPEED,
 } from './movement';
@@ -105,7 +106,7 @@ export class SimulationEngine {
     const livingIds = [...this.state.livingOrder];
     const positions = new Map<string, Vec2>();
     for (const id of livingIds) positions.set(id, { ...this.state.pokemon[id].position });
-    const neighbors = buildNeighborListFromPositions(livingIds, positions);
+    const neighbors = buildNeighborListFromPositions(livingIds, positions, this.state.pokemon);
 
     for (const id of livingIds) {
       const self = this.state.pokemon[id];
@@ -114,6 +115,8 @@ export class SimulationEngine {
       this.stepMovement(self, positions, neighbors);
       if (self.actionCooldownMs > 0) self.actionCooldownMs -= TICK_MS;
     }
+
+    resolveCollisions(livingIds, this.state.pokemon, this.state.arena);
 
     for (const id of livingIds) {
       const self = this.state.pokemon[id];

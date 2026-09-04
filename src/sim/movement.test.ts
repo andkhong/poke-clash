@@ -1,6 +1,32 @@
 import { describe, expect, it } from 'vitest';
-import { velocityToFacing } from './movement';
-import type { FacingDirection } from './types';
+import { distance, resolveCollisions, velocityToFacing } from './movement';
+import type { FacingDirection, PokemonInstance } from './types';
+
+function makeCollider(id: string, x: number, y: number, collisionRadius: number): PokemonInstance {
+  return {
+    instanceId: id,
+    speciesId: 1,
+    name: 'Test',
+    level: 100,
+    types: ['normal'],
+    baseStats: { hp: 100, atk: 100, def: 100, spa: 100, spd: 100, spe: 100 },
+    computedStats: { hp: 100, atk: 100, def: 100, spa: 100, spd: 100, spe: 100 },
+    statStages: { atk: 0, def: 0, spa: 0, spd: 0, spe: 0, accuracy: 0, evasion: 0 },
+    currentHp: 100,
+    maxHp: 100,
+    moves: [],
+    status: null,
+    statusTickAccumMs: 0,
+    position: { x, y },
+    velocity: { x: 0, y: 0 },
+    facing: 'S',
+    collisionRadius,
+    aiState: 'wander',
+    targetInstanceId: null,
+    lastRetargetMs: 0,
+    actionCooldownMs: 0,
+  };
+}
 
 describe('velocityToFacing (8-way)', () => {
   it('buckets the 4 cardinal directions correctly', () => {
@@ -53,5 +79,35 @@ describe('velocityToFacing (8-way)', () => {
       seen.push(facing);
     }
     expect(new Set(seen).size).toBe(8); // all 8 directions represented, none skipped or duplicated
+  });
+});
+
+describe('resolveCollisions', () => {
+  it('separates two overlapping Pokémon until their circles just touch', () => {
+    const a = makeCollider('a', 500, 500, 30);
+    const b = makeCollider('b', 520, 500, 30); // 20px apart, but combined radius is 60 — deep overlap
+    const pokemonById = { a, b };
+    resolveCollisions(['a', 'b'], pokemonById, { width: 2000, height: 2000 });
+    expect(distance(a.position, b.position)).toBeCloseTo(60, 5);
+    // Pushed apart symmetrically along the connecting axis, not just one side.
+    expect(a.position.x).toBeLessThan(500);
+    expect(b.position.x).toBeGreaterThan(520);
+  });
+
+  it('leaves non-overlapping Pokémon untouched', () => {
+    const a = makeCollider('a', 500, 500, 30);
+    const b = makeCollider('b', 700, 500, 30);
+    const pokemonById = { a, b };
+    resolveCollisions(['a', 'b'], pokemonById, { width: 2000, height: 2000 });
+    expect(a.position).toEqual({ x: 500, y: 500 });
+    expect(b.position).toEqual({ x: 700, y: 500 });
+  });
+
+  it('never pushes a Pokémon outside the arena bounds', () => {
+    const a = makeCollider('a', 10, 500, 30);
+    const b = makeCollider('b', 25, 500, 30); // overlap would push `a` past x=0
+    const pokemonById = { a, b };
+    resolveCollisions(['a', 'b'], pokemonById, { width: 2000, height: 2000 });
+    expect(a.position.x).toBeGreaterThanOrEqual(48); // ARENA_PADDING
   });
 });

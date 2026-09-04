@@ -4,6 +4,7 @@ import pmdSpriteIndexData from './generated/pmdSpriteIndex.json';
 import type { GeneratedSpecies, PmdSpriteIndex } from './types';
 import type { MoveDefinition, PokemonTypeName } from '../sim/types';
 import type { MoveLookup, SpeciesData } from '../sim/matchSetup';
+import { COLLISION_RADIUS_FACTOR, PMD_MAX_SPRITE_SIZE, PMD_MIN_SPRITE_SIZE, PMD_NATIVE_SCALE } from '../sim/constants';
 
 const SPECIES_LIST = pokemonData as GeneratedSpecies[];
 const MOVES_BY_ID = new Map<number, MoveDefinition>(
@@ -18,6 +19,19 @@ const PMD_SPRITE_INDEX = pmdSpriteIndexData as PmdSpriteIndex;
  * letting a match silently include the older hotlink-art fallback. */
 export function hasPmdSprite(speciesId: number): boolean {
   return PMD_SPRITE_INDEX[String(speciesId)] !== undefined;
+}
+
+/** Same on-screen-size math PokemonSprite.ts uses to scale the sprite,
+ * turned into a collision radius (see COLLISION_RADIUS_FACTOR) so a
+ * Pokémon's hitbox actually matches what's drawn. Species without PMD data
+ * fall back to a mid-roster-typical size — selectable species always have
+ * one (see hasPmdSprite/pickRandomSpeciesIds), so this only matters if
+ * buildSpeciesDataForLevel is ever called directly with an unfiltered id. */
+function computeCollisionRadius(speciesId: number): number {
+  const idle = PMD_SPRITE_INDEX[String(speciesId)]?.actions.Idle;
+  const nativeSize = idle ? Math.max(idle.frameWidth, idle.frameHeight) : 48;
+  const onScreenSize = Math.min(PMD_MAX_SPRITE_SIZE, Math.max(PMD_MIN_SPRITE_SIZE, nativeSize * PMD_NATIVE_SCALE));
+  return onScreenSize * COLLISION_RADIUS_FACTOR;
 }
 
 const SPECIES_BY_ID = new Map<number, GeneratedSpecies>(SPECIES_LIST.map((s) => [s.id, s]));
@@ -60,6 +74,7 @@ export function buildSpeciesDataForLevel(speciesId: number, level: number): Spec
     types: raw.types,
     baseStats: raw.baseStats,
     movePool,
+    collisionRadius: computeCollisionRadius(raw.id),
   };
 }
 

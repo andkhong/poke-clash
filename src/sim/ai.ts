@@ -8,6 +8,7 @@ import {
   ENGAGE_RANGE,
   ENGAGE_RANGE_AGGRESSIVE,
   isAggressivePhase,
+  isBeforeCombatStart,
   LEASH_MULTIPLIER,
   LEASH_MULTIPLIER_AGGRESSIVE,
   RETARGET_INTERVAL_MS,
@@ -48,6 +49,14 @@ export function updateTargeting(
 ): void {
   if (self.status === 'sleep' || self.status === 'freeze') {
     self.aiState = 'incapacitated';
+    return;
+  }
+
+  // A brief, deliberate cold-open: nobody targets, chases, or attacks for
+  // the first few seconds of battle — everyone just wanders — before real
+  // combat is allowed to start.
+  if (isBeforeCombatStart(nowMs, state.introDurationMs)) {
+    self.aiState = 'wander';
     return;
   }
 

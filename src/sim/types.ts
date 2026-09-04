@@ -101,6 +101,11 @@ export interface PokemonInstance {
   position: Vec2;
   velocity: Vec2;
   facing: FacingDirection;
+  /** Half-width (px) of this species' on-screen collision footprint — see
+   * COLLISION_RADIUS_FACTOR in constants.ts. Drives both separation steering
+   * and the hard positional correction in resolveCollisions(), so bigger
+   * Pokémon actually need more clearance than smaller ones. */
+  collisionRadius: number;
 
   aiState: AiState;
   targetInstanceId: string | null;

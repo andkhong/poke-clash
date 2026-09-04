@@ -20,6 +20,10 @@ export interface SpeciesData {
   baseStats: StatBlock;
   /** Candidate move-ID pool this species can draw its random 4 from (see data-pipeline). */
   movePool: number[];
+  /** See PokemonInstance.collisionRadius. Computed from the species' actual
+   * on-screen sprite size (data/loader.ts) so it stays in sync with what's
+   * rendered, without the sim needing to know anything about sprites. */
+  collisionRadius: number;
 }
 
 export type MoveLookup = (moveId: number) => MoveDefinition | undefined;
@@ -82,6 +86,7 @@ export function createMatch(
       position,
       velocity: { x: 0, y: 0 },
       facing: 'S',
+      collisionRadius: data.collisionRadius,
       aiState: 'wander',
       targetInstanceId: null,
       lastRetargetMs: 0,

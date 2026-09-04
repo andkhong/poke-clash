@@ -1,5 +1,6 @@
 import Phaser from 'phaser';
 import type { FacingDirection, PokemonInstance, StatusCondition, Vec2 } from '../../sim/types';
+import { velocityToFacing } from '../../sim/movement';
 import type { PmdAnimEntry, PmdSpriteIndex, SpriteIndex } from '../../data/types';
 import { downgradeTier, resolveSpriteUrls, type SpriteUrls } from './spriteResolver';
 import { loadGifAsAnimatedTexture } from './gifTexture';
@@ -9,7 +10,13 @@ import { POKEBALL_TEXTURE_KEY } from './pokeballAsset';
 import { playCry } from './cryAudio';
 import { playSparkleReveal } from '../vfx/sparkle';
 import type { MoveDefinition } from '../../sim/types';
-import { BALL_DROP_DURATION_MS, BALL_DROP_STAGGER_MS } from '../../sim/constants';
+import {
+  BALL_DROP_DURATION_MS,
+  BALL_DROP_STAGGER_MS,
+  PMD_MAX_SPRITE_SIZE,
+  PMD_MIN_SPRITE_SIZE,
+  PMD_NATIVE_SCALE,
+} from '../../sim/constants';
 
 /** Target on-screen size (px, longest side) — sprite sources range from ~30px
  * PMD action frames to several-hundred-px official artwork, so every sprite
@@ -70,26 +77,24 @@ const FACING_TO_ROW: Record<FacingDirection, number> = {
   S: 0, SE: 1, E: 2, NE: 3, N: 4, NW: 5, W: 6, SW: 7,
 };
 
-/**
- * Unlike the hotlink tier (which normalizes every sprite to
- * TARGET_SPRITE_SIZE regardless of source resolution, since Showdown/PokeAPI
- * art isn't drawn at a consistent relative scale), PMD frame sizes ARE
- * authored at consistent in-game scale across the whole roster — a Wailord's
- * Idle frame really is bigger than a Voltorb's on purpose. Normalizing each
- * species to the same box (as the hotlink tier does) would erase that and
- * make every Pokémon the same apparent size, so every PMD sprite instead
- * shares ONE multiplier applied to its native frame size, preserving
- * relative proportions. Idle frame longest-side across the full indexed
- * roster ranges 24-128px (median 48px); the multiplier and clamp below were
- * picked so that range lands roughly in the same on-screen ballpark as
- * TARGET_SPRITE_SIZE without letting the smallest/largest outliers
- * disappear or dominate the arena. (All three values are the same 1.5x
- * upscale applied to TARGET_SPRITE_SIZE, so the two tiers stay proportional
- * to each other.)
- */
-const PMD_NATIVE_SCALE = 3.375;
-const PMD_MIN_SPRITE_SIZE = 84;
-const PMD_MAX_SPRITE_SIZE = 270;
+// PMD_NATIVE_SCALE/PMD_MIN_SPRITE_SIZE/PMD_MAX_SPRITE_SIZE live in
+// sim/constants.ts (imported above) rather than here, so the sim's collision
+// radius (loader.ts's computeCollisionRadius) can share the exact same
+// on-screen-size math — a Pokémon's hitbox always matches what's drawn.
+//
+// Unlike the hotlink tier (which normalizes every sprite to
+// TARGET_SPRITE_SIZE regardless of source resolution, since Showdown/PokeAPI
+// art isn't drawn at a consistent relative scale), PMD frame sizes ARE
+// authored at consistent in-game scale across the whole roster — a Wailord's
+// Idle frame really is bigger than a Voltorb's on purpose. Normalizing each
+// species to the same box (as the hotlink tier does) would erase that and
+// make every Pokémon the same apparent size, so every PMD sprite instead
+// shares ONE multiplier applied to its native frame size, preserving
+// relative proportions. Idle frame longest-side across the full indexed
+// roster ranges 24-128px (median 48px); the multiplier and clamp were picked
+// so that range lands roughly in the same on-screen ballpark as
+// TARGET_SPRITE_SIZE without letting the smallest/largest outliers disappear
+// or dominate the arena.
 
 /**
  * No hand-drawn art exists for diagonal facings (or for any Pokémon facing
@@ -156,6 +161,10 @@ export class PokemonSprite {
   private pmdActions: Record<string, PmdAnimEntry> = {};
   private pmdScale = 1;
   private pendingOneShot: string | null = null;
+  /** Facing locked in for the duration of the current one-shot action, so the
+   * sim's own (movement-driven) facing can't yank the animation to a
+   * different row mid-playback — see triggerPmdOneShot(). */
+  private oneShotFacing: FacingDirection | null = null;
   private lastFacing: FacingDirection = 'S';
 
   private hasRevealed = false;
@@ -470,7 +479,13 @@ export class PokemonSprite {
     }
   }
 
-  update(pokemon: PokemonInstance, screenX: number, screenY: number, nowMs: number): void {
+  update(
+    pokemon: PokemonInstance,
+    screenX: number,
+    screenY: number,
+    nowMs: number,
+    allPokemon: Record<string, PokemonInstance>
+  ): void {
     if (!this.hasRevealed) return; // entrance tween owns position/visibility until it lands
 
     this.renderPos.x += (screenX - this.renderPos.x) * POSITION_SMOOTHING;
@@ -478,23 +493,43 @@ export class PokemonSprite {
     this.container.setPosition(this.renderPos.x, this.renderPos.y);
     this.container.setDepth(this.renderPos.y);
 
-    this.updateFacing(pokemon);
+    this.updateFacing(pokemon, allPokemon);
     this.updateHpBar(pokemon);
     this.updateStatus(pokemon);
-    this.updateHitFlash(pokemon, nowMs);
+    this.updateHitFlash(pokemon, nowMs, allPokemon);
     this.updateMoveLabel(nowMs);
   }
 
-  private updateFacing(pokemon: PokemonInstance): void {
+  /** The sim's own `facing` field is movement-driven and only updates while a
+   * Pokémon is actually translating (see applyMovement/movement.ts) — but the
+   * 'attack' AI state holds position via separation only, never moving
+   * toward its target, so `pokemon.facing` is just whatever was left over
+   * from the last time it was chasing. Left alone, that produces exactly the
+   * "turns to attack, then snaps back to a stale direction" glitch: the
+   * one-shot swing correctly faces the target (see triggerPmdOneShot's
+   * caller in ArenaScene), but the moment it ends, rendering would fall back
+   * to the stale sim facing. So while actively engaged, always face the
+   * current target instead; movement states keep using the sim's facing,
+   * since there it's already correct (and is what makes walking look right). */
+  private desiredFacing(pokemon: PokemonInstance, allPokemon: Record<string, PokemonInstance>): FacingDirection {
+    if (pokemon.aiState === 'attack' && pokemon.targetInstanceId) {
+      const target = allPokemon[pokemon.targetInstanceId];
+      if (target) return this.facingToward(pokemon.position, target.position);
+    }
+    return pokemon.facing;
+  }
+
+  private updateFacing(pokemon: PokemonInstance, allPokemon: Record<string, PokemonInstance>): void {
     if (!this.body) return;
-    this.lastFacing = pokemon.facing;
+    const facing = this.desiredFacing(pokemon, allPokemon);
+    this.lastFacing = facing;
 
     if (this.isPmdTier) {
-      this.updatePmdAnimationState(pokemon);
+      this.updatePmdAnimationState(pokemon, facing);
       return;
     }
 
-    const config = FACING_CONFIG[pokemon.facing];
+    const config = FACING_CONFIG[facing];
 
     if (config.useBack !== this.isShowingBack || this.body.texture.key === '') {
       const key = config.useBack ? this.body.getData('backKey') : this.body.getData('frontKey');
@@ -516,12 +551,17 @@ export class PokemonSprite {
     return wantsWalk && this.pmdActions.Walk ? 'Walk' : 'Idle';
   }
 
-  private updatePmdAnimationState(pokemon: PokemonInstance): void {
+  private updatePmdAnimationState(pokemon: PokemonInstance, desiredFacing: FacingDirection): void {
     if (!(this.body instanceof Phaser.GameObjects.Sprite)) return;
     const action = this.pendingOneShot ?? this.desiredPmdAction(pokemon);
     const meta = this.pmdActions[action];
     if (!meta) return;
-    const row = meta.directions === 8 ? FACING_TO_ROW[pokemon.facing] : 0;
+    // While a one-shot is playing, its facing was locked in when it was
+    // triggered (e.g. facing the attacker for Hurt) — keep using that rather
+    // than the live desired facing, or a mid-swing direction change would
+    // yank the animation to a different row every frame.
+    const facing = this.pendingOneShot ? (this.oneShotFacing ?? desiredFacing) : desiredFacing;
+    const row = meta.directions === 8 ? FACING_TO_ROW[facing] : 0;
     // ignoreIfPlaying=true: no-ops if this exact key (same action AND
     // direction) is already current, so only a genuine action/facing change
     // restarts the animation from frame 0.
@@ -530,22 +570,52 @@ export class PokemonSprite {
 
   /** Fires a one-shot PMD action (Attack/Hurt/Faint), then lets the looping
    * Idle/Walk state resume once it completes. No-op for non-PMD-tier sprites
-   * or actions this species doesn't have. */
-  private triggerPmdOneShot(action: string): void {
+   * or actions this species doesn't have. `facing` defaults to the sprite's
+   * last-known facing (e.g. for Attack); Hurt overrides it to face the hit's
+   * source instead. */
+  private triggerPmdOneShot(action: string, facing: FacingDirection = this.lastFacing): void {
     if (!this.isPmdTier || !this.pmdActions[action] || !(this.body instanceof Phaser.GameObjects.Sprite)) return;
     this.pendingOneShot = action;
+    this.oneShotFacing = facing;
     const meta = this.pmdActions[action];
-    const row = meta.directions === 8 ? FACING_TO_ROW[this.lastFacing] : 0;
+    const row = meta.directions === 8 ? FACING_TO_ROW[facing] : 0;
     const key = this.pmdAnimKey(action, row);
     this.body.play(key, true);
     this.body.once(`animationcomplete-${key}`, () => {
-      if (this.pendingOneShot === action) this.pendingOneShot = null;
+      if (this.pendingOneShot === action) {
+        this.pendingOneShot = null;
+        this.oneShotFacing = null;
+      }
     });
   }
 
-  /** Called by ArenaScene on a 'moveUsed' event for the attacker. */
-  playPmdAttack(): void {
-    this.triggerPmdOneShot('Attack');
+  /** Direction from `from` toward `to`, bucketed with the same 8-way logic
+   * the sim uses for movement facing. The sim's own `facing` field is
+   * movement-driven and goes stale the moment a Pokémon stops actually
+   * moving — in particular the 'attack' AI state holds position via
+   * separation only (see movement.ts), never turning toward its target, so
+   * relying on `pokemon.facing` for an attack/hurt reaction can point the
+   * wrong way as soon as the target has shifted since the attacker last
+   * chased. Computing it fresh from current positions instead is correct
+   * regardless of how stale the movement-facing is. */
+  private facingToward(from: Vec2, to: Vec2): FacingDirection {
+    return velocityToFacing({ x: to.x - from.x, y: to.y - from.y }, this.lastFacing);
+  }
+
+  /** Called by ArenaScene on a 'moveUsed' event for the attacker — faces the
+   * attacker toward its actual current target before playing the swing. */
+  playPmdAttack(selfPosition: Vec2, targetPosition: Vec2 | undefined): void {
+    const facing = targetPosition ? this.facingToward(selfPosition, targetPosition) : this.lastFacing;
+    this.triggerPmdOneShot('Attack', facing);
+  }
+
+  /** Direction from the defender toward whoever last hit it — i.e. the
+   * direction the hit came from. Falls back to the sprite's current facing
+   * if the attacker can't be resolved (e.g. it fainted the same tick). */
+  private computeHitFacing(pokemon: PokemonInstance, allPokemon: Record<string, PokemonInstance>): FacingDirection {
+    const attacker = pokemon.lastDamagedByInstanceId ? allPokemon[pokemon.lastDamagedByInstanceId] : undefined;
+    if (!attacker) return this.lastFacing;
+    return this.facingToward(pokemon.position, attacker.position);
   }
 
   private updateHpBar(pokemon: PokemonInstance): void {
@@ -569,7 +639,7 @@ export class PokemonSprite {
     this.statusText.setVisible(true);
   }
 
-  private updateHitFlash(pokemon: PokemonInstance, nowMs: number): void {
+  private updateHitFlash(pokemon: PokemonInstance, nowMs: number, allPokemon: Record<string, PokemonInstance>): void {
     if (!pokemon.lastHitAtMs || pokemon.lastHitAtMs === this.lastSeenHitAtMs) return;
     this.lastSeenHitAtMs = pokemon.lastHitAtMs;
     if (!this.body || nowMs - pokemon.lastHitAtMs > 400) return; // stale on first sync, skip
@@ -579,7 +649,7 @@ export class PokemonSprite {
       this.scene.time.delayedCall(HIT_FLASH_MS, () => {
         if (this.body) this.body.clearTint();
       });
-      this.triggerPmdOneShot('Hurt');
+      this.triggerPmdOneShot('Hurt', this.computeHitFacing(pokemon, allPokemon));
     }
     this.scene.tweens.add({
       targets: this.container,

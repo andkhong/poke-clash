@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { SimulationEngine } from './engine';
 import type { SpeciesData } from './matchSetup';
 import type { MoveDefinition } from './types';
-import { TICK_MS } from './constants';
+import { COMBAT_START_DELAY_MS, TICK_MS } from './constants';
 
 const FIXTURE_MOVES: MoveDefinition[] = [
   { id: 1, name: 'Fixture Tackle', type: 'normal', category: 'physical', power: 40, accuracy: 100, pp: 35, priority: 0, targeting: 'enemy' },
@@ -19,12 +19,12 @@ const movesById = new Map(FIXTURE_MOVES.map((m) => [m.id, m]));
 const moveLookup = (id: number) => movesById.get(id);
 
 const FIXTURE_SPECIES: Record<number, SpeciesData> = {
-  1: { id: 1, name: 'Fixmander', types: ['fire'], baseStats: { hp: 60, atk: 65, def: 55, spa: 70, spd: 60, spe: 65 }, movePool: [1, 2, 5, 6] },
-  2: { id: 2, name: 'Fixasaur', types: ['grass', 'poison'], baseStats: { hp: 65, atk: 60, def: 65, spa: 70, spd: 70, spe: 55 }, movePool: [1, 4, 5, 7] },
-  3: { id: 3, name: 'Fixatoise', types: ['water'], baseStats: { hp: 70, atk: 60, def: 70, spa: 65, spd: 70, spe: 50 }, movePool: [1, 3, 4, 6] },
-  4: { id: 4, name: 'Fixachu', types: ['electric'], baseStats: { hp: 40, atk: 55, def: 40, spa: 55, spd: 45, spe: 95 }, movePool: [1, 6, 5, 3] },
-  5: { id: 5, name: 'Fixolax', types: ['normal'], baseStats: { hp: 130, atk: 65, def: 65, spa: 65, spd: 100, spe: 30 }, movePool: [1, 4, 8, 5] },
-  6: { id: 6, name: 'Fixiron', types: ['ground'], baseStats: { hp: 100, atk: 90, def: 130, spa: 55, spd: 65, spe: 30 }, movePool: [8, 1, 4, 5] },
+  1: { id: 1, name: 'Fixmander', types: ['fire'], baseStats: { hp: 60, atk: 65, def: 55, spa: 70, spd: 60, spe: 65 }, movePool: [1, 2, 5, 6], collisionRadius: 40 },
+  2: { id: 2, name: 'Fixasaur', types: ['grass', 'poison'], baseStats: { hp: 65, atk: 60, def: 65, spa: 70, spd: 70, spe: 55 }, movePool: [1, 4, 5, 7], collisionRadius: 40 },
+  3: { id: 3, name: 'Fixatoise', types: ['water'], baseStats: { hp: 70, atk: 60, def: 70, spa: 65, spd: 70, spe: 50 }, movePool: [1, 3, 4, 6], collisionRadius: 40 },
+  4: { id: 4, name: 'Fixachu', types: ['electric'], baseStats: { hp: 40, atk: 55, def: 40, spa: 55, spd: 45, spe: 95 }, movePool: [1, 6, 5, 3], collisionRadius: 40 },
+  5: { id: 5, name: 'Fixolax', types: ['normal'], baseStats: { hp: 130, atk: 65, def: 65, spa: 65, spd: 100, spe: 30 }, movePool: [1, 4, 8, 5], collisionRadius: 40 },
+  6: { id: 6, name: 'Fixiron', types: ['ground'], baseStats: { hp: 100, atk: 90, def: 130, spa: 55, spd: 65, spe: 30 }, movePool: [8, 1, 4, 5], collisionRadius: 40 },
 };
 
 function runFullMatch(seed: number, speciesIds: number[]): SimulationEngine {
@@ -90,6 +90,33 @@ describe('SimulationEngine full match', () => {
     const engine = runFullMatch(7, [1, 2, 3, 4, 5, 6]);
     const events = engine.getEventsSince(0);
     expect(events.some((e) => e.type === 'milestone' && e.kind === 'finalTwo')).toBe(true);
+  });
+
+  it('lets nobody attack another Pokémon until COMBAT_START_DELAY_MS after the intro ends', () => {
+    const engine = new SimulationEngine(
+      { level: 100, speciesIds: [1, 2, 3, 4, 5, 6], arena: { width: 960, height: 1600 } },
+      FIXTURE_SPECIES,
+      moveLookup,
+      99
+    );
+    const combatStartMs = engine.getState().introDurationMs + COMBAT_START_DELAY_MS;
+
+    // One tick before combat is allowed to start, everyone should genuinely
+    // be wandering (not idle/frozen, not already engaged).
+    for (let i = 0; i < Math.floor(combatStartMs / TICK_MS) - 1; i++) {
+      engine.tick(TICK_MS);
+    }
+    for (const p of Object.values(engine.getState().pokemon)) {
+      expect(['wander', 'incapacitated']).toContain(p.aiState);
+    }
+
+    // Keep ticking a bit past the threshold and confirm no attack landed
+    // before it — a self-buff (targetIds: []) during wander doesn't count.
+    for (let i = 0; i < 10; i++) engine.tick(TICK_MS);
+    const earlyAttacks = engine
+      .getEventsSince(0)
+      .filter((e) => e.type === 'moveUsed' && e.targetIds.length > 0 && e.atMs < combatStartMs);
+    expect(earlyAttacks).toEqual([]);
   });
 
   it('removes a fainted Pokémon from livingOrder and records it in eliminationOrder', () => {
