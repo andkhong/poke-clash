@@ -16,6 +16,12 @@ data-pipeline/cache/
 # PMD_SPRITE_ALL=true for the full roster) to repopulate.
 pmd-sprite-mirror/
 
+# Move SFX mirror: ~1.1GB of per-generation move sound effects, served locally
+# by sprite-server/ the same way pmd-sprite-mirror/ is. Not committed — see
+# src/data/generated/moveSounds.json for the small derived index that IS
+# committed, and data-pipeline/build-move-sound-index.ts to regenerate it.
+sound/
+
 *.log
 npm-debug.log*
 *.tsbuildinfo

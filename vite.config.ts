@@ -8,9 +8,11 @@ export default defineConfig({
   server: {
     // Forwards to sprite-server/ (run separately via `npm run sprite:serve`
     // or `npm run dev:all`) so client code can fetch root-relative
-    // /pmd-sprites/... URLs, same as it already does for /cries/....
+    // /pmd-sprites/... and /move-sounds/... URLs, same as it already does
+    // for /cries/....
     proxy: {
       '/pmd-sprites': `http://localhost:${PMD_SPRITE_SERVER_PORT}`,
+      '/move-sounds': `http://localhost:${PMD_SPRITE_SERVER_PORT}`,
     },
   },
   test: {

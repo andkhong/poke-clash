@@ -18,6 +18,11 @@ const BEAM_PARTICLE_GRID = ['010', '111', '010'];
 // at the moment of contact (beam impact or a lunge's punch landing).
 const IMPACT_BURST_GRID = ['00100', '01210', '12221', '01210', '00100'];
 
+// A small tapered flame lick — tip narrow, base wide, hot '2' core running up
+// the middle — used for the flame family's sprayed-jet particles (see
+// flameAttack.ts) instead of a smooth beam line.
+const FLAME_PARTICLE_GRID = ['00100', '00100', '01110', '11211', '12221', '11111', '01110'];
+
 function buildTexture(scene: Phaser.Scene, key: string, grid: string[], brightColor: number, dimColor: number): void {
   if (scene.textures.exists(key)) return;
 
@@ -63,5 +68,15 @@ export function buildBeamParticleTexture(scene: Phaser.Scene, color: number): st
 export function buildImpactBurstTexture(scene: Phaser.Scene, color: number): string {
   const key = `vfx-impact-burst-${color.toString(16)}`;
   buildTexture(scene, key, IMPACT_BURST_GRID, 0xffffff, dim(color));
+  return key;
+}
+
+/** `color` is the flame's base (edge/body) shade — a hot pale-yellow core is
+ * always used for the bright cells regardless of color, since even a
+ * differently-tinted flame (e.g. a shiny recolor) should still look "on
+ * fire" at its hottest point. */
+export function buildFlameParticleTexture(scene: Phaser.Scene, color: number): string {
+  const key = `vfx-flame-particle-${color.toString(16)}`;
+  buildTexture(scene, key, FLAME_PARTICLE_GRID, 0xfff2b0, color);
   return key;
 }

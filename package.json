@@ -14,6 +14,7 @@
     "data:probe-sprites": "tsx data-pipeline/probe-sprites.ts",
     "data:fetch-pmd-sprites": "tsx data-pipeline/fetch-pmd-sprites.ts",
     "data:fetch-pmd-shiny-sprites": "tsx data-pipeline/fetch-pmd-shiny-sprites.ts",
+    "data:build-move-sounds": "tsx data-pipeline/build-move-sound-index.ts",
     "sprite:serve": "tsx sprite-server/server.ts",
     "dev:all": "concurrently -n vite,sprite -c blue,green \"npm:dev\" \"npm:sprite:serve\""
   },

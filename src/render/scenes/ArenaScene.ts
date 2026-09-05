@@ -9,7 +9,9 @@ import { preloadPokeballAsset } from '../sprites/pokeballAsset';
 import { playMoveImpact } from '../vfx/moveEffects';
 import { resolveMoveAnimation } from '../vfx/moveAnimations';
 import { playBeamAttack } from '../vfx/moves/beamAttack';
+import { playFlameAttack } from '../vfx/moves/flameAttack';
 import { playImpactBurst } from '../vfx/moves/impactBurst';
+import { playMoveSound } from '../sound/moveSound';
 import { getMoveDefinition } from '../../data/loader';
 import type { PmdSpriteIndex, SpriteIndex } from '../../data/types';
 import spriteIndexData from '../../data/generated/spriteIndex.json';
@@ -103,6 +105,7 @@ export class ArenaScene extends Phaser.Scene {
     if (!attacker || !move || !attackerSprite) return;
 
     attackerSprite.showMoveLabel(move);
+    playMoveSound(this, move);
     // Face toward whoever the attacker is actually engaged with (not
     // necessarily event.targetIds[0] — a spread move's target list isn't
     // ordered by "primary"), so the swing always points the right way even
@@ -132,6 +135,10 @@ export class ArenaScene extends Phaser.Scene {
     } else if (family === 'beam') {
       for (const target of hitTargets) {
         playBeamAttack(this, attacker.position.x, attacker.position.y, target.position.x, target.position.y, move.type);
+      }
+    } else if (family === 'flame') {
+      for (const target of hitTargets) {
+        playFlameAttack(this, attacker.position.x, attacker.position.y, target.position.x, target.position.y, move.type);
       }
     } else {
       for (const target of hitTargets) {
