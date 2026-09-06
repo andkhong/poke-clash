@@ -110,13 +110,35 @@ describe('SimulationEngine full match', () => {
       expect(['wander', 'incapacitated']).toContain(p.aiState);
     }
 
-    // Keep ticking a bit past the threshold and confirm no attack landed
-    // before it — a self-buff (targetIds: []) during wander doesn't count.
+    // Keep ticking a bit past the threshold and confirm nothing — not even a
+    // self-buff — moved before it. Self-buffing only fires while 'chase'ing a
+    // spotted target, which (like 'attack') is impossible during this window.
     for (let i = 0; i < 10; i++) engine.tick(TICK_MS);
-    const earlyAttacks = engine
-      .getEventsSince(0)
-      .filter((e) => e.type === 'moveUsed' && e.targetIds.length > 0 && e.atMs < combatStartMs);
-    expect(earlyAttacks).toEqual([]);
+    const earlyMoves = engine.getEventsSince(0).filter((e) => e.type === 'moveUsed' && e.atMs < combatStartMs);
+    expect(earlyMoves).toEqual([]);
+  });
+
+  it('never self-buffs while purely wandering with no enemy anywhere in aggro radius', () => {
+    // Arena big enough that circlePosition's two spawn points (opposite sides
+    // of a circle sized off the arena) start ~2560px apart — far beyond
+    // AGGRO_RADIUS (320) — and even at WANDER_MOVE_SPEED (180px/s) worst-case
+    // head-on closing over this 5s window can't shrink that below aggro
+    // radius, so both Pokémon are guaranteed to stay in 'wander' (never
+    // 'chase') throughout: nobody should look like they're attacking thin air.
+    const engine = new SimulationEngine(
+      { level: 100, speciesIds: [1, 4], arena: { width: 4000, height: 4000 }, shiny: false },
+      FIXTURE_SPECIES,
+      moveLookup,
+      7
+    );
+
+    for (let i = 0; i < Math.ceil(5_000 / TICK_MS); i++) engine.tick(TICK_MS);
+
+    for (const p of Object.values(engine.getState().pokemon)) {
+      expect(p.aiState).toBe('wander');
+    }
+    const selfBuffs = engine.getEventsSince(0).filter((e) => e.type === 'moveUsed' && e.targetIds.length === 0);
+    expect(selfBuffs).toEqual([]);
   });
 
   it('removes a fainted Pokémon from livingOrder and records it in eliminationOrder', () => {

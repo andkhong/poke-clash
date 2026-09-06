@@ -116,7 +116,7 @@ export function chooseMove(self: PokemonInstance, rng: Rng): number {
   return rngPick(rng, usable).moveId;
 }
 
-/** Opportunistic self-buffing while wandering with no engaged enemy (off the attack cooldown gate). */
+/** Opportunistic self-buffing while chasing a spotted target, before it's in engage range (off the attack cooldown gate). */
 export function findSelfBuffMove(
   self: PokemonInstance,
   moves: (id: number) => MoveDefinition | undefined

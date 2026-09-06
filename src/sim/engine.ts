@@ -186,7 +186,12 @@ export class SimulationEngine {
       return;
     }
 
-    if (self.aiState === 'wander' && self.actionCooldownMs <= 0) {
+    // Only buff while actively closing in on a spotted target (never in pure
+    // 'wander', which means no enemy is within aggro radius at all, and never
+    // during the cold-open — updateTargeting forces 'wander' for both cases,
+    // so gating on 'chase' excludes them for free) — otherwise a Pokémon with
+    // nobody around plays a full attack swing/sound/label at thin air.
+    if (self.aiState === 'chase' && self.actionCooldownMs <= 0) {
       const buffMove = findSelfBuffMove(self, this.moves);
       if (buffMove && rngChance(this.rng, 0.3)) {
         this.executeMove(self, buffMove, buffMove.id, null, nowMs);

@@ -24,12 +24,31 @@ export interface ArenaSceneData {
 const spriteIndex = spriteIndexData as SpriteIndex;
 const pmdSpriteIndex = pmdSpriteIndexData as PmdSpriteIndex;
 
+type MoveUsedEvent = Extract<import('../../sim/types').SimEvent, { type: 'moveUsed' }>;
+
+const MAX_CONCURRENT_ATTACKS = 2;
+const ATTACK_QUEUE_STAGGER_MIN_MS = 500;
+const ATTACK_QUEUE_STAGGER_MAX_MS = 1000;
+// Roughly the longest a single attack's visuals stay on screen (beam/flame
+// charge+extend, lunge dash+impact burst, etc.) — used to know when a
+// concurrency slot frees up. An approximation is fine since none of the vfx
+// helpers currently report completion.
+const ATTACK_VISUAL_DURATION_MS = 500;
+// Safety valve: if the sim produces attacks faster than the pacing above can
+// drain them (e.g. many Pokémon off cooldown in the same burst), don't let
+// the backlog grow without bound — drop the oldest queued attacks so
+// on-screen animations never fall far behind the live simulation. Damage/HP
+// is already fully resolved in the sim regardless of whether the animation plays.
+const MAX_QUEUED_ATTACKS = 6;
+
 /** Owns the tick loop (drives engine.tick each frame) and renders whatever the
  * engine's SimState says is true — it never mutates simulation state itself. */
 export class ArenaScene extends Phaser.Scene {
   private engine!: SimulationEngine;
   private cursor!: EventCursor;
   private readonly sprites = new Map<string, PokemonSprite>();
+  private readonly attackQueue: MoveUsedEvent[] = [];
+  private activeAttackSlots = 0;
 
   constructor() {
     super('Arena');
@@ -44,6 +63,8 @@ export class ArenaScene extends Phaser.Scene {
     this.engine = data.engine;
     this.cursor = new EventCursor(this.engine);
     this.sprites.clear();
+    this.attackQueue.length = 0;
+    this.activeAttackSlots = 0;
   }
 
   preload(): void {
@@ -83,22 +104,55 @@ export class ArenaScene extends Phaser.Scene {
 
   private consumeEvents(): void {
     const events = this.cursor.drain();
-    const state = this.engine.getState();
 
     for (const event of events) {
       if (event.type === 'moveUsed') {
-        this.handleMoveUsed(event, state);
+        this.enqueueAttack(event);
       } else if (event.type === 'fainted') {
         const sprite = this.sprites.get(event.instanceId);
         sprite?.playFaintAndDestroy(() => this.sprites.delete(event.instanceId));
+        this.removeQueuedAttacksBy(event.instanceId);
       }
+    }
+
+    this.pumpAttackQueue();
+  }
+
+  private enqueueAttack(event: MoveUsedEvent): void {
+    this.attackQueue.push(event);
+    while (this.attackQueue.length > MAX_QUEUED_ATTACKS) this.attackQueue.shift();
+  }
+
+  // A Pokémon can faint (e.g. from a burn/poison status tick) while its own
+  // earlier move is still sitting in the queue waiting for a slot. Without
+  // this, that stale attack would eventually get dequeued, find no attacker
+  // sprite (handleMoveUsed's existing `!attackerSprite` guard), and silently
+  // no-op — wasting one of the concurrency slots and a full stagger delay on
+  // nothing instead of letting a real pending attack play sooner.
+  private removeQueuedAttacksBy(instanceId: string): void {
+    for (let i = this.attackQueue.length - 1; i >= 0; i--) {
+      if (this.attackQueue[i].attackerId === instanceId) this.attackQueue.splice(i, 1);
     }
   }
 
-  private handleMoveUsed(
-    event: Extract<import('../../sim/types').SimEvent, { type: 'moveUsed' }>,
-    state: ReturnType<SimulationEngine['getState']>
-  ): void {
+  private pumpAttackQueue(): void {
+    while (this.activeAttackSlots < MAX_CONCURRENT_ATTACKS && this.attackQueue.length > 0) {
+      const event = this.attackQueue.shift()!;
+      this.activeAttackSlots += 1;
+      this.handleMoveUsed(event, this.engine.getState());
+      this.time.delayedCall(ATTACK_VISUAL_DURATION_MS, () => this.releaseAttackSlot());
+    }
+  }
+
+  private releaseAttackSlot(): void {
+    this.activeAttackSlots -= 1;
+    if (this.attackQueue.length > 0) {
+      const stagger = Phaser.Math.Between(ATTACK_QUEUE_STAGGER_MIN_MS, ATTACK_QUEUE_STAGGER_MAX_MS);
+      this.time.delayedCall(stagger, () => this.pumpAttackQueue());
+    }
+  }
+
+  private handleMoveUsed(event: MoveUsedEvent, state: ReturnType<SimulationEngine['getState']>): void {
     const attacker = state.pokemon[event.attackerId];
     const attackerSprite = this.sprites.get(event.attackerId);
     const move = event.moveId === STRUGGLE_MOVE_ID ? STRUGGLE_MOVE : getMoveDefinition(event.moveId);
