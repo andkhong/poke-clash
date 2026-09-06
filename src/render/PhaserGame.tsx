@@ -1,11 +1,11 @@
 import { useEffect, useRef } from 'react';
 import Phaser from 'phaser';
-import type { SimulationEngine } from '../sim/engine';
+import type { EngineLike } from '../sim/engineLike';
 import { ArenaScene } from './scenes/ArenaScene';
 import { ARENA_HEIGHT, ARENA_WIDTH } from '../app/config';
 
 interface PhaserGameProps {
-  engine: SimulationEngine;
+  engine: EngineLike;
 }
 
 export function PhaserGame({ engine }: PhaserGameProps) {

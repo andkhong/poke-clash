@@ -1,6 +1,6 @@
 import Phaser from 'phaser';
-import type { SimulationEngine } from '../../sim/engine';
-import type { PokemonInstance } from '../../sim/types';
+import type { EngineLike } from '../../sim/engineLike';
+import type { PokemonInstance, SimState } from '../../sim/types';
 import { EventCursor } from '../../sim/events';
 import { STRUGGLE_MOVE, STRUGGLE_MOVE_ID } from '../../sim/struggle';
 import { PokemonSprite } from '../sprites/PokemonSprite';
@@ -18,7 +18,7 @@ import spriteIndexData from '../../data/generated/spriteIndex.json';
 import pmdSpriteIndexData from '../../data/generated/pmdSpriteIndex.json';
 
 export interface ArenaSceneData {
-  engine: SimulationEngine;
+  engine: EngineLike;
 }
 
 const spriteIndex = spriteIndexData as SpriteIndex;
@@ -44,7 +44,7 @@ const MAX_QUEUED_ATTACKS = 6;
 /** Owns the tick loop (drives engine.tick each frame) and renders whatever the
  * engine's SimState says is true — it never mutates simulation state itself. */
 export class ArenaScene extends Phaser.Scene {
-  private engine!: SimulationEngine;
+  private engine!: EngineLike;
   private cursor!: EventCursor;
   private readonly sprites = new Map<string, PokemonSprite>();
   private readonly attackQueue: MoveUsedEvent[] = [];
@@ -152,7 +152,7 @@ export class ArenaScene extends Phaser.Scene {
     }
   }
 
-  private handleMoveUsed(event: MoveUsedEvent, state: ReturnType<SimulationEngine['getState']>): void {
+  private handleMoveUsed(event: MoveUsedEvent, state: Readonly<SimState>): void {
     const attacker = state.pokemon[event.attackerId];
     const attackerSprite = this.sprites.get(event.attackerId);
     const move = event.moveId === STRUGGLE_MOVE_ID ? STRUGGLE_MOVE : getMoveDefinition(event.moveId);

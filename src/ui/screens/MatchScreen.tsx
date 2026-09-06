@@ -7,9 +7,12 @@ import type { SimStore } from '../state/simStore';
 interface MatchScreenProps {
   store: SimStore;
   onExit: () => void;
+  /** Multiplayer spectators can't force-end a server-run match. */
+  showEndMatchControl?: boolean;
+  completeButtonLabel?: string;
 }
 
-export function MatchScreen({ store, onExit }: MatchScreenProps) {
+export function MatchScreen({ store, onExit, showEndMatchControl = true, completeButtonLabel = 'NEW MATCH' }: MatchScreenProps) {
   const state = useSimSnapshot(store);
 
   return (
@@ -22,7 +25,7 @@ export function MatchScreen({ store, onExit }: MatchScreenProps) {
 
       <BannerOverlay state={state} />
 
-      {state.phase !== 'complete' && (
+      {state.phase !== 'complete' && showEndMatchControl && (
         <button
           onClick={() => store.getEngine().endMatchNow()}
           style={{
@@ -65,7 +68,7 @@ export function MatchScreen({ store, onExit }: MatchScreenProps) {
             cursor: 'pointer',
           }}
         >
-          NEW MATCH
+          {completeButtonLabel}
         </button>
       )}
     </div>

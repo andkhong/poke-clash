@@ -1,4 +1,4 @@
-import type { SimulationEngine } from '../../sim/engine';
+import type { EngineLike } from '../../sim/engineLike';
 
 // The engine mutates one SimState object in place rather than producing a new
 // immutable snapshot each tick, so React's reference-equality change detection
@@ -6,15 +6,18 @@ import type { SimulationEngine } from '../../sim/engine';
 // counter on its own throttled interval; components read the engine's live
 // state fresh at render time and only need the version bump to know "something
 // may have changed, please re-render" (see useSimSnapshot).
-const HUD_REFRESH_INTERVAL_MS = 100;
+// Exported so the multiplayer game-server can broadcast state updates on the
+// same cadence the HUD already refreshes at, rather than inventing a second
+// interval constant that could drift out of sync with this one.
+export const HUD_REFRESH_INTERVAL_MS = 100;
 
 export interface SimStore {
-  getEngine(): SimulationEngine;
+  getEngine(): EngineLike;
   getVersion(): number;
   subscribe(callback: () => void): () => void;
 }
 
-export function createSimStore(engine: SimulationEngine): SimStore {
+export function createSimStore(engine: EngineLike): SimStore {
   let version = 0;
   const listeners = new Set<() => void>();
   let intervalId: ReturnType<typeof setInterval> | null = null;

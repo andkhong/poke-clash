@@ -9,6 +9,7 @@ import type {
 } from './types';
 import type { MoveLookup, SpeciesData } from './matchSetup';
 import { createMatch } from './matchSetup';
+import type { EngineLike } from './engineLike';
 import { createRng, rngChance, type Rng } from './rng';
 import {
   applyMovement,
@@ -46,7 +47,7 @@ import {
   TICK_MS,
 } from './constants';
 
-export class SimulationEngine {
+export class SimulationEngine implements EngineLike {
   private state: SimState;
   private readonly events: SimEvent[] = [];
   private seq = 0;

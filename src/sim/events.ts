@@ -1,5 +1,5 @@
 import type { SimEvent } from './types';
-import type { SimulationEngine } from './engine';
+import type { EngineLike } from './engineLike';
 
 /**
  * Each independent consumer (Phaser renderer, React HUD) should own one of these
@@ -9,7 +9,7 @@ import type { SimulationEngine } from './engine';
 export class EventCursor {
   private lastSeq = 0;
 
-  constructor(private readonly engine: SimulationEngine) {}
+  constructor(private readonly engine: EngineLike) {}
 
   /** Pulls (and consumes) every event produced since this cursor last read. */
   drain(): SimEvent[] {

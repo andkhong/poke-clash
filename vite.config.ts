@@ -2,6 +2,7 @@ import { defineConfig } from 'vitest/config';
 import react from '@vitejs/plugin-react';
 
 const PMD_SPRITE_SERVER_PORT = process.env.PMD_SPRITE_SERVER_PORT ?? '4310';
+const GAME_SERVER_PORT = process.env.GAME_SERVER_PORT ?? '4311';
 
 export default defineConfig({
   plugins: [react()],
@@ -9,10 +10,12 @@ export default defineConfig({
     // Forwards to sprite-server/ (run separately via `npm run sprite:serve`
     // or `npm run dev:all`) so client code can fetch root-relative
     // /pmd-sprites/... and /move-sounds/... URLs, same as it already does
-    // for /cries/....
+    // for /cries/.... /api forwards to game-server/ (the multiplayer room
+    // server) the same way, including its SSE room stream.
     proxy: {
       '/pmd-sprites': `http://localhost:${PMD_SPRITE_SERVER_PORT}`,
       '/move-sounds': `http://localhost:${PMD_SPRITE_SERVER_PORT}`,
+      '/api': `http://localhost:${GAME_SERVER_PORT}`,
     },
   },
   test: {
