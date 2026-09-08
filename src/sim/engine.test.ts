@@ -209,6 +209,39 @@ describe('SimulationEngine full match', () => {
     expect([...state.winnerInstanceIds].sort()).toEqual([...state.livingOrder].sort());
   });
 
+  it('sends an attacker off on a fresh wander leg immediately after it lands a move, instead of resuming a stale waypoint', () => {
+    const engine = runFullMatch(13, [1, 2, 3, 4, 5, 6]);
+    const events = engine.getEventsSince(0).filter((e) => e.type === 'moveUsed');
+    expect(events.length).toBeGreaterThan(0); // sanity: this seed's match actually had combat
+
+    // Re-simulate up to just after the very first landed move and confirm the
+    // attacker's wanderWaypoint was cleared by resetCooldown — stepMovement's
+    // 'wander' branch only repicks when it's unset, so this is what actually
+    // guarantees the post-attack scatter starts from "wherever it just was",
+    // not wherever some earlier (possibly pre-combat) waypoint pointed.
+    const replay = new SimulationEngine(
+      { level: 100, speciesIds: [1, 2, 3, 4, 5, 6], arena: { width: 960, height: 1600 }, shiny: false },
+      FIXTURE_SPECIES,
+      moveLookup,
+      13
+    );
+    const firstMove = events[0];
+    const attackerId = (firstMove as { attackerId: string }).attackerId;
+    // Land exactly on the tick the move fires: updateTargeting for this tick
+    // already ran (based on pre-attack cooldown, hence still 'attack') before
+    // executeMove's resetCooldown clears wanderWaypoint later in the same
+    // stepOnce — so the waypoint reset is observable immediately, but the
+    // aiState flip to 'wander' isn't due until next tick's updateTargeting
+    // call, checked below.
+    while (replay.getState().elapsedMs < firstMove.atMs) replay.tick(TICK_MS);
+    expect(replay.getState().pokemon[attackerId].wanderWaypoint).toBeUndefined();
+
+    replay.tick(TICK_MS);
+    const attacker = replay.getState().pokemon[attackerId];
+    expect(attacker.aiState).toBe('wander');
+    expect(attacker.wanderWaypoint).toBeDefined(); // freshly repicked, not a stale/absent one
+  });
+
   it('holds the intro circle formation without moving Pokémon before battle starts', () => {
     const engine = new SimulationEngine(
       { level: 100, speciesIds: [1, 2, 3], arena: { width: 960, height: 1600 }, shiny: false },

@@ -120,9 +120,8 @@ export class SimulationEngine implements EngineLike {
     for (const id of livingIds) {
       const self = this.state.pokemon[id];
       if (self.currentHp <= 0) continue;
-      updateTargeting(self, this.state, positions, nowMs);
+      updateTargeting(self, this.state, positions, nowMs, this.rng);
       this.stepMovement(self, positions, neighbors);
-      if (self.actionCooldownMs > 0) self.actionCooldownMs -= TICK_MS;
     }
 
     resolveCollisions(livingIds, this.state.pokemon, this.state.arena);
@@ -214,6 +213,13 @@ export class SimulationEngine implements EngineLike {
     if (aggressive) cooldown *= AGGRESSIVE_COOLDOWN_MULTIPLIER;
     const minCooldown = aggressive ? MIN_ACTION_COOLDOWN_MS_AGGRESSIVE : MIN_ACTION_COOLDOWN_MS;
     attacker.actionCooldownMs = Math.max(minCooldown, Math.min(MAX_ACTION_COOLDOWN_MS, cooldown));
+
+    // Force a brand-new wander leg from wherever this attack just happened,
+    // rather than resuming a stale cached waypoint — updateTargeting's
+    // cooldown gate puts every Pokémon back into 'wander' the very next
+    // tick, and stepMovement's 'wander' branch repicks automatically
+    // whenever wanderWaypoint is unset.
+    attacker.wanderWaypoint = undefined;
   }
 
   private executeMove(

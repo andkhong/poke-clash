@@ -43,3 +43,18 @@ export function rngShuffle<T>(rng: Rng, items: readonly T[]): T[] {
   }
   return arr;
 }
+
+/** Weighted random pick — one rng() call, same convention as rngPick. Falls
+ * back to uniform rngPick if every weight is <= 0. */
+export function rngWeightedPick<T>(rng: Rng, items: readonly T[], weight: (item: T) => number): T {
+  if (items.length === 0) throw new Error('rngWeightedPick: empty array');
+  let total = 0;
+  for (const item of items) total += Math.max(0, weight(item));
+  if (total <= 0) return rngPick(rng, items);
+  let r = rng() * total;
+  for (const item of items) {
+    r -= Math.max(0, weight(item));
+    if (r <= 0) return item;
+  }
+  return items[items.length - 1]; // floating-point safety net
+}

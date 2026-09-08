@@ -1,6 +1,6 @@
 import type { MoveDefinition, PokemonInstance, SimState } from './types';
 import type { Rng } from './rng';
-import { rngPick } from './rng';
+import { rngPick, rngWeightedPick } from './rng';
 import { distance } from './movement';
 import {
   AGGRO_RADIUS,
@@ -13,41 +13,65 @@ import {
   LEASH_MULTIPLIER_AGGRESSIVE,
   RETARGET_INTERVAL_MS,
   RETARGET_INTERVAL_MS_AGGRESSIVE,
+  TICK_MS,
 } from './constants';
 import { STRUGGLE_MOVE_ID } from './struggle';
 
-export function findNearestLivingEnemy(
+/** Floor applied to every candidate's proximity weight in
+ * pickWeightedRandomTarget, so one right at the radius boundary still keeps
+ * a real (if small) chance instead of being effectively excluded. */
+const TARGET_WEIGHT_FLOOR = 1;
+
+/**
+ * Every living enemy within `radius` is a candidate, weighted linearly by
+ * proximity (closer = more likely, never guaranteed) rather than picking the
+ * single nearest. This is what keeps several attackers near one lone target
+ * from all locking onto it every reacquire, and lets any one attacker's
+ * aggro drift across different targets over the course of a match instead of
+ * solely focusing on whoever's mathematically closest.
+ */
+export function pickWeightedRandomTarget(
   self: PokemonInstance,
   state: SimState,
-  positions: ReadonlyMap<string, { x: number; y: number }>
+  positions: ReadonlyMap<string, { x: number; y: number }>,
+  radius: number,
+  rng: Rng
 ): PokemonInstance | null {
-  let nearest: PokemonInstance | null = null;
-  let nearestDist = Infinity;
   const selfPos = positions.get(self.instanceId) ?? self.position;
+  const candidates: { enemy: PokemonInstance; dist: number }[] = [];
   for (const id of state.livingOrder) {
     if (id === self.instanceId) continue;
     const other = state.pokemon[id];
     if (other.team === self.team) continue; // allies (Boss Mode's party) are never valid targets
     const d = distance(selfPos, positions.get(id) ?? other.position);
-    if (d < nearestDist) {
-      nearestDist = d;
-      nearest = other;
-    }
+    if (d <= radius) candidates.push({ enemy: other, dist: d });
   }
-  return nearest;
+  if (candidates.length === 0) return null;
+  return rngWeightedPick(rng, candidates, (c) => Math.max(TARGET_WEIGHT_FLOOR, radius - c.dist)).enemy;
 }
 
 /**
- * Decides aiState + targetInstanceId for one Pokémon this tick. Reads positions
- * from the tick-start snapshot, not live state, so targeting doesn't depend on
- * which Pokémon happens to be processed first in this tick's loop.
+ * Decides aiState + targetInstanceId for one Pokémon this tick, and owns the
+ * actionCooldownMs decrement (moved here from engine.ts's tick loop) so it
+ * can see the exact tick cooldown crosses from locked to unlocked — see
+ * justBecameAvailable below. Reads positions from the tick-start snapshot,
+ * not live state, so targeting doesn't depend on which Pokémon happens to be
+ * processed first in this tick's loop.
  */
 export function updateTargeting(
   self: PokemonInstance,
   state: SimState,
   positions: ReadonlyMap<string, { x: number; y: number }>,
-  nowMs: number
+  nowMs: number,
+  rng: Rng
 ): void {
+  // Unconditional, same cadence as before this moved here — including while
+  // asleep/frozen, so a status-locked Pokémon's cooldown still ticks down in
+  // the background exactly like it did when engine.ts decremented it.
+  const wasOnCooldown = self.actionCooldownMs > 0;
+  if (wasOnCooldown) self.actionCooldownMs = Math.max(0, self.actionCooldownMs - TICK_MS);
+  const justBecameAvailable = wasOnCooldown && self.actionCooldownMs <= 0;
+
   if (self.status === 'sleep' || self.status === 'freeze') {
     self.aiState = 'incapacitated';
     return;
@@ -57,6 +81,15 @@ export function updateTargeting(
   // the first few seconds of battle — everyone just wanders — before real
   // combat is allowed to start.
   if (isBeforeCombatStart(nowMs, state.introDurationMs)) {
+    self.aiState = 'wander';
+    return;
+  }
+
+  // Still cooling down from the last attack: wander it off instead of
+  // standing over (or beelining back toward) whoever it just hit. Target
+  // bookkeeping is skipped entirely here — the next real decision happens
+  // the instant cooldown clears (justBecameAvailable, below).
+  if (self.actionCooldownMs > 0) {
     self.aiState = 'wander';
     return;
   }
@@ -75,7 +108,13 @@ export function updateTargeting(
   const currentAlive = !!current && state.livingOrder.includes(current.instanceId);
   const selfPos = positions.get(self.instanceId) ?? self.position;
 
-  let shouldRetarget = !currentAlive;
+  // justBecameAvailable is a one-shot fourth trigger alongside the existing
+  // three: without it, a fast Pokémon's cooldown (as low as 800ms) can expire
+  // well before the periodic retargetIntervalMs timer (2000ms/700ms) ever
+  // fires, so it would just keep re-attacking the same still-alive,
+  // still-in-leash target every cycle — quietly defeating the whole point of
+  // randomized targeting for exactly the Pokémon where it matters most.
+  let shouldRetarget = !currentAlive || justBecameAvailable;
   if (currentAlive && current) {
     const d = distance(selfPos, positions.get(current.instanceId) ?? current.position);
     if (d > aggroRadius * leashMultiplier) shouldRetarget = true;
@@ -83,13 +122,8 @@ export function updateTargeting(
   }
 
   if (shouldRetarget) {
-    const nearest = findNearestLivingEnemy(self, state, positions);
-    if (nearest) {
-      const d = distance(selfPos, positions.get(nearest.instanceId) ?? nearest.position);
-      self.targetInstanceId = d <= aggroRadius ? nearest.instanceId : currentAlive ? self.targetInstanceId : null;
-    } else if (!currentAlive) {
-      self.targetInstanceId = null;
-    }
+    const picked = pickWeightedRandomTarget(self, state, positions, aggroRadius, rng);
+    self.targetInstanceId = picked ? picked.instanceId : currentAlive ? self.targetInstanceId : null;
     self.lastRetargetMs = nowMs;
   }
 

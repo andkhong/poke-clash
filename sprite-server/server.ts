@@ -1,6 +1,7 @@
 import { createServer } from 'node:http';
 import { readFile, readdir } from 'node:fs/promises';
 import { extname, join } from 'node:path';
+import { parseFile } from 'music-metadata';
 
 // Minimal standalone static-file server for locally-mirrored, gitignored
 // binary asset mirrors: PMDCollab sprite art (see
@@ -76,12 +77,55 @@ async function listSoundtrackFiles(folder: string): Promise<string[]> {
     .map((e) => e.name);
 }
 
+// A 90s match easily outlasts a jingle-length track (the "Obtained an Item!"/
+// "Obtained a Berry!" stingers in the Emerald pack are 3-6s), so a random
+// pick landing on one would loop jarringly every few seconds for most of a
+// match — excluded from the random pool entirely rather than tuned around.
+const MIN_TRACK_DURATION_SECONDS = 10;
+
+// Duration requires actually parsing each file's audio headers (cheap per
+// file, but adds up across the whole catalog), so results are cached
+// in-memory forever, same "immutable, served forever" assumption as the
+// Cache-Control header below — a track's own audio data isn't expected to
+// change while the server is running. Keyed by "folder/file" since file
+// names alone aren't unique across packs.
+const trackDurationCache = new Map<string, number | null>();
+
+/** Seconds, or null if the file couldn't be parsed (treated as excluded from
+ * random selection — better to skip a track than risk playing something
+ * whose real length we don't actually know). */
+async function getTrackDurationSeconds(folder: string, file: string): Promise<number | null> {
+  const cacheKey = `${folder}/${file}`;
+  const cached = trackDurationCache.get(cacheKey);
+  if (cached !== undefined) return cached;
+
+  const duration = await parseFile(join(SOUNDTRACK_MIRROR_ROOT, folder, file))
+    .then((meta) => meta.format.duration ?? null)
+    .catch(() => null);
+  trackDurationCache.set(cacheKey, duration);
+  return duration;
+}
+
 async function listAllSoundtrackTracks(): Promise<SoundtrackTrack[]> {
   const folders = await listSoundtrackFolders();
   const perFolder = await Promise.all(
     folders.map(async (folder) => (await listSoundtrackFiles(folder)).map((file) => ({ folder, file })))
   );
-  return perFolder.flat();
+  const candidates = perFolder.flat();
+
+  const durations = await Promise.all(candidates.map((t) => getTrackDurationSeconds(t.folder, t.file)));
+  return candidates.filter((_, i) => (durations[i] ?? 0) >= MIN_TRACK_DURATION_SECONDS);
+}
+
+/** Best-effort warm-up so the first real /soundtracks/random request doesn't
+ * pay for parsing the whole catalog's durations serially — failures here are
+ * harmless, getTrackDurationSeconds() re-tries (and caches) on demand anyway. */
+async function primeSoundtrackDurationCache(): Promise<void> {
+  const folders = await listSoundtrackFolders();
+  for (const folder of folders) {
+    const files = await listSoundtrackFiles(folder);
+    await Promise.all(files.map((file) => getTrackDurationSeconds(folder, file)));
+  }
 }
 
 function soundtrackTrackUrl(track: SoundtrackTrack): string {
@@ -176,3 +220,5 @@ server.listen(PORT, () => {
     `[sprite-server] serving ${SPRITE_MIRROR_ROOT}, ${SOUND_MIRROR_ROOT} and ${SOUNDTRACK_MIRROR_ROOT} at http://localhost:${PORT}`
   );
 });
+
+void primeSoundtrackDurationCache();
