@@ -11,7 +11,7 @@ import { resolveMoveAnimation } from '../vfx/moveAnimations';
 import { playBeamAttack } from '../vfx/moves/beamAttack';
 import { playFlameAttack } from '../vfx/moves/flameAttack';
 import { playImpactBurst } from '../vfx/moves/impactBurst';
-import { playMoveSound } from '../sound/moveSound';
+import { playMoveSound, type MoveSoundHandle } from '../sound/moveSound';
 import { playBattleMusic } from '../sound/battleMusic';
 import { getMoveDefinition } from '../../data/loader';
 import { teamColorHex } from '../../ui/teamColors';
@@ -35,9 +35,11 @@ const ATTACK_QUEUE_STAGGER_MIN_MS = 500;
 const ATTACK_QUEUE_STAGGER_MAX_MS = 1000;
 // Roughly the longest a single attack's visuals stay on screen (beam/flame
 // charge+extend, lunge dash+impact burst, etc.) — used to know when a
-// concurrency slot frees up. An approximation is fine since none of the vfx
-// helpers currently report completion.
-const ATTACK_VISUAL_DURATION_MS = 500;
+// concurrency slot frees up, and (see handleMoveUsed's callers) when to cut
+// off the move-name label and sound effect. An approximation is fine since
+// none of the vfx helpers currently report completion. 800ms rather than a
+// shorter value so the animation is actually perceivable rather than a blip.
+const ATTACK_VISUAL_DURATION_MS = 1200;
 // Safety valve: if the sim produces attacks faster than the pacing above can
 // drain them (e.g. many Pokémon off cooldown in the same burst), don't let
 // the backlog grow without bound — drop the oldest queued attacks so
@@ -153,8 +155,17 @@ export class ArenaScene extends Phaser.Scene {
     while (this.activeAttackSlots < MAX_CONCURRENT_ATTACKS && this.attackQueue.length > 0) {
       const event = this.attackQueue.shift()!;
       this.activeAttackSlots += 1;
-      this.handleMoveUsed(event, this.engine.getState());
-      this.time.delayedCall(ATTACK_VISUAL_DURATION_MS, () => this.releaseAttackSlot());
+      const attackEffects = this.handleMoveUsed(event, this.engine.getState());
+      this.time.delayedCall(ATTACK_VISUAL_DURATION_MS, () => {
+        // The attack's on-screen animation is done by now (this timer is
+        // also what frees up the concurrency slot below) — don't let its
+        // sound effect, move-name callout, or position lock linger past
+        // that point.
+        attackEffects?.soundHandle?.stop();
+        attackEffects?.hideMoveLabel();
+        attackEffects?.unlockPosition();
+        this.releaseAttackSlot();
+      });
     }
   }
 
@@ -166,20 +177,35 @@ export class ArenaScene extends Phaser.Scene {
     }
   }
 
-  private handleMoveUsed(event: MoveUsedEvent, state: Readonly<SimState>): void {
+  private handleMoveUsed(
+    event: MoveUsedEvent,
+    state: Readonly<SimState>
+  ): { soundHandle: MoveSoundHandle | undefined; hideMoveLabel: () => void; unlockPosition: () => void } | undefined {
     const attacker = state.pokemon[event.attackerId];
     const attackerSprite = this.sprites.get(event.attackerId);
     const move = event.moveId === STRUGGLE_MOVE_ID ? STRUGGLE_MOVE : getMoveDefinition(event.moveId);
-    if (!attacker || !move || !attackerSprite) return;
+    if (!attacker || !move || !attackerSprite) return undefined;
 
-    attackerSprite.showMoveLabel(move);
-    playMoveSound(this, move);
+    const hideMoveLabel = attackerSprite.showMoveLabel(move);
+    const soundHandle = playMoveSound(this, move);
+    const { family } = resolveMoveAnimation(move);
+    const ranged = family !== 'lunge';
+    // The sim's own action-cooldown/wander transition kicks in almost
+    // immediately after this move fires — well before this attack's on-screen
+    // visual window (ATTACK_VISUAL_DURATION_MS, released below) closes — so a
+    // ranged attacker would otherwise visibly drift off mid-pose. A lunge
+    // attacker is exempt: it's *supposed* to move (playLungeAttack's cosmetic
+    // dash toward the target), so freezing it here would fight that.
+    const unlockPosition = ranged ? attackerSprite.lockPosition() : () => {};
     // Face toward whoever the attacker is actually engaged with (not
     // necessarily event.targetIds[0] — a spread move's target list isn't
     // ordered by "primary"), so the swing always points the right way even
     // though the 'attack' AI state itself never turns to face its target.
     const engagedTarget = attacker.targetInstanceId ? state.pokemon[attacker.targetInstanceId] : undefined;
-    attackerSprite.playPmdAttack(attacker.position, engagedTarget?.position);
+    // Every family but lunge holds ground (see movement.ts's 'attack' AI
+    // state) and fires from range, so prefer the species' dedicated
+    // ranged-attack pose over the generic melee-swing Attack frame there.
+    attackerSprite.playPmdAttack(attacker.position, engagedTarget?.position, ranged);
 
     const hitTargets: PokemonInstance[] = [];
     for (const targetId of event.targetIds) {
@@ -188,7 +214,6 @@ export class ArenaScene extends Phaser.Scene {
       if (target) hitTargets.push(target);
     }
 
-    const { family } = resolveMoveAnimation(move);
     if (family === 'lunge') {
       // A lunge repositions the attacker itself, so it only makes sense to
       // dash toward one point even for a (rare) multi-hit physical move —
@@ -213,5 +238,7 @@ export class ArenaScene extends Phaser.Scene {
         playMoveImpact(this, attacker.position.x, attacker.position.y, target.position.x, target.position.y, move.type);
       }
     }
+
+    return { soundHandle, hideMoveLabel, unlockPosition };
   }
 }

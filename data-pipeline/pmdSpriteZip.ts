@@ -13,7 +13,12 @@ export const TICK_MS = 1000 / 60; // AnimData.xml <Duration> units are frames of
 // PokemonSprite.ts). Idle+Walk are the hard minimum for a species to count as
 // "has PMD sprites" — raw zips stay cached indefinitely, so widening this list
 // later needs zero re-downloads.
-export const CORE_ACTIONS = ['Idle', 'Walk', 'Attack', 'Hurt', 'Sleep', 'Faint'] as const;
+// Shoot/Shock/SpAttack are ranged-attack poses PokemonSprite.ts prefers over
+// the generic melee-swing Attack frame for non-melee move families (see
+// RANGED_ATTACK_ACTION_PRIORITY) — most species only have Shoot, a handful
+// have a more specific Shock (e.g. Pikachu) or SpAttack (e.g. Arceus)
+// instead/as well.
+export const CORE_ACTIONS = ['Idle', 'Walk', 'Attack', 'Shoot', 'Shock', 'SpAttack', 'Hurt', 'Sleep', 'Faint'] as const;
 export const REQUIRED_ACTIONS: readonly string[] = ['Idle', 'Walk'];
 
 interface ParsedAnim {

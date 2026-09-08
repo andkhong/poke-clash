@@ -46,7 +46,6 @@ const MOVE_LABEL_BORDER_COLOR = 0x1a1a1a;
  * relative to the move's base type color, for a glossy beveled-button look. */
 const MOVE_LABEL_SHADE_AMOUNT = 45;
 const HIT_FLASH_MS = 160;
-const MOVE_LABEL_MS = 1300;
 /** How far a lunge-family move (Fire Punch, Tackle, ...) dashes the attacker's
  * sprite toward its target, at most — see playLungeAttack(). Kept well under
  * typical inter-Pokémon spacing so a lunge reads as "closing the last bit of
@@ -54,6 +53,18 @@ const MOVE_LABEL_MS = 1300;
 const MAX_LUNGE_DISTANCE = 130;
 const LUNGE_OUT_MS = 120;
 const LUNGE_BACK_MS = 170;
+/** One-shot (play-once, non-looping) PMD actions — everything else registered
+ * on a species (Idle/Walk/Sleep) loops. */
+const ONE_SHOT_PMD_ACTIONS = new Set(['Attack', 'Shoot', 'Shock', 'SpAttack', 'Hurt', 'Faint']);
+/** For a non-melee move (see playPmdAttack's `ranged` param), tried in order
+ * against this species' available pmdActions — first match wins, falling
+ * back to the generic Attack swing if the species has none of them. Shock and
+ * SpAttack are rarer, more specific poses (no species has both — see
+ * data-pipeline/pmdSpriteZip.ts) that read better than the generic Shoot pose
+ * where available; Attack itself is listed last as the universal fallback
+ * even though every PMD-tier species already has it (desiredPmdAction's own
+ * fallback would otherwise leave a ranged attacker mid-Walk/Idle). */
+const RANGED_ATTACK_ACTION_PRIORITY = ['Shock', 'SpAttack', 'Shoot', 'Attack'];
 /** No distinct shiny art exists for any tier, so shininess is a uniform
  * recolor tint (Phaser's multiply-tint, which preserves shading/detail)
  * rather than genuinely different sprites — a common, well-understood
@@ -178,7 +189,6 @@ export class PokemonSprite {
   private readonly hpBarFill: Phaser.GameObjects.Rectangle;
   private readonly statusText: Phaser.GameObjects.Text;
   private moveLabel: Phaser.GameObjects.Container | null = null;
-  private moveLabelHideAt = 0;
 
   private frontIsAnimated = false;
   private backIsAnimated = false;
@@ -214,6 +224,14 @@ export class PokemonSprite {
    * state" invariant. */
   private readonly attackOffset: Vec2 = { x: 0, y: 0 };
   private lungeTween: Phaser.Tweens.Tween | Phaser.Tweens.TweenChain | null = null;
+  /** When set, update() stops folding the sim's live position into renderPos
+   * — see lockPosition(). Its own attack cooldown clears (and the sim starts
+   * wandering it off again) almost immediately after a move fires, well
+   * before the render's attack visual window (ArenaScene's
+   * ATTACK_VISUAL_DURATION_MS) closes, so without this a ranged attacker
+   * visibly drifts away mid-pose. Purely cosmetic, like attackOffset — never
+   * fed back into the sim. */
+  private positionLockToken: symbol | null = null;
 
   /**
    * `spawnIndex`/`totalCount` drive the clockwise Pokéball-drop entrance —
@@ -436,7 +454,7 @@ export class PokemonSprite {
   private registerPmdAnimations(action: string, meta: PmdAnimEntry): void {
     const textureKey = this.pmdTextureKey(action);
     const frameCount = meta.durationsMs.length;
-    const isOneShot = action === 'Attack' || action === 'Hurt' || action === 'Faint';
+    const isOneShot = ONE_SHOT_PMD_ACTIONS.has(action);
     for (let row = 0; row < meta.directions; row++) {
       const animKey = this.pmdAnimKey(action, row);
       if (this.scene.anims.exists(animKey)) continue; // shared/reused across same-species instances
@@ -577,8 +595,10 @@ export class PokemonSprite {
   ): void {
     if (!this.hasRevealed) return; // entrance tween owns position/visibility until it lands
 
-    this.renderPos.x += (screenX - this.renderPos.x) * POSITION_SMOOTHING;
-    this.renderPos.y += (screenY - this.renderPos.y) * POSITION_SMOOTHING;
+    if (this.positionLockToken === null) {
+      this.renderPos.x += (screenX - this.renderPos.x) * POSITION_SMOOTHING;
+      this.renderPos.y += (screenY - this.renderPos.y) * POSITION_SMOOTHING;
+    }
     this.container.setPosition(this.renderPos.x + this.attackOffset.x, this.renderPos.y + this.attackOffset.y);
     this.container.setDepth(this.renderPos.y + this.attackOffset.y);
 
@@ -586,7 +606,6 @@ export class PokemonSprite {
     this.updateHpBar(pokemon);
     this.updateStatus(pokemon);
     this.updateHitFlash(pokemon, nowMs, allPokemon);
-    this.updateMoveLabel(nowMs);
   }
 
   /** The sim's own `facing` field is movement-driven and only updates while a
@@ -692,10 +711,31 @@ export class PokemonSprite {
   }
 
   /** Called by ArenaScene on a 'moveUsed' event for the attacker — faces the
-   * attacker toward its actual current target before playing the swing. */
-  playPmdAttack(selfPosition: Vec2, targetPosition: Vec2 | undefined): void {
+   * attacker toward its actual current target before playing the swing.
+   * `ranged` (true for every move family except lunge — see the caller) picks
+   * this species' dedicated ranged-attack pose over the generic melee-swing
+   * Attack frame, where it has one. */
+  playPmdAttack(selfPosition: Vec2, targetPosition: Vec2 | undefined, ranged: boolean): void {
     const facing = targetPosition ? this.facingToward(selfPosition, targetPosition) : this.lastFacing;
-    this.triggerPmdOneShot('Attack', facing);
+    const action = ranged ? this.resolveRangedAttackAction() : 'Attack';
+    this.triggerPmdOneShot(action, facing);
+  }
+
+  private resolveRangedAttackAction(): string {
+    return RANGED_ATTACK_ACTION_PRIORITY.find((action) => this.pmdActions[action]) ?? 'Attack';
+  }
+
+  /** Freezes this sprite's on-screen position (see positionLockToken) for the
+   * caller's attack visual window. Returns a function that releases the
+   * lock; safe to call even after a newer lockPosition() has superseded it
+   * (e.g. this attacker fires again before its first attack's visual window
+   * closes) — it only clears the lock if it's still the one this call set. */
+  lockPosition(): () => void {
+    const token = Symbol();
+    this.positionLockToken = token;
+    return () => {
+      if (this.positionLockToken === token) this.positionLockToken = null;
+    };
   }
 
   /** Lunge-family move VFX (see moveAnimations.ts) — dashes this sprite's
@@ -811,7 +851,14 @@ export class PokemonSprite {
     return PLACEHOLDER_RADIUS; // no body loaded yet
   }
 
-  showMoveLabel(move: MoveDefinition): void {
+  /** Shows the move-name callout above this sprite. Returns a function that
+   * hides it again — the caller (ArenaScene) invokes it once the attack's
+   * on-screen animation finishes, so the label never lingers once there's no
+   * attack actually in progress. Safe to call even if a later attack has
+   * already replaced or cleared this label (e.g. destroy() ran first, or
+   * this sprite is mid-way through a newer showMoveLabel() call) — it only
+   * clears the exact label instance this call created. */
+  showMoveLabel(move: MoveDefinition): () => void {
     this.moveLabel?.destroy();
     const color = getMoveTypeColor(move.type);
     const text = this.scene.add
@@ -841,16 +888,16 @@ export class PokemonSprite {
     // Anchor by the box's bottom edge (not its center) so MOVE_LABEL_GAP stays
     // an accurate clearance above the sprite regardless of how tall the box is.
     const containerY = this.topOfBodyY() - MOVE_LABEL_GAP - boxHeight / 2;
-    this.moveLabel = this.scene.add.container(0, containerY, [bg, text]);
-    this.container.add(this.moveLabel);
-    this.moveLabelHideAt = this.scene.time.now + MOVE_LABEL_MS;
-  }
+    const label = this.scene.add.container(0, containerY, [bg, text]);
+    this.moveLabel = label;
+    this.container.add(label);
 
-  private updateMoveLabel(nowMs: number): void {
-    if (this.moveLabel && nowMs >= this.moveLabelHideAt) {
-      this.moveLabel.destroy();
-      this.moveLabel = null;
-    }
+    return () => {
+      if (this.moveLabel === label) {
+        this.moveLabel.destroy();
+        this.moveLabel = null;
+      }
+    };
   }
 
   playFaintAndDestroy(onComplete: () => void): void {

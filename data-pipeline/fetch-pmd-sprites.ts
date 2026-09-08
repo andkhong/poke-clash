@@ -100,7 +100,10 @@ async function processSpecies(id: number, index: PmdSpriteIndex, statusCache: St
   await mkdir(speciesDir, { recursive: true });
   await Promise.all(Object.entries(extracted.pngsToWrite).map(([name, buf]) => writeFile(`${speciesDir}${name}`, buf)));
 
-  index[key] = { dir: paddedId, actions: extracted.actions, generatedAt: new Date().toISOString() };
+  // Preserve any existing `shiny` sub-object (merged in separately by
+  // fetch-pmd-shiny-sprites.ts) — a force re-run to pick up newly-wired
+  // actions shouldn't silently drop already-fetched shiny coverage.
+  index[key] = { ...index[key], dir: paddedId, actions: extracted.actions, generatedAt: new Date().toISOString() };
   statusCache[key] = { status: 'done' };
 }
 
