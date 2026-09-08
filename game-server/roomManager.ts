@@ -4,10 +4,10 @@ import { buildSpeciesMapForLevel, hasPmdSprite, listAllSpecies, moveLookup, pick
 import { ARENA_HEIGHT, ARENA_WIDTH, TICK_MS } from '../src/sim/constants';
 import { HUD_REFRESH_INTERVAL_MS } from '../src/ui/state/simStore';
 import type { MatchConfig } from '../src/sim/types';
-import type { BattleStartPayload, HelloPayload, RoomPhase, RoomSlotSummary, RoomSummary } from '../src/net/protocol';
+import type { BattleStartPayload, HelloPayload, RoomMode, RoomPhase, RoomSlotSummary, RoomSummary, RoomTeam } from '../src/net/protocol';
+import { roomCapacityForMode, teamSizeForMode } from '../src/net/protocol';
 import { broadcast } from './sse';
 
-export const ROOM_CAPACITY = 4;
 export const ROOM_COUNTDOWN_MS = 15_000;
 export const ROOM_COMPLETE_HOLD_MS = 8_000;
 // Matches SetupScreen's own default level for the local free-for-all flow.
@@ -20,13 +20,20 @@ interface PlayerSlot {
   playerId: string | null;
   speciesId: number | null;
   isAutoFilled: boolean;
+  /** Fixed for the room's lifetime by slot index (see emptySlots()) — null
+   * outside a team-mode room. */
+  team: RoomTeam | null;
 }
 
 interface RoomState {
   id: string;
   name: string;
+  mode: RoomMode;
   phase: RoomPhase;
   slots: PlayerSlot[];
+  /** Boss Mode only — chosen once at battle start; nobody picks it, so it
+   * isn't a PlayerSlot. Null outside 'battle'/'complete'. */
+  bossSpeciesId: number | null;
   countdownEndsAtMs: number | null;
   engine: SimulationEngine | null;
   lastBroadcastSeq: number;
@@ -40,19 +47,35 @@ const rooms = new Map<string, RoomState>();
 let nextRoomNumber = 1;
 const speciesNameById = new Map(listAllSpecies().map((s) => [s.id, s.name]));
 
-function emptySlots(): PlayerSlot[] {
-  return Array.from({ length: ROOM_CAPACITY }, () => ({ playerId: null, speciesId: null, isAutoFilled: false }));
+// A team room's slots are always laid out with all of Team A's seats first
+// (index 0..teamSize-1) then all of Team B's (teamSize..capacity-1) — joinRoom
+// always claims the lowest-index open slot, so the split is equivalent to
+// "first half of joiners are Team A, second half Team B" without needing any
+// separate join-order bookkeeping. It also means startBattle() can hand
+// room.slots straight to MatchConfig.speciesIds in slot order and get exactly
+// the contiguous halves matchSetup.ts's Team Mode split expects.
+function emptySlots(mode: RoomMode): PlayerSlot[] {
+  const capacity = roomCapacityForMode(mode);
+  const teamSize = teamSizeForMode(mode);
+  return Array.from({ length: capacity }, (_, slotIndex) => ({
+    playerId: null,
+    speciesId: null,
+    isAutoFilled: false,
+    team: teamSize !== null ? (slotIndex < teamSize ? 'teamA' : 'teamB') : null,
+  }));
 }
 
-export function createRoom() {
+export function createRoom(mode: RoomMode = 'classic') {
   const id = `room-${nextRoomNumber}`;
   const name = `Room ${nextRoomNumber}`;
   nextRoomNumber += 1;
   const room: RoomState = {
     id,
     name,
+    mode,
     phase: 'idle',
-    slots: emptySlots(),
+    slots: emptySlots(mode),
+    bossSpeciesId: null,
     countdownEndsAtMs: null,
     engine: null,
     lastBroadcastSeq: 0,
@@ -80,8 +103,18 @@ export function toRoomSummary(room: RoomState): RoomSummary {
     speciesId: slot.speciesId,
     speciesName: slot.speciesId !== null ? (speciesNameById.get(slot.speciesId) ?? null) : null,
     isAutoFilled: slot.isAutoFilled,
+    team: slot.team,
   }));
-  return { id: room.id, name: room.name, phase: room.phase, slots, countdownEndsAtMs: room.countdownEndsAtMs };
+  return {
+    id: room.id,
+    name: room.name,
+    mode: room.mode,
+    phase: room.phase,
+    slots,
+    countdownEndsAtMs: room.countdownEndsAtMs,
+    bossSpeciesName: room.bossSpeciesId !== null ? (speciesNameById.get(room.bossSpeciesId) ?? null) : null,
+    capacity: roomCapacityForMode(room.mode),
+  };
 }
 
 export function getHelloPayload(room: RoomState): HelloPayload {
@@ -137,14 +170,29 @@ function startBattle(room: RoomState): void {
   }
 
   const speciesIds = room.slots.map((s) => s.speciesId as number);
+
+  let bossSpeciesId: number | null = null;
+  if (room.mode === 'boss') {
+    [bossSpeciesId] = pickRandomSpeciesIds(1, chosenIds);
+    room.bossSpeciesId = bossSpeciesId;
+  }
+
+  const teamSize = teamSizeForMode(room.mode);
+
   const config: MatchConfig = {
     level: MULTIPLAYER_LEVEL,
     speciesIds,
     arena: { width: ARENA_WIDTH, height: ARENA_HEIGHT },
     shiny: false,
+    ...(bossSpeciesId !== null ? { boss: { speciesId: bossSpeciesId } } : {}),
+    ...(teamSize !== null ? { teams: { size: teamSize } } : {}),
   };
+  // Boss Mode's boss species lives outside speciesIds (MatchConfig.boss), so
+  // it needs to be requested here too or matchSetup.ts's createMatch throws
+  // "Unknown species id" building its instance.
+  const allSpeciesIds = bossSpeciesId !== null ? [...speciesIds, bossSpeciesId] : speciesIds;
   const seed = Math.floor(Math.random() * 0xffffffff);
-  const engine = new SimulationEngine(config, buildSpeciesMapForLevel(speciesIds, MULTIPLAYER_LEVEL), moveLookup, seed);
+  const engine = new SimulationEngine(config, buildSpeciesMapForLevel(allSpeciesIds, MULTIPLAYER_LEVEL), moveLookup, seed);
 
   room.phase = 'battle';
   room.countdownEndsAtMs = null;
@@ -195,7 +243,8 @@ function registerRoomTickLoop(room: RoomState): void {
 function resetRoom(room: RoomState): void {
   room.completeResetTimer = null;
   room.phase = 'idle';
-  room.slots = emptySlots();
+  room.slots = emptySlots(room.mode);
+  room.bossSpeciesId = null;
   room.countdownEndsAtMs = null;
   room.engine = null;
   room.lastBroadcastSeq = 0;

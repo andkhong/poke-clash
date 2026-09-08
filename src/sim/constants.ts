@@ -105,6 +105,17 @@ export const WANDER_SPEED = 180; // px/s (3x)
 export const CHASE_SPEED = 270; // px/s (3x)
 export const ARRIVAL_SLOWDOWN_RADIUS = 40;
 export const ARENA_PADDING = 48;
+/**
+ * Extra-tall clamp for the arena's top edge only — reserves a strip at the
+ * top of the map for the roster/HP HUD panel (RosterPanel, rendered as a
+ * screen overlay outside the sim) so it never has to render over (or get
+ * walked under by) a live Pokémon. Kept as a fixed fraction of ARENA_HEIGHT
+ * rather than measured from the actual DOM panel height, since the sim's
+ * arena bounds are shared/authoritative and can't depend on any one client's
+ * screen layout — sized generously for the largest roster's HUD footprint at
+ * the near-1:1 phone display scale ARENA_WIDTH/HEIGHT are tuned for.
+ */
+export const ARENA_TOP_PADDING = 200;
 
 /**
  * On-screen sprite scale — shared with the renderer (PokemonSprite.ts uses

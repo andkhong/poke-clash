@@ -22,6 +22,7 @@ function makeCollider(id: string, x: number, y: number, collisionRadius: number)
     velocity: { x: 0, y: 0 },
     facing: 'S',
     collisionRadius,
+    team: id,
     aiState: 'wander',
     targetInstanceId: null,
     lastRetargetMs: 0,

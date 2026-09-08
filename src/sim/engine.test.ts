@@ -158,6 +158,57 @@ describe('SimulationEngine full match', () => {
     }
   });
 
+  it('never lets a move damage a teammate in Team Mode', () => {
+    for (let seed = 1; seed <= 6; seed++) {
+      const engine = new SimulationEngine(
+        { level: 100, speciesIds: [1, 2, 3, 4, 5, 6], arena: { width: 960, height: 1600 }, shiny: false, teams: { size: 3 } },
+        FIXTURE_SPECIES,
+        moveLookup,
+        seed
+      );
+      const teamById = new Map(Object.values(engine.getState().pokemon).map((p) => [p.instanceId, p.team]));
+      const maxSteps = Math.ceil(95_000 / TICK_MS);
+      for (let i = 0; i < maxSteps; i++) {
+        if (engine.getState().phase === 'complete') break;
+        engine.tick(TICK_MS);
+      }
+      const events = engine.getEventsSince(0);
+      for (const e of events) {
+        if (e.type !== 'moveUsed') continue;
+        for (const targetId of e.targetIds) {
+          if ((e.damage[targetId] ?? 0) <= 0) continue;
+          expect(teamById.get(targetId)).not.toBe(teamById.get(e.attackerId));
+        }
+      }
+    }
+  });
+
+  it('splits the roster into teamA/teamB by spawn order and ends the match as soon as one whole side is wiped out', () => {
+    const engine = new SimulationEngine(
+      { level: 100, speciesIds: [1, 2, 3, 4, 5, 6], arena: { width: 960, height: 1600 }, shiny: false, teams: { size: 3 } },
+      FIXTURE_SPECIES,
+      moveLookup,
+      5
+    );
+    const pokemonList = Object.values(engine.getState().pokemon);
+    expect(pokemonList.slice(0, 3).every((p) => p.team === 'teamA')).toBe(true);
+    expect(pokemonList.slice(3).every((p) => p.team === 'teamB')).toBe(true);
+
+    const maxSteps = Math.ceil(95_000 / TICK_MS);
+    for (let i = 0; i < maxSteps; i++) {
+      if (engine.getState().phase === 'complete') break;
+      engine.tick(TICK_MS);
+    }
+    const state = engine.getState();
+    expect(state.phase).toBe('complete');
+    // Whoever's left standing (if anyone) must all be from the same side —
+    // the match should never end mid-fight with two teams still alive, nor
+    // linger after one side hits zero.
+    const survivingTeams = new Set(state.livingOrder.map((id) => state.pokemon[id].team));
+    expect(survivingTeams.size).toBeLessThanOrEqual(1);
+    expect([...state.winnerInstanceIds].sort()).toEqual([...state.livingOrder].sort());
+  });
+
   it('holds the intro circle formation without moving Pokémon before battle starts', () => {
     const engine = new SimulationEngine(
       { level: 100, speciesIds: [1, 2, 3], arena: { width: 960, height: 1600 }, shiny: false },

@@ -2,6 +2,7 @@ import type { ArenaBounds, FacingDirection, PokemonInstance, Vec2 } from './type
 import type { Rng } from './rng';
 import {
   ARENA_PADDING,
+  ARENA_TOP_PADDING,
   ARRIVAL_SLOWDOWN_RADIUS,
   CHASE_SPEED,
   SEPARATION_INFLUENCE_MULTIPLIER,
@@ -54,7 +55,7 @@ export function pickWanderWaypoint(rng: Rng, arena: ArenaBounds, from: Vec2): Ve
   const dist = MIN_WANDER_DISTANCE + rng() * WANDER_DISTANCE_RANGE;
   return {
     x: Math.max(ARENA_PADDING, Math.min(arena.width - ARENA_PADDING, from.x + Math.cos(angle) * dist)),
-    y: Math.max(ARENA_PADDING, Math.min(arena.height - ARENA_PADDING, from.y + Math.sin(angle) * dist)),
+    y: Math.max(ARENA_TOP_PADDING, Math.min(arena.height - ARENA_PADDING, from.y + Math.sin(angle) * dist)),
   };
 }
 
@@ -106,7 +107,7 @@ export function applyMovement(self: PokemonInstance, dtMs: number, arena: ArenaB
   self.position.y += self.velocity.y * dtSec;
 
   self.position.x = Math.max(ARENA_PADDING, Math.min(arena.width - ARENA_PADDING, self.position.x));
-  self.position.y = Math.max(ARENA_PADDING, Math.min(arena.height - ARENA_PADDING, self.position.y));
+  self.position.y = Math.max(ARENA_TOP_PADDING, Math.min(arena.height - ARENA_PADDING, self.position.y));
 
   if (Math.abs(self.velocity.x) > 1 || Math.abs(self.velocity.y) > 1) {
     self.facing = velocityToFacing(self.velocity, self.facing);
@@ -149,7 +150,7 @@ export function resolveCollisions(livingIds: readonly string[], pokemonById: Rec
   for (const id of livingIds) {
     const p = pokemonById[id];
     p.position.x = Math.max(ARENA_PADDING, Math.min(arena.width - ARENA_PADDING, p.position.x));
-    p.position.y = Math.max(ARENA_PADDING, Math.min(arena.height - ARENA_PADDING, p.position.y));
+    p.position.y = Math.max(ARENA_TOP_PADDING, Math.min(arena.height - ARENA_PADDING, p.position.y));
   }
 }
 

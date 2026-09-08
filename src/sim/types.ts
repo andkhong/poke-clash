@@ -104,8 +104,20 @@ export interface PokemonInstance {
   /** Half-width (px) of this species' on-screen collision footprint — see
    * COLLISION_RADIUS_FACTOR in constants.ts. Drives both separation steering
    * and the hard positional correction in resolveCollisions(), so bigger
-   * Pokémon actually need more clearance than smaller ones. */
+   * Pokémon actually need more clearance than smaller ones. For Boss Mode's
+   * boss this is already pre-multiplied by BOSS_CONFIG.spriteScaleMultiplier
+   * (see matchSetup.ts) so its hitbox matches its bigger on-screen size. */
   collisionRadius: number;
+
+  /** Alliance for AI targeting (ai.ts/engine.ts never let same-team Pokémon
+   * target each other) — physical collision/separation stays team-agnostic.
+   * Unique per instance in a normal free-for-all/1v1 match, so it never
+   * restricts anything there; Boss Mode's 4 party members all share 'party'
+   * while the boss is on its own team, so the party never fights itself. */
+  team: string;
+  /** True only for Boss Mode's single boss — drives damage amplification
+   * (damage.ts) and 3x sprite scale (PokemonSprite.ts). See sim/bossConfig.ts. */
+  isBoss?: boolean;
 
   aiState: AiState;
   targetInstanceId: string | null;
@@ -152,6 +164,10 @@ export interface SimState {
    * so the renderer can read it off the state it already has without a
    * separate plumbing path. The sim itself never branches on this. */
   shiny: boolean;
+  /** Echoed from MatchConfig.teams — lets the renderer (RosterPanel,
+   * PokemonSprite's team-color ring) know this is a Team Mode match without
+   * needing the original MatchConfig. Undefined for free-for-all/Boss Mode. */
+  teams?: { size: number };
 }
 
 export type SimEvent =
@@ -190,4 +206,16 @@ export interface MatchConfig {
    * moves outside its real movePool) falls back to the random pick — see
    * matchSetup.ts's pickMoveSlots. */
   customMoves?: Record<number, number[]>;
+  /** When present, this is a Boss Mode match: `speciesIds` become the 4-Pokémon
+   * party (allies, sharing one team), and this additional species enters as a
+   * heavily-amplified boss on its own team — see sim/bossConfig.ts and
+   * matchSetup.ts. */
+  boss?: { speciesId: number };
+  /** When present, this is a Team Mode match: `speciesIds` is split into two
+   * equal-sized opposing sides — the first `teams.size` entries are Team A,
+   * the rest are Team B (so `speciesIds.length` must equal `teams.size * 2`) —
+   * each side shares one team id and never targets its own teammates, only
+   * the other side. Mutually exclusive with `boss` (Boss Mode already has its
+   * own party/boss team split). See matchSetup.ts. */
+  teams?: { size: number };
 }

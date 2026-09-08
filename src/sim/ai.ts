@@ -27,6 +27,7 @@ export function findNearestLivingEnemy(
   for (const id of state.livingOrder) {
     if (id === self.instanceId) continue;
     const other = state.pokemon[id];
+    if (other.team === self.team) continue; // allies (Boss Mode's party) are never valid targets
     const d = distance(selfPos, positions.get(id) ?? other.position);
     if (d < nearestDist) {
       nearestDist = d;

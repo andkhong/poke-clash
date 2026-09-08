@@ -1,4 +1,5 @@
 import Phaser from 'phaser';
+import { ARENA_TOP_PADDING } from '../../sim/constants';
 
 // Ground textures are cropped swatches from a real CC0 tileset ("Top Down
 // Grass, Beach and Water Tileset" by the OpenGameArt CC0 collection) rather
@@ -34,6 +35,13 @@ function drawRockBorder(scene: Phaser.Scene, width: number, height: number): voi
   const graphics = scene.add.graphics().setDepth(-80);
   const spacing = 34;
   const margin = 12;
+  // The top edge of the fenced-in playable area sits at ARENA_TOP_PADDING
+  // (movement.ts clamps every Pokémon's position to stay below this same
+  // line) rather than at `margin` like the other three sides — that strip
+  // above the fence is reserved screen space for the roster/HP HUD overlay
+  // (RosterPanel), so the fence also visually marks where the HUD's "no-go"
+  // zone ends.
+  const topY = ARENA_TOP_PADDING;
 
   const placeRock = (x: number, y: number): void => {
     const r = Phaser.Math.Between(8, 14);
@@ -46,10 +54,10 @@ function drawRockBorder(scene: Phaser.Scene, width: number, height: number): voi
   };
 
   for (let x = margin; x < width; x += spacing) {
-    placeRock(x, margin);
+    placeRock(x, topY);
     placeRock(x, height - margin);
   }
-  for (let y = margin + spacing; y < height - margin; y += spacing) {
+  for (let y = topY + spacing; y < height - margin; y += spacing) {
     placeRock(margin, y);
     placeRock(width - margin, y);
   }

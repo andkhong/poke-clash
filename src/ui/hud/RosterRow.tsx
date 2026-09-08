@@ -3,9 +3,13 @@ import type { PokemonInstance } from '../../sim/types';
 interface RosterRowProps {
   pokemon: PokemonInstance;
   fainted: boolean;
+  /** Team Mode's side color, used for this row's border instead of the
+   * default neutral one — lets a row visually read as part of its team's
+   * column even on its own. */
+  accentColor?: string;
 }
 
-export function RosterRow({ pokemon, fainted }: RosterRowProps) {
+export function RosterRow({ pokemon, fainted, accentColor }: RosterRowProps) {
   const ratio = pokemon.maxHp > 0 ? Math.max(0, pokemon.currentHp / pokemon.maxHp) : 0;
   const barColor = fainted ? '#5a3030' : ratio > 0.5 ? '#4caf50' : ratio > 0.2 ? '#e0b030' : '#d9453d';
 
@@ -17,7 +21,7 @@ export function RosterRow({ pokemon, fainted }: RosterRowProps) {
         gap: 6,
         padding: '3px 6px',
         background: 'rgba(40,44,52,0.85)',
-        border: '1px solid rgba(255,255,255,0.15)',
+        border: `1px solid ${accentColor ? `${accentColor}66` : 'rgba(255,255,255,0.15)'}`,
         borderRadius: 3,
         opacity: fainted ? 0.55 : 1,
         minWidth: 0,

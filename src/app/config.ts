@@ -8,6 +8,11 @@ export const MIN_ROSTER_SIZE = 2;
 export const MAX_ROSTER_SIZE = 16;
 export const DEFAULT_ROSTER_SIZE = 16;
 
+/** Per-side sizes Team Mode offers (2v2/3v3/4v4/8v8) — each doubles to the
+ * match's total roster size, capped by MAX_ROSTER_SIZE (8v8 = 16). */
+export const TEAM_SIZE_OPTIONS = [2, 3, 4, 8] as const;
+export type TeamSize = (typeof TEAM_SIZE_OPTIONS)[number];
+
 // Single source of truth is sim/constants.ts — re-exported here so UI code
 // only ever needs to import from app/config.
 export { ARENA_WIDTH, ARENA_HEIGHT };

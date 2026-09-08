@@ -297,6 +297,7 @@ export class SimulationEngine implements EngineLike {
     for (const id of this.state.livingOrder) {
       if (id === attacker.instanceId) continue;
       const p = this.state.pokemon[id];
+      if (p.team === attacker.team) continue; // never splash allies (Boss Mode's party)
       if (distance(p.position, primary.position) <= SPREAD_MOVE_RADIUS) result.push(p);
     }
     return result.length > 0 ? result : [primary];
@@ -398,18 +399,46 @@ export class SimulationEngine implements EngineLike {
       this.events.push({ seq: this.nextSeq(), atMs: nowMs, type: 'milestone', kind: 'finalTwo' });
     }
 
-    if (this.state.livingOrder.length <= 1) {
-      this.state.phase = 'complete';
-      this.state.winnerInstanceIds = [...this.state.livingOrder];
-      this.events.push({ seq: this.nextSeq(), atMs: nowMs, type: 'milestone', kind: 'matchEnd' });
+    // A match ends once at most one *side* remains standing, not one
+    // Pokémon — in a free-for-all every living Pokémon is on its own unique
+    // team (see matchSetup.ts), so this is exactly equivalent to the old
+    // livingOrder.length <= 1 check there. Team Mode shares a team id across
+    // several Pokémon, so this correctly waits for the whole opposing side to
+    // be wiped out rather than ending the instant livingOrder happens to hit
+    // 1. It also fixes a Boss Mode edge case for free: the match now ends the
+    // moment the boss dies even if several party members are still standing,
+    // instead of only when livingOrder itself drops to <= 1.
+    const teamsAlive = new Set(this.state.livingOrder.map((id) => this.state.pokemon[id].team));
+    if (teamsAlive.size <= 1) {
+      this.completeMatch(nowMs);
     }
   }
 
   /** The 90s hard cap: whoever's still standing is declared a (possibly shared) winner. */
   private forceMatchEnd(nowMs: number): void {
     if (this.state.phase === 'complete') return;
+    this.completeMatch(nowMs);
+  }
+
+  /** Freezes the match and, for a lone winner, plants them at the arena
+   * center in an idle victory pose facing south — 'incapacitated' already
+   * halts movement/attacking (see stepMovement/maybeAct) and renders as Idle
+   * with no other plumbing needed. Co-winners (from the 90s hard cap) are
+   * left where they stand rather than stacked on the same point, since only
+   * a single winner has an unambiguous "center". */
+  private completeMatch(nowMs: number): void {
     this.state.phase = 'complete';
-    this.state.winnerInstanceIds = [...this.state.livingOrder];
+    const winnerIds = [...this.state.livingOrder];
+    this.state.winnerInstanceIds = winnerIds;
+
+    if (winnerIds.length === 1) {
+      const winner = this.state.pokemon[winnerIds[0]];
+      winner.velocity = { x: 0, y: 0 };
+      winner.facing = 'S';
+      winner.aiState = 'incapacitated';
+      winner.position = { x: this.state.arena.width / 2, y: this.state.arena.height / 2 };
+    }
+
     this.events.push({ seq: this.nextSeq(), atMs: nowMs, type: 'milestone', kind: 'matchEnd' });
   }
 }

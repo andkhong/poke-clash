@@ -10,6 +10,7 @@ import {
   HIGH_CRIT_CHANCE,
   STAB_MULT,
 } from './constants';
+import { BOSS_CONFIG } from './bossConfig';
 
 export interface DamageResult {
   damage: number;
@@ -76,8 +77,10 @@ export function resolveDamage(
   const burnPenalty =
     move.category === 'physical' && attacker.status === 'burn' ? BURN_PHYSICAL_DAMAGE_MULT : 1;
 
+  const bossDamageBonus = attacker.isBoss ? BOSS_CONFIG.damageMultiplier : 1;
+
   const multiplier =
-    (crit ? CRIT_DAMAGE_MULT : 1) * randomFactor * stab * effectiveness * burnPenalty;
+    (crit ? CRIT_DAMAGE_MULT : 1) * randomFactor * stab * effectiveness * burnPenalty * bossDamageBonus;
 
   const damage = Math.max(1, Math.floor(base * multiplier));
   return { damage, hit, crit, effectiveness };

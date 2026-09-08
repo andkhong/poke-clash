@@ -2,12 +2,19 @@ import { createServer, type ServerResponse } from 'node:http';
 import { createRoom, getHelloPayload, getRoom, joinRoom, listRooms, pickSpecies, toRoomSummary } from './roomManager';
 import { subscribe } from './sse';
 import { readJsonBody, sendJson } from './httpUtil';
-import type { ApiErrorBody, PickSpeciesRequest } from '../src/net/protocol';
+import type { ApiErrorBody, CreateRoomRequest, PickSpeciesRequest } from '../src/net/protocol';
 
 const PORT = Number(process.env.GAME_SERVER_PORT ?? 4311);
-const INITIAL_ROOM_COUNT = 3;
+// Keeps the previously-requested "4 rooms by default" while making Boss
+// Mode / Team Mode discoverable without anyone needing to create a room for
+// it first. Only one team size is seeded (matching Boss Mode's single
+// starter room) — the rest are one click away via the "+ TEAM" buttons.
+const INITIAL_CLASSIC_ROOM_COUNT = 3;
+const INITIAL_BOSS_ROOM_COUNT = 1;
 
-for (let i = 0; i < INITIAL_ROOM_COUNT; i++) createRoom();
+for (let i = 0; i < INITIAL_CLASSIC_ROOM_COUNT; i++) createRoom('classic');
+for (let i = 0; i < INITIAL_BOSS_ROOM_COUNT; i++) createRoom('boss');
+createRoom('team2');
 
 const ID_SEGMENT = '[A-Za-z0-9_-]+';
 const JOIN_RE = new RegExp(`^/api/rooms/(${ID_SEGMENT})/join$`);
@@ -44,7 +51,8 @@ const server = createServer(async (req, res) => {
   }
 
   if (method === 'POST' && url === '/api/rooms') {
-    const room = createRoom();
+    const body = await readJsonBody<CreateRoomRequest>(req);
+    const room = createRoom(body.mode ?? 'classic');
     sendJson(res, 201, { room: toRoomSummary(room) });
     return;
   }

@@ -17,6 +17,7 @@ import {
   PMD_MIN_SPRITE_SIZE,
   PMD_NATIVE_SCALE,
 } from '../../sim/constants';
+import { BOSS_CONFIG } from '../../sim/bossConfig';
 
 /** Target on-screen size (px, longest side) — sprite sources range from ~30px
  * PMD action frames to several-hundred-px official artwork, so every sprite
@@ -59,6 +60,14 @@ const LUNGE_BACK_MS = 170;
  * simplification. Matches the gold used by the setup screen's shiny toggle
  * and the shiny sparkle-burst color. */
 const SHINY_TINT_COLOR = 0xffd700;
+/** Slight glow ring marking the current multiplayer player's own pick, so
+ * spectators can spot which Pokémon is theirs — see setHighlighted(). Uses
+ * the app's general gold accent color, distinct from SHINY_TINT_COLOR so a
+ * shiny pick is still visually distinguishable from "just shiny". */
+const HIGHLIGHT_GLOW_COLOR = 0xe0b030;
+const HIGHLIGHT_GLOW_OUTER_STRENGTH = 3;
+const HIGHLIGHT_GLOW_QUALITY = 0.2;
+const HIGHLIGHT_GLOW_DISTANCE = 12;
 const BALL_DROP_HEIGHT = 260;
 const BALL_STAGGER_JITTER_MS = 40;
 /** How much of the gap to the true sim position to close each render frame —
@@ -154,6 +163,9 @@ export class PokemonSprite {
   private readonly scene: Phaser.Scene;
   private readonly speciesId: number;
   private readonly shiny: boolean;
+  /** Boss Mode's boss renders at BOSS_CONFIG.spriteScaleMultiplier — applied
+   * on top of the normal per-species scale wherever that's computed. */
+  private readonly isBoss: boolean;
   /** True only once real shiny PMD art (a genuine per-species recolor, not a
    * tint) is actually loaded — see tryLoadPmdSprites(). Also folded into the
    * PMD texture/anim key names, so a species played once normally and once
@@ -174,6 +186,12 @@ export class PokemonSprite {
   private isShowingBack = false;
   private hasFainted = false;
   private idleTween: Phaser.Tweens.Tween | null = null;
+
+  private isHighlighted = false;
+  /** Team Mode's side color (see ui/teamColors.ts), or undefined outside Team
+   * Mode — drawn as a glow ring like the highlight, but only when there's no
+   * highlight to show instead (see applyHighlightEffect()). */
+  private teamGlowColor: number | undefined;
 
   private isPmdTier = false;
   /** Only the actions that actually finished loading (a subset of the index entry's). */
@@ -215,6 +233,7 @@ export class PokemonSprite {
     this.instanceId = pokemon.instanceId;
     this.speciesId = pokemon.speciesId;
     this.shiny = shiny;
+    this.isBoss = !!pokemon.isBoss;
     this.renderPos = { x: pokemon.position.x, y: pokemon.position.y };
 
     this.container = scene.add.container(pokemon.position.x, pokemon.position.y - BALL_DROP_HEIGHT);
@@ -261,6 +280,36 @@ export class PokemonSprite {
     const jitter = Phaser.Math.Between(-BALL_STAGGER_JITTER_MS, BALL_STAGGER_JITTER_MS);
     const delay = Math.max(0, spawnIndex * BALL_DROP_STAGGER_MS + jitter);
     scene.time.delayedCall(delay, () => this.playEntrance(pokemon.position));
+  }
+
+  /** Marks this as the current multiplayer player's own pick — adds a slight
+   * glow outline so it's easy to spot among the roster. Safe to call before
+   * the body sprite has finished loading; the effect is reapplied whenever a
+   * new body GameObject is created (see onPmdSpritesReady/onSpritesReady) —
+   * a texture/tier swap on the same GameObject keeps it automatically. */
+  setHighlighted(highlighted: boolean): void {
+    this.isHighlighted = highlighted;
+    this.applyHighlightEffect();
+  }
+
+  /** Marks which Team Mode side this Pokémon is on — pass undefined outside
+   * Team Mode. Safe to call before the body sprite has finished loading, same
+   * as setHighlighted(). */
+  setTeamColor(colorHex: number | undefined): void {
+    this.teamGlowColor = colorHex;
+    this.applyHighlightEffect();
+  }
+
+  private applyHighlightEffect(): void {
+    if (!(this.body instanceof Phaser.GameObjects.Sprite || this.body instanceof Phaser.GameObjects.Image)) return;
+    this.body.postFX.clear();
+    // The multiplayer "this is your own pick" highlight takes priority over
+    // the team ring when both would apply — it's the more specific, more
+    // useful-in-the-moment signal — rather than trying to render two glows.
+    const glowColor = this.isHighlighted ? HIGHLIGHT_GLOW_COLOR : this.teamGlowColor;
+    if (glowColor !== undefined) {
+      this.body.postFX.addGlow(glowColor, HIGHLIGHT_GLOW_OUTER_STRENGTH, 0, false, HIGHLIGHT_GLOW_QUALITY, HIGHLIGHT_GLOW_DISTANCE);
+    }
   }
 
   private playEntrance(targetPos: Vec2): void {
@@ -353,7 +402,7 @@ export class PokemonSprite {
     this.isPmdTier = true;
     const nativeSize = Math.max(loaded.Idle.frameWidth, loaded.Idle.frameHeight, 1);
     const targetSize = Math.min(PMD_MAX_SPRITE_SIZE, Math.max(PMD_MIN_SPRITE_SIZE, nativeSize * PMD_NATIVE_SCALE));
-    this.pmdScale = targetSize / nativeSize;
+    this.pmdScale = (targetSize / nativeSize) * (this.isBoss ? BOSS_CONFIG.spriteScaleMultiplier : 1);
     this.onPmdSpritesReady();
     return true;
   }
@@ -418,6 +467,7 @@ export class PokemonSprite {
     // No synthetic idle-bob tween here — PMD's own Idle animation already has
     // baked motion; adding the old hotlink-tier tween on top would double it.
     sprite.play(this.pmdAnimKey('Idle', FACING_TO_ROW.S));
+    this.applyHighlightEffect();
   }
 
   private async tryLoadTier(pokemon: PokemonInstance, urls: SpriteUrls): Promise<void> {
@@ -496,7 +546,7 @@ export class PokemonSprite {
     const sprite = this.scene.add.sprite(0, 0, frontKey).setOrigin(0.5, 0.7);
     sprite.setData('frontKey', frontKey);
     sprite.setData('backKey', backKey);
-    const scale = TARGET_SPRITE_SIZE / Math.max(sprite.width, sprite.height, 1);
+    const scale = (TARGET_SPRITE_SIZE / Math.max(sprite.width, sprite.height, 1)) * (this.isBoss ? BOSS_CONFIG.spriteScaleMultiplier : 1);
     sprite.setScale(scale);
     sprite.setVisible(this.hasRevealed); // stays hidden under the Pokéball until it pops open
     this.container.addAt(sprite, 0);
@@ -515,6 +565,7 @@ export class PokemonSprite {
         ease: 'Sine.easeInOut',
       });
     }
+    this.applyHighlightEffect();
   }
 
   update(

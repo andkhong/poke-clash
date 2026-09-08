@@ -8,9 +8,11 @@ import { ARENA_HEIGHT, ARENA_WIDTH } from '../../app/config';
 interface SetupScreenProps {
   onStart: (config: MatchConfig) => void;
   onOpenCustomBattle: () => void;
+  onOpenBossMode: () => void;
+  onOpenTeamMode: () => void;
 }
 
-export function SetupScreen({ onStart, onOpenCustomBattle }: SetupScreenProps) {
+export function SetupScreen({ onStart, onOpenCustomBattle, onOpenBossMode, onOpenTeamMode }: SetupScreenProps) {
   const [level, setLevel] = useState<SelectableLevel>(50);
   const [speciesIds, setSpeciesIds] = useState<number[]>(() => pickRandomSpeciesIds(DEFAULT_ROSTER_SIZE));
   const [activePreset, setActivePreset] = useState<string | null>(null);
@@ -53,9 +55,17 @@ export function SetupScreen({ onStart, onOpenCustomBattle }: SetupScreenProps) {
         Up to {MAX_ROSTER_SIZE} Pokémon enter. One leaves.
       </p>
 
-      <button onClick={onOpenCustomBattle} style={customBattleLink}>
-        ⚔️ Custom 1v1 — pick 2 Pokémon &amp; their exact moves
-      </button>
+      <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', justifyContent: 'center' }}>
+        <button onClick={onOpenCustomBattle} style={customBattleLink}>
+          ⚔️ Custom 1v1 — pick 2 Pokémon &amp; their exact moves
+        </button>
+        <button onClick={onOpenBossMode} style={customBattleLink}>
+          👹 Boss Mode — 4 vs 1 amplified boss
+        </button>
+        <button onClick={onOpenTeamMode} style={customBattleLink}>
+          🛡️ Team Mode — 2v2, 3v3, 4v4, or 8v8
+        </button>
+      </div>
 
       <section style={{ width: '100%', maxWidth: 420 }}>
         <h2 style={sectionHeading}>Level</h2>

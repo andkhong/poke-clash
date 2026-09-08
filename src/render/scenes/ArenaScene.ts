@@ -12,13 +12,17 @@ import { playBeamAttack } from '../vfx/moves/beamAttack';
 import { playFlameAttack } from '../vfx/moves/flameAttack';
 import { playImpactBurst } from '../vfx/moves/impactBurst';
 import { playMoveSound } from '../sound/moveSound';
+import { playBattleMusic } from '../sound/battleMusic';
 import { getMoveDefinition } from '../../data/loader';
+import { teamColorHex } from '../../ui/teamColors';
 import type { PmdSpriteIndex, SpriteIndex } from '../../data/types';
 import spriteIndexData from '../../data/generated/spriteIndex.json';
 import pmdSpriteIndexData from '../../data/generated/pmdSpriteIndex.json';
 
 export interface ArenaSceneData {
   engine: EngineLike;
+  /** Instance id of the current multiplayer player's own pick, if any — rendered with a highlight ring. */
+  highlightInstanceId?: string | null;
 }
 
 const spriteIndex = spriteIndexData as SpriteIndex;
@@ -46,6 +50,7 @@ const MAX_QUEUED_ATTACKS = 6;
 export class ArenaScene extends Phaser.Scene {
   private engine!: EngineLike;
   private cursor!: EventCursor;
+  private highlightInstanceId: string | null = null;
   private readonly sprites = new Map<string, PokemonSprite>();
   private readonly attackQueue: MoveUsedEvent[] = [];
   private activeAttackSlots = 0;
@@ -61,6 +66,7 @@ export class ArenaScene extends Phaser.Scene {
     // without it.
     if (!data?.engine) return;
     this.engine = data.engine;
+    this.highlightInstanceId = data.highlightInstanceId ?? null;
     this.cursor = new EventCursor(this.engine);
     this.sprites.clear();
     this.attackQueue.length = 0;
@@ -77,15 +83,23 @@ export class ArenaScene extends Phaser.Scene {
     const state = this.engine.getState();
     createArenaBackground(this, state.arena.width, state.arena.height);
 
-    // allInstanceIds is spawn order, which circlePosition() (matchSetup.ts)
-    // already lays out clockwise from the top — so index order here is
-    // exactly the clockwise Pokéball-drop sequence the sprite needs.
-    state.allInstanceIds.forEach((id, index) => {
+    // livingOrder is allInstanceIds' spawn order minus anyone already
+    // fainted, which circlePosition() (matchSetup.ts) lays out clockwise
+    // from the top — so index order here is still the clockwise Pokéball-
+    // drop sequence the sprite needs. Skipping already-fainted ids matters
+    // for a multiplayer spectator joining mid-match: their `fainted` event
+    // fired before this client's event log started, so nothing would ever
+    // arrive to remove a sprite created for them here.
+    state.livingOrder.forEach((id, index) => {
       const pokemon = state.pokemon[id];
-      this.sprites.set(id, new PokemonSprite(this, pokemon, spriteIndex, pmdSpriteIndex, index, state.shiny));
+      const sprite = new PokemonSprite(this, pokemon, spriteIndex, pmdSpriteIndex, index, state.shiny);
+      if (id === this.highlightInstanceId) sprite.setHighlighted(true);
+      if (state.teams) sprite.setTeamColor(teamColorHex(pokemon.team));
+      this.sprites.set(id, sprite);
     });
 
     this.cameras.main.setBackgroundColor('#1a1a1a');
+    playBattleMusic(this);
   }
 
   update(_time: number, delta: number): void {

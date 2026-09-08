@@ -27,6 +27,7 @@ function makeInstance(overrides: Partial<PokemonInstance> = {}): PokemonInstance
     velocity: { x: 0, y: 0 },
     facing: 'S',
     collisionRadius: 40,
+    team: 'a',
     aiState: 'wander',
     targetInstanceId: null,
     lastRetargetMs: 0,
