@@ -42,6 +42,7 @@ import {
   MAX_ACTION_COOLDOWN_MS,
   MIN_ACTION_COOLDOWN_MS,
   MIN_ACTION_COOLDOWN_MS_AGGRESSIVE,
+  POST_ATTACK_HOLD_MS,
   PRIORITY_COOLDOWN_DISCOUNT,
   SPREAD_MOVE_RADIUS,
   TICK_MS,
@@ -154,7 +155,17 @@ export class SimulationEngine implements EngineLike {
 
     const speedMult = isAggressivePhase(this.state.elapsedMs) ? AGGRESSIVE_SPEED_MULTIPLIER : 1;
 
-    if (self.aiState === 'wander') {
+    if (self.postAttackHoldMs > 0) {
+      // Hold perfectly still (separation-only, same as 'attack' below) until
+      // the render's whole attack-visual window (pose/label/sound — see
+      // POST_ATTACK_HOLD_MS) has played out, regardless of aiState/cooldown —
+      // otherwise this Pokémon starts wandering off mid-pose (aiState flips
+      // to 'wander' the instant actionCooldownMs kicks in, which is often
+      // shorter than the visual window) and the renderer's cosmetic
+      // position lock has to paper over a growing sim/render gap, which
+      // reads as a snap once that lock releases.
+      steerToward(self, self.position, 0, neighbors);
+    } else if (self.aiState === 'wander') {
       const selfPos = positions.get(self.instanceId) ?? self.position;
       if (!self.wanderWaypoint || distance(selfPos, self.wanderWaypoint) < 12) {
         self.wanderWaypoint = pickWanderWaypoint(this.rng, this.state.arena, selfPos);
@@ -213,6 +224,7 @@ export class SimulationEngine implements EngineLike {
     if (aggressive) cooldown *= AGGRESSIVE_COOLDOWN_MULTIPLIER;
     const minCooldown = aggressive ? MIN_ACTION_COOLDOWN_MS_AGGRESSIVE : MIN_ACTION_COOLDOWN_MS;
     attacker.actionCooldownMs = Math.max(minCooldown, Math.min(MAX_ACTION_COOLDOWN_MS, cooldown));
+    attacker.postAttackHoldMs = POST_ATTACK_HOLD_MS;
 
     // Force a brand-new wander leg from wherever this attack just happened,
     // rather than resuming a stale cached waypoint — updateTargeting's

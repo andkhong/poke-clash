@@ -1,6 +1,6 @@
 import Phaser from 'phaser';
 import type { FacingDirection, PokemonInstance, StatusCondition, Vec2 } from '../../sim/types';
-import { velocityToFacing } from '../../sim/movement';
+import { CHASE_MOVE_SPEED, velocityToFacing } from '../../sim/movement';
 import type { PmdAnimEntry, PmdSpriteIndex, SpriteIndex } from '../../data/types';
 import { downgradeTier, resolveSpriteUrls, type SpriteUrls } from './spriteResolver';
 import { loadGifAsAnimatedTexture } from './gifTexture';
@@ -85,6 +85,21 @@ const BALL_STAGGER_JITTER_MS = 40;
  * gives smooth 60fps motion from a 20Hz sim without needing fixed-timestep
  * interpolation bookkeeping in the engine. */
 const POSITION_SMOOTHING = 0.25;
+/** Caps how far a single frame's smoothing step (above) is allowed to move
+ * renderPos, in px/frame at an assumed 60fps — i.e. px/s ÷ 60. Set at
+ * CHASE_SPEED (the sim's fastest normal movement speed, before the
+ * aggressive-phase multiplier) so a capped catch-up never visibly outrun
+ * anything a Pokémon legitimately does the rest of the time. Ordinary
+ * tick-to-tick gaps during normal movement are well under this already, so
+ * it never engages then — it only kicks in after something opens up a large
+ * gap in one shot: chiefly the sim's own POST_ATTACK_HOLD_MS ending (see
+ * engine.ts) landing a frame or two after the renderer's matching
+ * lockPosition() releases, but also collision-resolution shoves or any other
+ * one-tick jump. Without this, POSITION_SMOOTHING's percentage-based
+ * catch-up closes a large gap almost entirely within a handful of frames,
+ * reading as a teleport/snap rather than motion — clamping it forces the
+ * same catch-up into a natural-looking glide instead. */
+const MAX_POSITION_STEP_PER_FRAME = CHASE_MOVE_SPEED / 60;
 const STATUS_LABELS: Record<StatusCondition, string> = {
   sleep: 'ZZZ',
   paralysis: 'PAR',
@@ -596,8 +611,16 @@ export class PokemonSprite {
     if (!this.hasRevealed) return; // entrance tween owns position/visibility until it lands
 
     if (this.positionLockToken === null) {
-      this.renderPos.x += (screenX - this.renderPos.x) * POSITION_SMOOTHING;
-      this.renderPos.y += (screenY - this.renderPos.y) * POSITION_SMOOTHING;
+      let stepX = (screenX - this.renderPos.x) * POSITION_SMOOTHING;
+      let stepY = (screenY - this.renderPos.y) * POSITION_SMOOTHING;
+      const stepDist = Math.hypot(stepX, stepY);
+      if (stepDist > MAX_POSITION_STEP_PER_FRAME) {
+        const scale = MAX_POSITION_STEP_PER_FRAME / stepDist;
+        stepX *= scale;
+        stepY *= scale;
+      }
+      this.renderPos.x += stepX;
+      this.renderPos.y += stepY;
     }
     this.container.setPosition(this.renderPos.x + this.attackOffset.x, this.renderPos.y + this.attackOffset.y);
     this.container.setDepth(this.renderPos.y + this.attackOffset.y);

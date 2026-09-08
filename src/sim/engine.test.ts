@@ -3,6 +3,7 @@ import { SimulationEngine } from './engine';
 import type { SpeciesData } from './matchSetup';
 import type { MoveDefinition } from './types';
 import { COMBAT_START_DELAY_MS, TICK_MS } from './constants';
+import { distance } from './movement';
 
 const FIXTURE_MOVES: MoveDefinition[] = [
   { id: 1, name: 'Fixture Tackle', type: 'normal', category: 'physical', power: 40, accuracy: 100, pp: 35, priority: 0, targeting: 'enemy' },
@@ -209,7 +210,7 @@ describe('SimulationEngine full match', () => {
     expect([...state.winnerInstanceIds].sort()).toEqual([...state.livingOrder].sort());
   });
 
-  it('sends an attacker off on a fresh wander leg immediately after it lands a move, instead of resuming a stale waypoint', () => {
+  it('holds the attacker still (bar incidental separation jitter) through its post-attack recovery window, then sends it off on a fresh wander leg instead of resuming a stale waypoint', () => {
     const engine = runFullMatch(13, [1, 2, 3, 4, 5, 6]);
     const events = engine.getEventsSince(0).filter((e) => e.type === 'moveUsed');
     expect(events.length).toBeGreaterThan(0); // sanity: this seed's match actually had combat
@@ -235,11 +236,47 @@ describe('SimulationEngine full match', () => {
     // call, checked below.
     while (replay.getState().elapsedMs < firstMove.atMs) replay.tick(TICK_MS);
     expect(replay.getState().pokemon[attackerId].wanderWaypoint).toBeUndefined();
+    const positionAtLanding = { ...replay.getState().pokemon[attackerId].position };
+    // A real wander/chase leg moves ~180-430px/s (see WANDER_SPEED/CHASE_SPEED
+    // and their aggressive multiplier) — hundreds of px over the ~1.2s hold
+    // window below. Separation from a crowding neighbor is the one force
+    // still allowed to act during the hold (see stepMovement), but that's a
+    // gentle equalizing nudge, nowhere near that scale — this bound is loose
+    // enough to absorb it while still failing hard if the hold regresses and
+    // wander/chase movement leaks through.
+    const MAX_HOLD_JITTER_PX = 50;
 
     replay.tick(TICK_MS);
-    const attacker = replay.getState().pokemon[attackerId];
-    expect(attacker.aiState).toBe('wander');
-    expect(attacker.wanderWaypoint).toBeDefined(); // freshly repicked, not a stale/absent one
+    const justAfter = replay.getState().pokemon[attackerId];
+    expect(justAfter.aiState).toBe('wander');
+    // postAttackHoldMs (see engine.ts's stepMovement) holds it — regardless
+    // of the 'wander' aiState above — until the render's whole attack-visual
+    // window has played out, so no waypoint gets picked yet.
+    expect(justAfter.wanderWaypoint).toBeUndefined();
+    expect(justAfter.postAttackHoldMs).toBeGreaterThan(0);
+    expect(distance(justAfter.position, positionAtLanding)).toBeLessThan(MAX_HOLD_JITTER_PX);
+
+    while (replay.getState().pokemon[attackerId].postAttackHoldMs > 0) {
+      replay.tick(TICK_MS);
+      expect(distance(replay.getState().pokemon[attackerId].position, positionAtLanding)).toBeLessThan(
+        MAX_HOLD_JITTER_PX
+      );
+    }
+    // What happens right as the hold clears depends on whether this
+    // attacker's own actionCooldownMs (which can be as short as 800ms —
+    // MIN_ACTION_COOLDOWN_MS[_AGGRESSIVE]) already cleared before the fixed
+    // 1200ms hold did: if so, updateTargeting re-evaluated distance-to-target
+    // mid-hold and may have already put it back into 'attack' (re-engaging
+    // immediately, no wander leg at all this cycle) rather than 'wander'
+    // (forced only while actionCooldownMs > 0) — both are valid; the
+    // invariant that actually matters is that wanderWaypoint is never a
+    // stale leftover, only ever genuinely unset or freshly repicked.
+    const afterHold = replay.getState().pokemon[attackerId];
+    if (afterHold.aiState === 'wander') {
+      expect(afterHold.wanderWaypoint).toBeDefined(); // freshly repicked, not a stale/absent one
+    } else {
+      expect(afterHold.wanderWaypoint).toBeUndefined();
+    }
   });
 
   it('holds the intro circle formation without moving Pokémon before battle starts', () => {

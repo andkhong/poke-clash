@@ -72,6 +72,11 @@ export function updateTargeting(
   if (wasOnCooldown) self.actionCooldownMs = Math.max(0, self.actionCooldownMs - TICK_MS);
   const justBecameAvailable = wasOnCooldown && self.actionCooldownMs <= 0;
 
+  // Same unconditional cadence as actionCooldownMs — see stepMovement's use
+  // of this to hold the Pokémon still (regardless of aiState) until it
+  // expires.
+  if (self.postAttackHoldMs > 0) self.postAttackHoldMs = Math.max(0, self.postAttackHoldMs - TICK_MS);
+
   if (self.status === 'sleep' || self.status === 'freeze') {
     self.aiState = 'incapacitated';
     return;

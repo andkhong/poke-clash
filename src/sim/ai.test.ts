@@ -34,6 +34,7 @@ function makePokemon(
     targetInstanceId: null,
     lastRetargetMs: 0,
     actionCooldownMs: 0,
+    postAttackHoldMs: 0,
     ...overrides,
   };
 }

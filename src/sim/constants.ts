@@ -70,6 +70,19 @@ export const BASE_ACTION_COOLDOWN_MS = 1600;
 export const MIN_ACTION_COOLDOWN_MS = 800;
 export const MIN_ACTION_COOLDOWN_MS_AGGRESSIVE = 400;
 export const MAX_ACTION_COOLDOWN_MS = 3000;
+/** How long (ms) a Pokémon holds perfectly still — velocity zeroed, same as
+ * the 'attack' AI state — after firing any move, independent of (and often
+ * longer than) its actionCooldownMs, before movement.ts is allowed to move
+ * it again. Also used verbatim by ArenaScene as its attack visual window
+ * (pose/label/sound duration + when the renderer's own cosmetic position
+ * lock releases): the two used to be separate constants that could drift out
+ * of sync — the render freezing a Pokémon's on-screen position while the sim
+ * had already moved it via 'wander' underneath, so the instant the render
+ * lock released, the view had to snap/dash to catch up to wherever the sim
+ * really was. Sharing one constant means the sim's own position genuinely
+ * hasn't moved by the time the render considers the attack over, so there's
+ * nothing left to catch up on. */
+export const POST_ATTACK_HOLD_MS = 1200;
 /** Reference speed stat the cooldown formula is centered on. */
 export const BASELINE_SPEED = 100;
 /** A landed priority move shortens the user's *next* cooldown by this fraction. */

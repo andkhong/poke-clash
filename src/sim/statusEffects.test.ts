@@ -32,6 +32,7 @@ function makeInstance(overrides: Partial<PokemonInstance> = {}): PokemonInstance
     targetInstanceId: null,
     lastRetargetMs: 0,
     actionCooldownMs: 0,
+    postAttackHoldMs: 0,
     ...overrides,
   };
 }

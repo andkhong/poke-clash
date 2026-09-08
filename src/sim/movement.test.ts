@@ -27,6 +27,7 @@ function makeCollider(id: string, x: number, y: number, collisionRadius: number)
     targetInstanceId: null,
     lastRetargetMs: 0,
     actionCooldownMs: 0,
+    postAttackHoldMs: 0,
   };
 }
 
