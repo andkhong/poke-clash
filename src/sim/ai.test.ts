@@ -1,7 +1,8 @@
 import { describe, expect, it } from 'vitest';
-import { pickWeightedRandomTarget, updateTargeting } from './ai';
+import { chooseMove, pickWeightedRandomTarget, updateTargeting } from './ai';
 import { createRng } from './rng';
-import { AGGRO_RADIUS, COMBAT_START_DELAY_MS, ENGAGE_RANGE, TICK_MS } from './constants';
+import { AGGRO_RADIUS, COMBAT_START_DELAY_MS, ENGAGE_RANGE, NO_WANDER_AGGRO_RADIUS, TICK_MS } from './constants';
+import { STRUGGLE_MOVE_ID } from './struggle';
 import type { PokemonInstance, SimState, Vec2 } from './types';
 
 function makePokemon(
@@ -211,5 +212,89 @@ describe('pickWeightedRandomTarget', () => {
     };
 
     expect(runOnce(777)).toEqual(runOnce(777));
+  });
+});
+
+describe('updateTargeting — disableWander (MatchConfig.disableWander)', () => {
+  it('skips the cold-open wander gate and engages immediately, even before COMBAT_START_DELAY_MS has elapsed', () => {
+    const self = makePokemon('self', 'a', 0, 0);
+    const enemy = makePokemon('enemy', 'b', 10, 10); // within ENGAGE_RANGE
+    // introDurationMs = 0, nowMs = 0 -> normally deep inside the cold-open window.
+    const state: SimState = { ...makeState([self, enemy], 0), disableWander: true };
+
+    updateTargeting(self, state, positionsOf([self, enemy]), 0, createRng(1));
+
+    expect(self.aiState).toBe('attack');
+  });
+
+  it('skips the cooldown-forces-wander branch, resolving attack/chase from distance instead', () => {
+    const self = makePokemon('self', 'a', 0, 0, {
+      actionCooldownMs: 500,
+      targetInstanceId: 'enemy',
+      aiState: 'attack',
+    });
+    const enemy = makePokemon('enemy', 'b', 10, 10); // within ENGAGE_RANGE
+    const state: SimState = { ...makeState([self, enemy]), disableWander: true };
+
+    updateTargeting(self, state, positionsOf([self, enemy]), NOW_MS, createRng(1));
+
+    // Same fixture as the very first wander-after-attack test above (which
+    // asserts 'wander' without disableWander) — this is its mirror image.
+    expect(self.aiState).toBe('attack');
+  });
+
+  it('finds a target well beyond the normal AGGRO_RADIUS, via NO_WANDER_AGGRO_RADIUS', () => {
+    const self = makePokemon('self', 'a', 0, 0);
+    const farEnemy = makePokemon('enemy', 'b', AGGRO_RADIUS + 5000, 0);
+    expect(AGGRO_RADIUS + 5000).toBeLessThan(NO_WANDER_AGGRO_RADIUS); // sanity: fixture actually exercises the widened radius
+    const state: SimState = { ...makeState([self, farEnemy]), disableWander: true };
+
+    updateTargeting(self, state, positionsOf([self, farEnemy]), NOW_MS, createRng(1));
+
+    expect(self.targetInstanceId).toBe('enemy');
+    expect(self.aiState).toBe('chase'); // found it, but still outside ENGAGE_RANGE
+  });
+});
+
+describe('chooseMove — forcedMoveId (MatchConfig.forcedMoveId)', () => {
+  it('always returns the forced move, regardless of rng seed', () => {
+    const self = makePokemon('self', 'a', 0, 0, {
+      moves: [
+        { moveId: 1, ppRemaining: 10, ppMax: 10 },
+        { moveId: 2, ppRemaining: 10, ppMax: 10 },
+        { moveId: 3, ppRemaining: 10, ppMax: 10 },
+      ],
+      forcedMoveId: 2,
+    });
+
+    for (let seed = 1; seed <= 20; seed++) {
+      expect(chooseMove(self, createRng(seed))).toBe(2);
+    }
+  });
+
+  it('keeps returning the forced move even at 0 PP, never falling back to Struggle', () => {
+    const self = makePokemon('self', 'a', 0, 0, {
+      moves: [{ moveId: 1, ppRemaining: 0, ppMax: 10 }],
+      forcedMoveId: 1,
+    });
+
+    expect(chooseMove(self, createRng(1))).toBe(1);
+  });
+
+  it('falls back to the normal random pick if forcedMoveId names a move not actually equipped', () => {
+    const self = makePokemon('self', 'a', 0, 0, {
+      moves: [{ moveId: 1, ppRemaining: 10, ppMax: 10 }],
+      forcedMoveId: 999, // not in moves
+    });
+
+    expect(chooseMove(self, createRng(1))).toBe(1);
+  });
+
+  it('falls back to Struggle when unset and every move is out of PP (unaffected baseline)', () => {
+    const self = makePokemon('self', 'a', 0, 0, {
+      moves: [{ moveId: 1, ppRemaining: 0, ppMax: 10 }],
+    });
+
+    expect(chooseMove(self, createRng(1))).toBe(STRUGGLE_MOVE_ID);
   });
 });

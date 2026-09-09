@@ -66,10 +66,15 @@ export const LEASH_MULTIPLIER_AGGRESSIVE = 3;
 export const RETARGET_INTERVAL_MS = 2000;
 export const RETARGET_INTERVAL_MS_AGGRESSIVE = 700;
 
-export const BASE_ACTION_COOLDOWN_MS = 1600;
-export const MIN_ACTION_COOLDOWN_MS = 800;
-export const MIN_ACTION_COOLDOWN_MS_AGGRESSIVE = 400;
-export const MAX_ACTION_COOLDOWN_MS = 3000;
+/** Effective aggro-discovery (and leash) radius when MatchConfig.disableWander
+ * is set — comfortably past the diagonal of even the largest arena this game
+ * offers (the default 900x1950 arena's diagonal is ~2147px), so
+ * pickWeightedRandomTarget (ai.ts) always finds any living enemy regardless
+ * of arena size, and LEASH_MULTIPLIER's distance-based disengage never
+ * triggers. A large finite number rather than Infinity, so it stays safe to
+ * feed into rngWeightedPick's weight arithmetic (rng.ts). */
+export const NO_WANDER_AGGRO_RADIUS = 10_000;
+
 /** How long (ms) a Pokémon holds perfectly still — velocity zeroed, same as
  * the 'attack' AI state — after firing any move, independent of (and often
  * longer than) its actionCooldownMs, before movement.ts is allowed to move
@@ -83,6 +88,22 @@ export const MAX_ACTION_COOLDOWN_MS = 3000;
  * hasn't moved by the time the render considers the attack over, so there's
  * nothing left to catch up on. */
 export const POST_ATTACK_HOLD_MS = 1200;
+
+export const BASE_ACTION_COOLDOWN_MS = 1600;
+/** The real floor on how soon *anyone* can attack again, no matter how fast —
+ * pinned to POST_ATTACK_HOLD_MS (both here and for the aggressive-phase
+ * variant below) so a Pokémon's next attack can never fire before its
+ * current one's own hold/visual window has even finished. Left lower (800ms,
+ * 400ms aggressive) than POST_ATTACK_HOLD_MS, a fast Pokémon's cooldown
+ * formula below would clamp to that lower floor and let it queue a second
+ * attack while the first one's pose/label/sound was still playing — reading
+ * as attacking nonstop with no real pause, regardless of Speed. Speed still
+ * fully controls pacing *above* this shared floor via the BASELINE_SPEED
+ * formula below — slower Pokémon get a correspondingly longer delay; this
+ * only caps how short that delay can ever get. */
+export const MIN_ACTION_COOLDOWN_MS = POST_ATTACK_HOLD_MS;
+export const MIN_ACTION_COOLDOWN_MS_AGGRESSIVE = POST_ATTACK_HOLD_MS;
+export const MAX_ACTION_COOLDOWN_MS = 3000;
 /** Reference speed stat the cooldown formula is centered on. */
 export const BASELINE_SPEED = 100;
 /** A landed priority move shortens the user's *next* cooldown by this fraction. */

@@ -12,6 +12,14 @@ import { resolveMoveAnimation } from '../vfx/moveAnimations';
 import { playBeamAttack } from '../vfx/moves/beamAttack';
 import { playFlameAttack } from '../vfx/moves/flameAttack';
 import { playThunderAttack } from '../vfx/moves/thunderAttack';
+import { playLeafAttack } from '../vfx/moves/leafAttack';
+import { playBubbleAttack } from '../vfx/moves/bubbleAttack';
+import { playWaveAttack } from '../vfx/moves/waveAttack';
+import { playIceShardAttack } from '../vfx/moves/iceShardAttack';
+import { playVortexAttack } from '../vfx/moves/vortexAttack';
+import { playRockBurstAttack } from '../vfx/moves/rockBurstAttack';
+import { playPoisonAttack, preloadPoisonVfxAssets } from '../vfx/moves/poisonAttack';
+import { playHydroPumpAttack, preloadHydroPumpVfxAssets } from '../vfx/moves/hydroPumpAttack';
 import { playImpactBurst } from '../vfx/moves/impactBurst';
 import { playMoveSound, type MoveSoundHandle } from '../sound/moveSound';
 import { playBattleMusic } from '../sound/battleMusic';
@@ -159,6 +167,8 @@ export class ArenaScene extends Phaser.Scene {
   preload(): void {
     preloadArenaTileset(this);
     preloadPokeballAsset(this);
+    preloadPoisonVfxAssets(this);
+    preloadHydroPumpVfxAssets(this);
   }
 
   create(): void {
@@ -216,11 +226,18 @@ export class ArenaScene extends Phaser.Scene {
     this.pumpAttackQueue();
   }
 
-  // Snapshots attacker/target(s) position + collisionRadius right now, while
-  // `state` is still (for all practical purposes) the state at the instant
-  // this event fired — drain() runs every render frame, so this is at most
-  // one frame stale, unlike the queue this feeds into, which can hold the
-  // event for seconds in a busy match. See QueuedAttack's own comment.
+  // Uses the moveUsed event's own attackerPosition/targetPositions (not live
+  // state.pokemon[...].position) — engine.ts snapshots those onto the event
+  // at the exact instant the move fires, which matters because live position
+  // can change later in this very same tick: a KOing hit has sweepFaints()
+  // null out the attacker's targetInstanceId (see primaryTargetId's own
+  // comment below), and a match-ending hit has completeMatch() teleport the
+  // sole winner to the arena center for its victory pose — both run after
+  // maybeAct() has already fired this move but before this ever drains.
+  // Reading live position for that second case would render a finishing
+  // ranged attack's beam/jet as if it came from the arena center instead of
+  // wherever the attacker actually stood when it fired. collisionRadius is
+  // still read live since, unlike position, it never changes after spawn.
   private enqueueAttack(event: MoveUsedEvent, state: Readonly<SimState>): void {
     const attacker = state.pokemon[event.attackerId];
     if (!attacker) return; // shouldn't happen — a moveUsed event's own attacker always exists this same tick
@@ -231,20 +248,24 @@ export class ArenaScene extends Phaser.Scene {
     // the attacker facing a stale direction while its VFX still (correctly)
     // flies at the real target. The event's own primaryTargetId is a fixed
     // snapshot from when the move actually fired, so it's never affected.
-    const engagedSource = event.primaryTargetId ? state.pokemon[event.primaryTargetId] : undefined;
+    const engagedTargetId = event.primaryTargetId;
+    const engagedPosition = engagedTargetId ? event.targetPositions[engagedTargetId] : undefined;
+    const engagedSource = engagedTargetId ? state.pokemon[engagedTargetId] : undefined;
     const hitTargets: { position: Vec2; collisionRadius: number }[] = [];
     for (const targetId of event.targetIds) {
       if (!event.hit[targetId]) continue;
       const target = state.pokemon[targetId];
-      if (target) hitTargets.push({ position: { ...target.position }, collisionRadius: target.collisionRadius });
+      const position = event.targetPositions[targetId];
+      if (target && position) hitTargets.push({ position, collisionRadius: target.collisionRadius });
     }
 
     this.attackQueue.push({
       event,
-      attackerPosition: { ...attacker.position },
-      engagedTarget: engagedSource
-        ? { position: { ...engagedSource.position }, collisionRadius: engagedSource.collisionRadius }
-        : undefined,
+      attackerPosition: event.attackerPosition,
+      engagedTarget:
+        engagedSource && engagedPosition
+          ? { position: engagedPosition, collisionRadius: engagedSource.collisionRadius }
+          : undefined,
       hitTargets,
     });
     while (this.attackQueue.length > MAX_QUEUED_ATTACKS) this.attackQueue.shift();
@@ -349,6 +370,38 @@ export class ArenaScene extends Phaser.Scene {
     } else if (family === 'thunder') {
       for (const target of hitTargets) {
         playThunderAttack(this, attackerPosition.x, attackerPosition.y, target.position.x, target.position.y, move.type);
+      }
+    } else if (family === 'leaf') {
+      for (const target of hitTargets) {
+        playLeafAttack(this, attackerPosition.x, attackerPosition.y, target.position.x, target.position.y, move.type);
+      }
+    } else if (family === 'bubble') {
+      for (const target of hitTargets) {
+        playBubbleAttack(this, attackerPosition.x, attackerPosition.y, target.position.x, target.position.y, move.type);
+      }
+    } else if (family === 'wave') {
+      for (const target of hitTargets) {
+        playWaveAttack(this, attackerPosition.x, attackerPosition.y, target.position.x, target.position.y, move.type);
+      }
+    } else if (family === 'iceShard') {
+      for (const target of hitTargets) {
+        playIceShardAttack(this, attackerPosition.x, attackerPosition.y, target.position.x, target.position.y, move.type);
+      }
+    } else if (family === 'vortex') {
+      for (const target of hitTargets) {
+        playVortexAttack(this, attackerPosition.x, attackerPosition.y, target.position.x, target.position.y, move.type);
+      }
+    } else if (family === 'rockBurst') {
+      for (const target of hitTargets) {
+        playRockBurstAttack(this, attackerPosition.x, attackerPosition.y, target.position.x, target.position.y, move.type);
+      }
+    } else if (family === 'poison') {
+      for (const target of hitTargets) {
+        playPoisonAttack(this, attackerPosition.x, attackerPosition.y, target.position.x, target.position.y, move.type);
+      }
+    } else if (family === 'hydroPump') {
+      for (const target of hitTargets) {
+        playHydroPumpAttack(this, attackerPosition.x, attackerPosition.y, target.position.x, target.position.y, move.type);
       }
     } else {
       for (const target of hitTargets) {

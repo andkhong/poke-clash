@@ -91,6 +91,13 @@ export interface PokemonInstance {
   maxHp: number;
 
   moves: MoveSlot[];
+  /** When set (via MatchConfig.forcedMoveId — the custom-battle builder's
+   * per-move testing pin), ai.ts's chooseMove always returns this exact move
+   * id instead of picking randomly among the moveset, even past 0 PP, so a
+   * single move's VFX/interaction can be tested repeatedly without ever
+   * falling back to Struggle. Also suppresses the opportunistic self-buff
+   * pick in engine.ts's maybeAct, so no other move can sneak in mid-chase. */
+  forcedMoveId?: number;
 
   status: StatusCondition | null;
   /** Turn-equivalent counter for sleep/freeze; decremented on the action-cooldown cadence. */
@@ -173,6 +180,10 @@ export interface SimState {
    * PokemonSprite's team-color ring) know this is a Team Mode match without
    * needing the original MatchConfig. Undefined for free-for-all/Boss Mode. */
   teams?: { size: number };
+  /** Echoed from MatchConfig.disableWander — see that field's own comment.
+   * Read by ai.ts's updateTargeting, same "echo onto SimState so the reader
+   * doesn't need the original MatchConfig" reasoning as `shiny`/`teams`. */
+  disableWander?: boolean;
 }
 
 export type SimEvent =
@@ -195,6 +206,21 @@ export type SimEvent =
       crit: Record<string, boolean>;
       effectiveness: Record<string, number>;
       damage: Record<string, number>;
+      /** Attacker/target(s) position at the exact instant this move fired —
+       * a fresh {x,y} copy, not a live reference, so later mutation of that
+       * Pokémon's actual position object (ordinary movement, or a one-off
+       * like completeMatch() teleporting a lone winner to the arena center
+       * for its victory pose, both later in this same tick) can never leak
+       * back into what's already a historical record of what happened. A
+       * render reading attacker.position fresh off live state instead of
+       * this would show a match-ending ranged attack's beam/jet originating
+       * from the winner's post-teleport center position rather than where
+       * they actually stood when they threw it. See ArenaScene.ts's
+       * enqueueAttack (and primaryTargetId's own comment for the sibling bug
+       * this same reasoning already fixed once, for sweepFaints instead of
+       * completeMatch). */
+      attackerPosition: Vec2;
+      targetPositions: Record<string, Vec2>;
     }
   | { seq: number; atMs: number; type: 'statusApplied'; instanceId: string; status: StatusCondition }
   | { seq: number; atMs: number; type: 'statusTick'; instanceId: string; status: StatusCondition; amount: number }
@@ -219,6 +245,23 @@ export interface MatchConfig {
    * moves outside its real movePool) falls back to the random pick — see
    * matchSetup.ts's pickMoveSlots. */
   customMoves?: Record<number, number[]>;
+  /** Pins one exact move (by ID) a species always uses on its turn instead of
+   * ai.ts's normal random pick among its equipped moveset, keyed by species
+   * ID — same "custom-battle builder" origin and keying convention as
+   * `customMoves` above, for testing one specific move's VFX/interaction
+   * repeatedly without the bot cycling through its other moves. See
+   * PokemonInstance.forcedMoveId (matchSetup.ts wires this onto the instance
+   * at build time) and ai.ts's chooseMove. A species with no entry here (or
+   * whose entry isn't actually in its resolved moveset) uses the normal
+   * random pick. */
+  forcedMoveId?: Record<number, number>;
+  /** Custom-battle testing toggle: suppresses idle wandering (the cold-open
+   * grace period and the between-attacks wander-off) so combatants close in
+   * and stay in range of each other instead — see ai.ts's updateTargeting
+   * and NO_WANDER_AGGRO_RADIUS. Meant to be paired with a small `arena` for
+   * fast VFX/move-interaction testing; has no effect on damage, targeting
+   * priority, or any other sim rule. Echoed onto SimState.disableWander. */
+  disableWander?: boolean;
   /** When present, this is a Boss Mode match: `speciesIds` become the 4-Pokémon
    * party (allies, sharing one team), and this additional species enters as a
    * heavily-amplified boss on its own team — see sim/bossConfig.ts and

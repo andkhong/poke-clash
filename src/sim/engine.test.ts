@@ -159,6 +159,74 @@ describe('SimulationEngine full match', () => {
     }
   });
 
+  it('never lets a non-spread move affect more than one Pokémon', () => {
+    // resolveTargets (engine.ts) returns exactly [primaryTarget] for any move
+    // whose targeting isn't 'all-enemies-in-radius' — this walks real match
+    // event logs across several seeds to confirm that invariant actually
+    // holds end to end (targetIds, and the hit/crit/effectiveness/damage
+    // dictionaries keyed off it, never grow past one entry), not just that
+    // the code reads that way. Fixture Quake (targeting: 'all-enemies-in-
+    // radius') is deliberately excluded — hitting several Pokémon at once is
+    // its whole point, not a bug.
+    for (let seed = 1; seed <= 8; seed++) {
+      const engine = runFullMatch(seed, [1, 2, 3, 4, 5, 6]);
+      const events = engine.getEventsSince(0);
+      for (const e of events) {
+        if (e.type !== 'moveUsed') continue;
+        const move = movesById.get(e.moveId);
+        if (!move || move.targeting === 'all-enemies-in-radius') continue;
+
+        expect(e.targetIds.length).toBeLessThanOrEqual(1);
+        expect(Object.keys(e.hit).length).toBeLessThanOrEqual(1);
+        expect(Object.keys(e.crit).length).toBeLessThanOrEqual(1);
+        expect(Object.keys(e.effectiveness).length).toBeLessThanOrEqual(1);
+        expect(Object.keys(e.damage).length).toBeLessThanOrEqual(1);
+      }
+    }
+  });
+
+  it("records the finishing blow's attackerPosition as where the winner actually stood, not the arena center it gets teleported to for its victory pose", () => {
+    // completeMatch() (engine.ts) teleports a lone winner to the arena
+    // center the instant the match ends — the very same tick as the
+    // finishing blow that ended it. Before events carried their own
+    // attackerPosition snapshot, the renderer read that position live off
+    // state.pokemon[...] well after this teleport already happened, so a
+    // match-ending ranged attack rendered as if it came from the arena
+    // center instead of wherever the attacker actually stood when it fired.
+    const arena = { width: 960, height: 1600 };
+    const center = { x: arena.width / 2, y: arena.height / 2 };
+    let checkedAtLeastOne = false;
+
+    for (let seed = 1; seed <= 20; seed++) {
+      const engine = new SimulationEngine(
+        { level: 100, speciesIds: [1, 2, 3, 4, 5, 6], arena, shiny: false },
+        FIXTURE_SPECIES,
+        moveLookup,
+        seed
+      );
+      const maxSteps = Math.ceil(95_000 / TICK_MS);
+      for (let i = 0; i < maxSteps; i++) {
+        if (engine.getState().phase === 'complete') break;
+        engine.tick(TICK_MS);
+      }
+      const state = engine.getState();
+      if (state.winnerInstanceIds.length !== 1) continue; // co-winners (90s cap) never get teleported — nothing to check
+      const winnerId = state.winnerInstanceIds[0];
+      expect(state.pokemon[winnerId].position).toEqual(center); // sanity: this seed's winner really was teleported
+
+      const winnersMoves = engine
+        .getEventsSince(0)
+        .filter((e) => e.type === 'moveUsed' && e.attackerId === winnerId);
+      const finishingBlow = winnersMoves[winnersMoves.length - 1];
+      if (!finishingBlow || finishingBlow.type !== 'moveUsed') continue;
+
+      checkedAtLeastOne = true;
+      expect(finishingBlow.attackerPosition).not.toEqual(center);
+    }
+
+    expect(checkedAtLeastOne).toBe(true); // sanity: the loop above actually exercised the case
+  });
+
   it('never lets a move damage a teammate in Team Mode', () => {
     for (let seed = 1; seed <= 6; seed++) {
       const engine = new SimulationEngine(
@@ -256,17 +324,38 @@ describe('SimulationEngine full match', () => {
     expect(justAfter.postAttackHoldMs).toBeGreaterThan(0);
     expect(distance(justAfter.position, positionAtLanding)).toBeLessThan(MAX_HOLD_JITTER_PX);
 
-    while (replay.getState().pokemon[attackerId].postAttackHoldMs > 0) {
+    // Bounded like runFullMatch's own loop (see its comment) — this polls a
+    // live condition rather than a fixed step count, so a genuine regression
+    // has to fail loudly instead of hanging the whole suite.
+    const MAX_HOLD_POLL_TICKS = 200;
+    let holdCleared = false;
+    for (let i = 0; i < MAX_HOLD_POLL_TICKS; i++) {
+      if (replay.getState().phase === 'complete') break;
+      if (replay.getState().pokemon[attackerId].postAttackHoldMs <= 0) {
+        holdCleared = true;
+        break;
+      }
       replay.tick(TICK_MS);
       expect(distance(replay.getState().pokemon[attackerId].position, positionAtLanding)).toBeLessThan(
         MAX_HOLD_JITTER_PX
       );
     }
+
+    // Two ways this attacker's story doesn't reach a clean "hold released"
+    // beat within this test's own generous patience budget: the match wraps
+    // up first, or — now that MIN_ACTION_COOLDOWN_MS[_AGGRESSIVE] is pinned
+    // to POST_ATTACK_HOLD_MS (see constants.ts) — it's fast and cornered
+    // enough to keep re-triggering resetCooldown before its own hold ever
+    // decays, staying locked in a continuous toe-to-toe exchange
+    // indefinitely. Both are legitimate outcomes, not a regression — the
+    // position-stability check above already ran on every tick either way —
+    // so there's nothing further to assert in either case.
+    if (!holdCleared) return;
+
     // What happens right as the hold clears depends on whether this
-    // attacker's own actionCooldownMs (which can be as short as 800ms —
-    // MIN_ACTION_COOLDOWN_MS[_AGGRESSIVE]) already cleared before the fixed
-    // 1200ms hold did: if so, updateTargeting re-evaluated distance-to-target
-    // mid-hold and may have already put it back into 'attack' (re-engaging
+    // attacker's own actionCooldownMs already cleared before the fixed hold
+    // did: if so, updateTargeting re-evaluated distance-to-target mid-hold
+    // and may have already put it back into 'attack' (re-engaging
     // immediately, no wander leg at all this cycle) rather than 'wander'
     // (forced only while actionCooldownMs > 0) — both are valid; the
     // invariant that actually matters is that wanderWaypoint is never a
@@ -294,5 +383,54 @@ describe('SimulationEngine full match', () => {
     for (const [id, p] of Object.entries(engine.getState().pokemon)) {
       expect(p.position).toEqual(before[id]);
     }
+  });
+
+  it('never lets a paralyzed Pokémon wander — it holds ground whenever aiState would otherwise be wander', () => {
+    // Fixture Thunder Wave-ish (move id 6) inflicts paralysis at 100%, so
+    // real matches reliably produce paralyzed Pokémon to observe. Checks
+    // velocity rather than position deltas: a genuine wander leg drives
+    // speed all the way up to WANDER_MOVE_SPEED (180, or the aggressive
+    // multiplier beyond that), while stepMovement's hold-ground steering
+    // (separation-only, same as the existing 'attack' state) leaves only a
+    // small crowding-avoidance nudge — empirically under 5px/s against this
+    // fixture roster — so a generous ceiling well below wander speed still
+    // cleanly tells "held" apart from "wandering," with no risk of the
+    // ceiling itself flaking on ordinary separation jitter.
+    //
+    // Excludes the one tick paralysis is first inflicted on: maybeAct (and
+    // the applyStatus call inside it) runs in stepOnce's second per-Pokémon
+    // pass, after stepMovement has already run for everyone in the first —
+    // so that tick's velocity was computed while this Pokémon was still
+    // un-paralyzed, and only takes effect starting the next tick.
+    const HELD_VELOCITY_CEILING = 60;
+    let checkedAtLeastOne = false;
+
+    for (let seed = 1; seed <= 20; seed++) {
+      const engine = new SimulationEngine(
+        { level: 100, speciesIds: [1, 2, 3, 4, 5, 6], arena: { width: 960, height: 1600 }, shiny: false },
+        FIXTURE_SPECIES,
+        moveLookup,
+        seed
+      );
+      const maxSteps = Math.ceil(95_000 / TICK_MS);
+      const wasParalyzedLastTick = new Map<string, boolean>();
+
+      for (let i = 0; i < maxSteps; i++) {
+        if (engine.getState().phase === 'complete') break;
+        engine.tick(TICK_MS);
+        const state = engine.getState();
+        for (const id of state.livingOrder) {
+          const p = state.pokemon[id];
+          const isParalyzed = p.status === 'paralysis';
+          if (isParalyzed && p.aiState === 'wander' && wasParalyzedLastTick.get(id)) {
+            checkedAtLeastOne = true;
+            expect(Math.hypot(p.velocity.x, p.velocity.y)).toBeLessThan(HELD_VELOCITY_CEILING);
+          }
+          wasParalyzedLastTick.set(id, isParalyzed);
+        }
+      }
+    }
+
+    expect(checkedAtLeastOne).toBe(true); // sanity: paralysis + wander actually came up in the sample
   });
 });

@@ -9,8 +9,10 @@ import { getMoveTypeColor } from '../vfx/typeColor';
 import { POKEBALL_TEXTURE_KEY } from './pokeballAsset';
 import { playCry } from './cryAudio';
 import { playSparkleReveal } from '../vfx/sparkle';
+import { buildThunderParticleTexture } from '../vfx/moves/pixelTextures';
 import type { MoveDefinition } from '../../sim/types';
 import {
+  ARENA_TOP_PADDING,
   BALL_DROP_DURATION_MS,
   BALL_DROP_STAGGER_MS,
   PMD_MAX_SPRITE_SIZE,
@@ -114,6 +116,16 @@ const STATUS_COLORS: Record<StatusCondition, string> = {
   poison: '#9048c0',
   freeze: '#60c8e0',
 };
+
+/** How often (ms) a new spark pops somewhere around a paralyzed Pokémon's
+ * body — reuses thunderAttack.ts's own jagged-bolt particle texture (see
+ * pixelTextures.ts) rather than a bespoke asset, tinted electric-yellow, so a
+ * paralyzed Pokémon reads as visibly crackling with the same static shown
+ * mid-swing by an actual Thunder-family move, not just the 'PAR' text label
+ * already shown by updateStatus(). Purely cosmetic — driven off
+ * pokemon.status each frame, never fed back into the sim. */
+const PARALYSIS_SPARK_INTERVAL_MS = 220;
+const PARALYSIS_SPARK_LIFESPAN_MS = 220;
 
 /**
  * PMDCollab/SpriteCollab sheets lay out one row per compass direction, in a
@@ -247,6 +259,10 @@ export class PokemonSprite {
    * visibly drifts away mid-pose. Purely cosmetic, like attackOffset — never
    * fed back into the sim. */
   private positionLockToken: symbol | null = null;
+
+  /** Repeating spark spawner while pokemon.status === 'paralysis' — see
+   * updateParalysisVfx(). Null whenever not currently paralyzed. */
+  private paralysisSparkTimer: Phaser.Time.TimerEvent | null = null;
 
   /**
    * `spawnIndex`/`totalCount` drive the clockwise Pokéball-drop entrance —
@@ -628,6 +644,7 @@ export class PokemonSprite {
     this.updateFacing(pokemon, allPokemon);
     this.updateHpBar(pokemon);
     this.updateStatus(pokemon);
+    this.updateParalysisVfx(pokemon);
     this.updateHitFlash(pokemon, nowMs, allPokemon);
   }
 
@@ -825,6 +842,48 @@ export class PokemonSprite {
     this.statusText.setVisible(true);
   }
 
+  /** Starts/stops the repeating spark spawner as pokemon.status flips into or
+   * out of 'paralysis' — see PARALYSIS_SPARK_INTERVAL_MS's own comment. */
+  private updateParalysisVfx(pokemon: PokemonInstance): void {
+    const shouldSpark = pokemon.status === 'paralysis';
+    if (shouldSpark && !this.paralysisSparkTimer) {
+      this.spawnParalysisSpark(); // one immediately, don't wait a full interval to first appear
+      this.paralysisSparkTimer = this.scene.time.addEvent({
+        delay: PARALYSIS_SPARK_INTERVAL_MS,
+        loop: true,
+        callback: () => this.spawnParalysisSpark(),
+      });
+    } else if (!shouldSpark && this.paralysisSparkTimer) {
+      this.paralysisSparkTimer.remove();
+      this.paralysisSparkTimer = null;
+    }
+  }
+
+  /** One small electric spark at a random point around the body's current
+   * bounding box, using thunderAttack.ts's own jagged-bolt particle texture
+   * (see pixelTextures.ts) tinted electric-yellow — see
+   * PARALYSIS_SPARK_INTERVAL_MS's own comment for why this specific asset. */
+  private spawnParalysisSpark(): void {
+    if (this.container.scene === undefined) return; // destroyed mid-timer
+    const key = buildThunderParticleTexture(this.scene, getMoveTypeColor('electric'));
+    const halfWidth = (this.body ? this.body.displayWidth : PLACEHOLDER_RADIUS * 2) * 0.45;
+    const spark = this.scene.add
+      .image(Phaser.Math.Between(-halfWidth, halfWidth), Phaser.Math.FloatBetween(this.topOfBodyY(), this.bottomOfBodyY()), key)
+      .setScale(1 + Math.random() * 0.8)
+      .setAngle(Phaser.Math.Between(0, 359))
+      .setAlpha(0.95)
+      .setBlendMode(Phaser.BlendModes.ADD);
+    this.container.add(spark);
+    this.scene.tweens.add({
+      targets: spark,
+      alpha: 0,
+      scaleX: spark.scaleX * 1.3,
+      scaleY: spark.scaleY * 1.3,
+      duration: PARALYSIS_SPARK_LIFESPAN_MS,
+      onComplete: () => spark.destroy(),
+    });
+  }
+
   private updateHitFlash(pokemon: PokemonInstance, nowMs: number, allPokemon: Record<string, PokemonInstance>): void {
     if (!pokemon.lastHitAtMs || pokemon.lastHitAtMs === this.lastSeenHitAtMs) return;
     this.lastSeenHitAtMs = pokemon.lastHitAtMs;
@@ -910,7 +969,16 @@ export class PokemonSprite {
 
     // Anchor by the box's bottom edge (not its center) so MOVE_LABEL_GAP stays
     // an accurate clearance above the sprite regardless of how tall the box is.
-    const containerY = this.topOfBodyY() - MOVE_LABEL_GAP - boxHeight / 2;
+    // Clamped so the label can never float up into the roster/HP HUD strip
+    // reserved by ARENA_TOP_PADDING (see that constant's own comment) — a
+    // Pokémon fighting near the top of the arena already has its own body
+    // kept clear of the HUD by that same padding, but this label floats
+    // further above the body still, so without this it would silently render
+    // underneath the HUD's DOM overlay (see MatchScreen.tsx) instead: an
+    // attack playing with no visible move-name callout above it.
+    const desiredContainerY = this.topOfBodyY() - MOVE_LABEL_GAP - boxHeight / 2;
+    const minContainerY = ARENA_TOP_PADDING - this.container.y;
+    const containerY = Math.max(desiredContainerY, minContainerY);
     const label = this.scene.add.container(0, containerY, [bg, text]);
     this.moveLabel = label;
     this.container.add(label);
@@ -947,6 +1015,8 @@ export class PokemonSprite {
   destroy(): void {
     this.moveLabel?.destroy();
     this.idleTween?.stop();
+    this.paralysisSparkTimer?.remove();
+    this.paralysisSparkTimer = null;
     this.container.destroy();
   }
 }

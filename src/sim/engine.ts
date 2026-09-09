@@ -125,7 +125,15 @@ export class SimulationEngine implements EngineLike {
       this.stepMovement(self, positions, neighbors);
     }
 
-    resolveCollisions(livingIds, this.state.pokemon, this.state.arena);
+    // Same reasoning as applyMovement's own wall case (see stepMovement): a
+    // wandering Pokémon hard-shoved apart from another one here has no memory
+    // of that either, so its stale waypoint would just steer it straight back
+    // into the same spot next tick instead of heading off differently.
+    const collided = resolveCollisions(livingIds, this.state.pokemon, this.state.arena);
+    for (const id of collided) {
+      const self = this.state.pokemon[id];
+      if (self.aiState === 'wander') self.wanderWaypoint = undefined;
+    }
 
     for (const id of livingIds) {
       const self = this.state.pokemon[id];
@@ -165,6 +173,13 @@ export class SimulationEngine implements EngineLike {
       // position lock has to paper over a growing sim/render gap, which
       // reads as a snap once that lock releases.
       steerToward(self, self.position, 0, neighbors);
+    } else if (self.status === 'paralysis' && self.aiState === 'wander') {
+      // Paralysis locks a paralyzed Pokémon in place while it has no target
+      // to chase — it can still close in on and fight an engaged target
+      // (subject to gateAction's own full-paralysis roll each time it tries
+      // to act), but idle wandering is fully suppressed, same hold-ground
+      // steering as 'attack' below.
+      steerToward(self, self.position, 0, neighbors);
     } else if (self.aiState === 'wander') {
       const selfPos = positions.get(self.instanceId) ?? self.position;
       if (!self.wanderWaypoint || distance(selfPos, self.wanderWaypoint) < 12) {
@@ -180,7 +195,15 @@ export class SimulationEngine implements EngineLike {
       steerToward(self, self.position, 0, neighbors);
     }
 
-    applyMovement(self, TICK_MS, this.state.arena);
+    const hitWall = applyMovement(self, TICK_MS, this.state.arena);
+    // Wandering straight into the arena boundary — steerToward() has no
+    // memory of last tick's motion, so without this it would just keep
+    // re-aiming at the same (unreachable, through-the-wall) waypoint forever
+    // instead of heading off in a new direction. See applyMovement's own
+    // comment. Only 'wander' uses wanderWaypoint at all — chase/attack steer
+    // at a live target/itself every tick regardless, so there's nothing stale
+    // to clear for them.
+    if (hitWall && self.aiState === 'wander') self.wanderWaypoint = undefined;
   }
 
   private maybeAct(self: PokemonInstance, nowMs: number): void {
@@ -201,8 +224,11 @@ export class SimulationEngine implements EngineLike {
     // 'wander', which means no enemy is within aggro radius at all, and never
     // during the cold-open — updateTargeting forces 'wander' for both cases,
     // so gating on 'chase' excludes them for free) — otherwise a Pokémon with
-    // nobody around plays a full attack swing/sound/label at thin air.
-    if (self.aiState === 'chase' && self.actionCooldownMs <= 0) {
+    // nobody around plays a full attack swing/sound/label at thin air. Also
+    // never for a forcedMoveId Pokémon (see that field's own comment) — a
+    // move-testing pin means only that exact move should ever fire, not an
+    // opportunistic buff sneaking in first.
+    if (self.aiState === 'chase' && self.actionCooldownMs <= 0 && self.forcedMoveId === undefined) {
       const buffMove = findSelfBuffMove(self, this.moves);
       if (buffMove && rngChance(this.rng, 0.3)) {
         this.executeMove(self, buffMove, buffMove.id, null, nowMs);
@@ -255,7 +281,7 @@ export class SimulationEngine implements EngineLike {
 
     if (move.targeting === 'self') {
       this.applyMoveEffect(move, attacker, attacker);
-      this.pushMoveUsedEvent(attacker, move, null, [], {}, {}, {}, {}, nowMs);
+      this.pushMoveUsedEvent(attacker, move, null, [], {}, {}, {}, {}, { ...attacker.position }, {}, nowMs);
       return;
     }
 
@@ -266,8 +292,15 @@ export class SimulationEngine implements EngineLike {
     const crit: Record<string, boolean> = {};
     const effectiveness: Record<string, number> = {};
     const damage: Record<string, number> = {};
+    // Captured now, at the exact instant this move fires — see the event
+    // field's own comment (types.ts) for why a live position lookup later
+    // (in the renderer, well after this tick's other pokemon have finished
+    // acting) isn't safe to use instead.
+    const attackerPosition = { ...attacker.position };
+    const targetPositions: Record<string, Vec2> = {};
 
     for (const target of targets) {
+      targetPositions[target.instanceId] = { ...target.position };
       const result = resolveDamage(this.rng, move, attacker, target);
       hit[target.instanceId] = result.hit;
       crit[target.instanceId] = result.crit;
@@ -302,6 +335,8 @@ export class SimulationEngine implements EngineLike {
       crit,
       effectiveness,
       damage,
+      attackerPosition,
+      targetPositions,
       nowMs
     );
   }
@@ -358,6 +393,8 @@ export class SimulationEngine implements EngineLike {
     crit: Record<string, boolean>,
     effectiveness: Record<string, number>,
     damage: Record<string, number>,
+    attackerPosition: Vec2,
+    targetPositions: Record<string, Vec2>,
     nowMs: number
   ): void {
     this.events.push({
@@ -372,6 +409,8 @@ export class SimulationEngine implements EngineLike {
       crit,
       effectiveness,
       damage,
+      attackerPosition,
+      targetPositions,
     });
   }
 

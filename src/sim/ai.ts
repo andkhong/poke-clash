@@ -11,6 +11,7 @@ import {
   isBeforeCombatStart,
   LEASH_MULTIPLIER,
   LEASH_MULTIPLIER_AGGRESSIVE,
+  NO_WANDER_AGGRO_RADIUS,
   RETARGET_INTERVAL_MS,
   RETARGET_INTERVAL_MS_AGGRESSIVE,
   TICK_MS,
@@ -82,19 +83,31 @@ export function updateTargeting(
     return;
   }
 
+  // Custom-battle testing flag (MatchConfig.disableWander, echoed onto
+  // SimState) — skips both wander gates below and swaps in
+  // NO_WANDER_AGGRO_RADIUS, so a test match locks onto its target
+  // immediately and holds its ground between attacks instead of wandering
+  // off and back. Never set outside the custom-battle screen.
+  const noWander = !!state.disableWander;
+
   // A brief, deliberate cold-open: nobody targets, chases, or attacks for
   // the first few seconds of battle — everyone just wanders — before real
   // combat is allowed to start.
-  if (isBeforeCombatStart(nowMs, state.introDurationMs)) {
+  if (!noWander && isBeforeCombatStart(nowMs, state.introDurationMs)) {
     self.aiState = 'wander';
     return;
   }
 
-  // Still cooling down from the last attack: wander it off instead of
-  // standing over (or beelining back toward) whoever it just hit. Target
-  // bookkeeping is skipped entirely here — the next real decision happens
-  // the instant cooldown clears (justBecameAvailable, below).
-  if (self.actionCooldownMs > 0) {
+  // Still cooling down from the last attack: normally wander it off instead
+  // of standing over (or beelining back toward) whoever it just hit — target
+  // bookkeeping is skipped entirely here, the next real decision happens the
+  // instant cooldown clears (justBecameAvailable, below). Skipped when
+  // noWander so a test match's Pokémon hold their ground next to their
+  // target between attacks instead — maybeAct() (engine.ts) still won't
+  // actually fire again until actionCooldownMs itself clears regardless of
+  // aiState, so this only changes where it stands while waiting, not when it
+  // next attacks.
+  if (self.actionCooldownMs > 0 && !noWander) {
     self.aiState = 'wander';
     return;
   }
@@ -104,7 +117,7 @@ export function updateTargeting(
   // faster re-evaluation of a better target — which is what actually pushes
   // stalled matches toward a real resolution before the 90s hard cutoff.
   const aggressive = isAggressivePhase(nowMs);
-  const aggroRadius = aggressive ? AGGRO_RADIUS_AGGRESSIVE : AGGRO_RADIUS;
+  const aggroRadius = noWander ? NO_WANDER_AGGRO_RADIUS : aggressive ? AGGRO_RADIUS_AGGRESSIVE : AGGRO_RADIUS;
   const engageRange = aggressive ? ENGAGE_RANGE_AGGRESSIVE : ENGAGE_RANGE;
   const leashMultiplier = aggressive ? LEASH_MULTIPLIER_AGGRESSIVE : LEASH_MULTIPLIER;
   const retargetIntervalMs = aggressive ? RETARGET_INTERVAL_MS_AGGRESSIVE : RETARGET_INTERVAL_MS;
@@ -149,8 +162,14 @@ export function retaliate(defender: PokemonInstance, attackerId: string, nowMs: 
   }
 }
 
-/** Uniform-random among moves with PP remaining; Struggle if all four are exhausted. */
+/** Uniform-random among moves with PP remaining; Struggle if all four are
+ * exhausted — unless self.forcedMoveId pins an exact move (see that field's
+ * own comment), in which case it's always returned instead, even past 0 PP,
+ * bypassing both the random pick and the Struggle fallback entirely. */
 export function chooseMove(self: PokemonInstance, rng: Rng): number {
+  if (self.forcedMoveId !== undefined && self.moves.some((m) => m.moveId === self.forcedMoveId)) {
+    return self.forcedMoveId;
+  }
   const usable = self.moves.filter((m) => m.ppRemaining > 0);
   if (usable.length === 0) return STRUGGLE_MOVE_ID;
   return rngPick(rng, usable).moveId;

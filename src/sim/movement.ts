@@ -101,17 +101,30 @@ export function steerToward(
   };
 }
 
-export function applyMovement(self: PokemonInstance, dtMs: number, arena: ArenaBounds): void {
+/** Moves `self` by its current velocity and clamps it back inside the arena.
+ * Returns whether either axis actually got clamped (i.e. it just walked into
+ * the boundary) — steerToward() recomputes velocity from scratch every tick
+ * purely from the current waypoint/target, with no memory of last tick's
+ * motion, so clamping position alone doesn't stop it from re-aiming at the
+ * same spot (through the wall) again next tick. A wandering Pokémon has no
+ * other reason to want to go there specifically — see stepMovement's 'wander'
+ * branch, which uses this to drop the stale waypoint and pick a new direction
+ * instead of pressing against the wall indefinitely. */
+export function applyMovement(self: PokemonInstance, dtMs: number, arena: ArenaBounds): boolean {
   const dtSec = dtMs / 1000;
   self.position.x += self.velocity.x * dtSec;
   self.position.y += self.velocity.y * dtSec;
 
-  self.position.x = Math.max(ARENA_PADDING, Math.min(arena.width - ARENA_PADDING, self.position.x));
-  self.position.y = Math.max(ARENA_TOP_PADDING, Math.min(arena.height - ARENA_PADDING, self.position.y));
+  const clampedX = Math.max(ARENA_PADDING, Math.min(arena.width - ARENA_PADDING, self.position.x));
+  const clampedY = Math.max(ARENA_TOP_PADDING, Math.min(arena.height - ARENA_PADDING, self.position.y));
+  const hitWall = clampedX !== self.position.x || clampedY !== self.position.y;
+  self.position.x = clampedX;
+  self.position.y = clampedY;
 
   if (Math.abs(self.velocity.x) > 1 || Math.abs(self.velocity.y) > 1) {
     self.facing = velocityToFacing(self.velocity, self.facing);
   }
+  return hitWall;
 }
 
 /**
@@ -122,8 +135,19 @@ export function applyMovement(self: PokemonInstance, dtMs: number, arena: ArenaB
  * fast chaser closing on a fleeing target) it's only a suggestion, not a
  * constraint — this guarantees Pokémon actually can't walk through each
  * other regardless. O(n²) over living Pokémon, trivial at this roster size.
+ *
+ * Returns every instance id that got pushed apart this tick, same reasoning
+ * as applyMovement's own return — a wandering Pokémon pinned against another
+ * one has no memory of that either, so steerToward() would just aim it
+ * straight back at the same spot next tick. See stepMovement's 'wander'
+ * branch.
  */
-export function resolveCollisions(livingIds: readonly string[], pokemonById: Record<string, PokemonInstance>, arena: ArenaBounds): void {
+export function resolveCollisions(
+  livingIds: readonly string[],
+  pokemonById: Record<string, PokemonInstance>,
+  arena: ArenaBounds
+): Set<string> {
+  const collided = new Set<string>();
   for (let i = 0; i < livingIds.length; i++) {
     const a = pokemonById[livingIds[i]];
     for (let j = i + 1; j < livingIds.length; j++) {
@@ -133,6 +157,8 @@ export function resolveCollisions(livingIds: readonly string[], pokemonById: Rec
       const d = Math.hypot(dx, dy);
       const minDist = a.collisionRadius + b.collisionRadius;
       if (d >= minDist) continue;
+      collided.add(a.instanceId);
+      collided.add(b.instanceId);
 
       // Exactly-coincident is a degenerate (near-impossible) case with no
       // well-defined push direction — pick an arbitrary fixed axis rather
@@ -152,6 +178,8 @@ export function resolveCollisions(livingIds: readonly string[], pokemonById: Rec
     p.position.x = Math.max(ARENA_PADDING, Math.min(arena.width - ARENA_PADDING, p.position.x));
     p.position.y = Math.max(ARENA_TOP_PADDING, Math.min(arena.height - ARENA_PADDING, p.position.y));
   }
+
+  return collided;
 }
 
 // atan2(y, x) in screen space (y-down) increases clockwise starting at East —

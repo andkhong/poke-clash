@@ -82,7 +82,8 @@ function buildInstance(
   rng: Rng,
   level: number,
   customMoves: Record<number, number[]> | undefined,
-  isBoss: boolean
+  isBoss: boolean,
+  forcedMoveId: number | undefined
 ): PokemonInstance {
   const data = species[speciesId];
   if (!data) throw new Error(`Unknown species id ${speciesId} in match config`);
@@ -103,6 +104,7 @@ function buildInstance(
     currentHp: computedStats.hp,
     maxHp: computedStats.hp,
     moves: pickMoveSlots(data.movePool, moves, rng, customMoves?.[speciesId]),
+    forcedMoveId,
     status: null,
     statusTickAccumMs: 0,
     position,
@@ -143,7 +145,19 @@ export function createMatch(
     // clusters on one side of the arena) does the same per side.
     const team = isBossMode ? 'party' : teamSize !== undefined ? (index < teamSize ? 'teamA' : 'teamB') : instanceId;
     const position = circlePosition(index, count, config.arena);
-    const instance = buildInstance(speciesId, instanceId, team, position, species, moves, rng, config.level, config.customMoves, false);
+    const instance = buildInstance(
+      speciesId,
+      instanceId,
+      team,
+      position,
+      species,
+      moves,
+      rng,
+      config.level,
+      config.customMoves,
+      false,
+      config.forcedMoveId?.[speciesId]
+    );
     pokemon[instanceId] = instance;
     livingOrder.push(instanceId);
   });
@@ -160,7 +174,8 @@ export function createMatch(
       rng,
       config.level,
       undefined,
-      true
+      true,
+      undefined
     );
     pokemon[instanceId] = instance;
     livingOrder.push(instanceId);
@@ -179,5 +194,6 @@ export function createMatch(
     introDurationMs: computeIntroDurationMs(livingOrder.length),
     shiny: config.shiny,
     teams: config.teams,
+    disableWander: config.disableWander,
   };
 }

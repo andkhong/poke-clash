@@ -14,19 +14,29 @@ to be committed straight to git).
 
 ## Current status
 
-v1 has **no files here yet** — the beam and lunge families currently draw their
-particles procedurally at runtime (`src/render/vfx/moves/pixelTextures.ts`), the same
-technique already used for the Pokémon reveal sparkle (`src/render/vfx/sparkle.ts`): a
-small hand-authored pixel grid rendered once via Phaser `Graphics.generateTexture` with
-nearest-neighbor filtering. This directory exists so real hand-drawn replacements have
-an obvious home later, without needing any change to the *convention* below.
+Every family except poison still draws its particles procedurally at runtime
+(`src/render/vfx/moves/pixelTextures.ts`), the same technique already used for the
+Pokémon reveal sparkle (`src/render/vfx/sparkle.ts`): a small hand-authored pixel grid
+rendered once via Phaser `Graphics.generateTexture` with nearest-neighbor filtering.
+
+`poison/globule.png` and `water/pillar.png` are the first real files here — a
+sludge-orb frame and a water-column frame, each cropped from a different ripped
+GBA/DS attack-effects sheet (see each directory's own README for its specific source
+and credit note) — loaded via `src/render/vfx/moves/poisonAttack.ts` and
+`hydroPumpAttack.ts`'s explicit preloads rather than the lazy-generate-on-first-use
+pattern the procedural textures use. Both are also exceptions to the "flat, tinted at
+runtime" convention below: their source art is already the right color and only ever
+used on-type (poison-purple for poison moves, water-blue for Hydro Pump specifically),
+so they're drawn as-is, with no runtime tint.
 
 ## Layout
 
 ```
 move-assets/
-  beam/    # projectile/particle art for beam-family moves (Ice Beam, Hydro Pump, Thunderbolt, Flamethrower, ...)
+  beam/    # projectile/particle art for beam-family moves (Ice Beam, Thunderbolt, Flamethrower, ...)
   lunge/   # impact/contact-flash art for lunge-family moves (Fire Punch, Mach Punch, Close Combat, Tackle, ...)
+  poison/  # real hand-drawn art for the poison family (Sludge, Sludge Bomb, Gunk Shot, Acid, ...) — see its own README
+  water/   # real hand-drawn art for Hydro Pump specifically — see its own README
 ```
 
 ## Conventions for future files
