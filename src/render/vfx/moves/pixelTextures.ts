@@ -23,6 +23,12 @@ const IMPACT_BURST_GRID = ['00100', '01210', '12221', '01210', '00100'];
 // flameAttack.ts) instead of a smooth beam line.
 const FLAME_PARTICLE_GRID = ['00100', '00100', '01110', '11211', '12221', '11111', '01110'];
 
+// A small jagged lightning-bolt shard — a zigzag stroke with a bright '2'
+// flash at its sharpest bend — scattered along the thunder family's jagged
+// bolt path (see thunderAttack.ts) the same way beam's diamond shard trails
+// its straight line.
+const THUNDER_PARTICLE_GRID = ['00011', '00110', '01100', '11211', '00110', '01100', '11000'];
+
 function buildTexture(scene: Phaser.Scene, key: string, grid: string[], brightColor: number, dimColor: number): void {
   if (scene.textures.exists(key)) return;
 
@@ -78,5 +84,14 @@ export function buildImpactBurstTexture(scene: Phaser.Scene, color: number): str
 export function buildFlameParticleTexture(scene: Phaser.Scene, color: number): string {
   const key = `vfx-flame-particle-${color.toString(16)}`;
   buildTexture(scene, key, FLAME_PARTICLE_GRID, 0xfff2b0, color);
+  return key;
+}
+
+/** `color` is the bolt's base (edge) shade — the bright cells always use a
+ * near-white hot-spark color regardless of color, same reasoning as
+ * buildFlameParticleTexture's core. */
+export function buildThunderParticleTexture(scene: Phaser.Scene, color: number): string {
+  const key = `vfx-thunder-particle-${color.toString(16)}`;
+  buildTexture(scene, key, THUNDER_PARTICLE_GRID, 0xffffee, color);
   return key;
 }

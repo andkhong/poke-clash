@@ -181,6 +181,14 @@ export type SimEvent =
       atMs: number;
       type: 'moveUsed';
       attackerId: string;
+      /** Who this move was actually aimed at (null for a self-targeting move)
+       * — captured at the moment the move fired, independent of
+       * attacker.targetInstanceId, which sweepFaints() can null out later in
+       * this same tick (e.g. a KOing hit clears it once the target's removed
+       * from livingOrder). Renderers need the original target to face/aim
+       * the attack visual at, not whatever's left of a since-cleared live
+       * link. See ArenaScene.ts's enqueueAttack. */
+      primaryTargetId: string | null;
       targetIds: string[];
       moveId: number;
       hit: Record<string, boolean>;

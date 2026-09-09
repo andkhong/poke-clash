@@ -11,6 +11,7 @@ import { playMoveImpact } from '../vfx/moveEffects';
 import { resolveMoveAnimation } from '../vfx/moveAnimations';
 import { playBeamAttack } from '../vfx/moves/beamAttack';
 import { playFlameAttack } from '../vfx/moves/flameAttack';
+import { playThunderAttack } from '../vfx/moves/thunderAttack';
 import { playImpactBurst } from '../vfx/moves/impactBurst';
 import { playMoveSound, type MoveSoundHandle } from '../sound/moveSound';
 import { playBattleMusic } from '../sound/battleMusic';
@@ -111,6 +112,21 @@ const ATTACK_VISUAL_DURATION_MS = POST_ATTACK_HOLD_MS;
 // cause, so this is sized to comfortably cover the largest roster (16) rather
 // than the old, much tighter 6, precisely to make that rarer in big matches.
 const MAX_QUEUED_ATTACKS = 16;
+// A second safety valve alongside MAX_QUEUED_ATTACKS above, for the case that
+// actually shows up first in a busy match: queue depth never hits 16, but an
+// individual attack still sits behind a handful of others for several hundred
+// ms+ before a slot frees. Both attacker and target keep simulating live the
+// whole time (wandering, re-targeting, even fainting-and-respawning-as-a-
+// corpse-position) — see enqueueAttack's own comment — so replaying that
+// attack with its enqueue-time snapshot once it's this old draws a beam/pose
+// wherever those Pokémon *were*, which by now can be nowhere near either of
+// them: a beam or flame jet seemingly out of thin air in a random patch of
+// the arena. Skipping the visual for anything queued longer than this doesn't
+// lose anything the player would've correctly understood anyway — the HP bar
+// already moved when the hit actually landed (see MAX_QUEUED_ATTACKS's own
+// comment on damage being resolved regardless) — it just stops a stale replay
+// from looking like an attack that came from nowhere.
+const MAX_ATTACK_QUEUE_AGE_MS = 600;
 
 /** Owns the tick loop (drives engine.tick each frame) and renders whatever the
  * engine's SimState says is true — it never mutates simulation state itself. */
@@ -208,7 +224,14 @@ export class ArenaScene extends Phaser.Scene {
   private enqueueAttack(event: MoveUsedEvent, state: Readonly<SimState>): void {
     const attacker = state.pokemon[event.attackerId];
     if (!attacker) return; // shouldn't happen — a moveUsed event's own attacker always exists this same tick
-    const engagedSource = attacker.targetInstanceId ? state.pokemon[attacker.targetInstanceId] : undefined;
+    // event.primaryTargetId (not attacker.targetInstanceId) — a KOing hit has
+    // sweepFaints() null out the attacker's live targetInstanceId later in
+    // this same tick (see engine.ts), before this ever drains, so reading the
+    // live field here would lose the target on every finishing blow and leave
+    // the attacker facing a stale direction while its VFX still (correctly)
+    // flies at the real target. The event's own primaryTargetId is a fixed
+    // snapshot from when the move actually fired, so it's never affected.
+    const engagedSource = event.primaryTargetId ? state.pokemon[event.primaryTargetId] : undefined;
     const hitTargets: { position: Vec2; collisionRadius: number }[] = [];
     for (const targetId of event.targetIds) {
       if (!event.hit[targetId]) continue;
@@ -240,8 +263,13 @@ export class ArenaScene extends Phaser.Scene {
   }
 
   private pumpAttackQueue(): void {
+    const nowMs = this.engine.getState().elapsedMs;
     while (this.activeAttackSlots < MAX_CONCURRENT_ATTACKS && this.attackQueue.length > 0) {
       const attack = this.attackQueue.shift()!;
+      // See MAX_ATTACK_QUEUE_AGE_MS: too old to still show up where either
+      // Pokémon visually is — skip the visual (for free — no slot consumed)
+      // rather than draw it floating in whatever spot they've since left.
+      if (nowMs - attack.event.atMs > MAX_ATTACK_QUEUE_AGE_MS) continue;
       this.activeAttackSlots += 1;
       const attackEffects = this.handleMoveUsed(attack);
       this.time.delayedCall(ATTACK_VISUAL_DURATION_MS, () => {
@@ -317,6 +345,10 @@ export class ArenaScene extends Phaser.Scene {
     } else if (family === 'flame') {
       for (const target of hitTargets) {
         playFlameAttack(this, attackerPosition.x, attackerPosition.y, target.position.x, target.position.y, move.type);
+      }
+    } else if (family === 'thunder') {
+      for (const target of hitTargets) {
+        playThunderAttack(this, attackerPosition.x, attackerPosition.y, target.position.x, target.position.y, move.type);
       }
     } else {
       for (const target of hitTargets) {

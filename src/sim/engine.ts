@@ -255,7 +255,7 @@ export class SimulationEngine implements EngineLike {
 
     if (move.targeting === 'self') {
       this.applyMoveEffect(move, attacker, attacker);
-      this.pushMoveUsedEvent(attacker, move, [], {}, {}, {}, {}, nowMs);
+      this.pushMoveUsedEvent(attacker, move, null, [], {}, {}, {}, {}, nowMs);
       return;
     }
 
@@ -296,6 +296,7 @@ export class SimulationEngine implements EngineLike {
     this.pushMoveUsedEvent(
       attacker,
       move,
+      primaryTarget.instanceId,
       targets.map((t) => t.instanceId),
       hit,
       crit,
@@ -351,6 +352,7 @@ export class SimulationEngine implements EngineLike {
   private pushMoveUsedEvent(
     attacker: PokemonInstance,
     move: MoveDefinition,
+    primaryTargetId: string | null,
     targetIds: string[],
     hit: Record<string, boolean>,
     crit: Record<string, boolean>,
@@ -363,6 +365,7 @@ export class SimulationEngine implements EngineLike {
       atMs: nowMs,
       type: 'moveUsed',
       attackerId: attacker.instanceId,
+      primaryTargetId,
       targetIds,
       moveId: move.id,
       hit,
