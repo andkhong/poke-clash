@@ -23,6 +23,23 @@ const BOLT_OUTER_WIDTH = 10;
 const BOLT_INNER_WIDTH = 4;
 const PARTICLES_PER_FLICKER = 3;
 
+/** Real cropped art (see public/move-assets/thunder/README.md) — a
+ * lightning-strike frame (jagged bolt flashing through a ghost-face flare),
+ * shown as a brief flourish at the impact point alongside playBoltFlash's
+ * existing procedural glow, rather than replacing the whole travel path
+ * (which still needs to stretch to any attacker-target distance, unlike
+ * this fixed-shape sprite). */
+export const THUNDER_BOLT_TEXTURE_KEY = 'vfx-thunder-bolt';
+export function preloadThunderVfxAssets(scene: Phaser.Scene): void {
+  scene.load.image(THUNDER_BOLT_TEXTURE_KEY, '/move-assets/thunder/bolt.png');
+}
+const BOLT_FLOURISH_MS = 220;
+// bolt.png is native 31x160 (tall) — scaled down to a ~90-120px on-screen
+// height so it reads as a flourish alongside the impact flash, not something
+// bigger than the Pokémon it's striking (84-270px sprites).
+const BOLT_FLOURISH_START_SCALE = 0.55;
+const BOLT_FLOURISH_END_SCALE = 0.75;
+
 export function playThunderAttack(
   scene: Phaser.Scene,
   fromX: number,
@@ -74,6 +91,7 @@ export function playThunderAttack(
       if (!scene.sys.isActive()) return;
       playImpactBurst(scene, toX, toY, type);
       playBoltFlash(scene, toX, toY, coreColor);
+      playBoltFlourish(scene, toX, toY);
     };
 
     // Two quick flickers reads as an electric crackle rather than one static
@@ -88,6 +106,29 @@ export function playThunderAttack(
         scene.time.delayedCall(FLICKER_ON_MS, finish);
       });
     });
+  });
+}
+
+/** Real bolt.png flourish at the strike point — see THUNDER_BOLT_TEXTURE_KEY's
+ * own comment. Anchored bottom-center so it reads as striking down into the
+ * target regardless of the actual attacker-target angle, same reasoning as
+ * playBoltFlash's direction-agnostic flash circle. */
+function playBoltFlourish(scene: Phaser.Scene, x: number, y: number): void {
+  scene.textures.get(THUNDER_BOLT_TEXTURE_KEY).setFilter(Phaser.Textures.FilterMode.NEAREST);
+  const sprite = scene.add
+    .image(x, y, THUNDER_BOLT_TEXTURE_KEY)
+    .setOrigin(0.5, 0.85)
+    .setScale(BOLT_FLOURISH_START_SCALE)
+    .setAlpha(0.95)
+    .setDepth(503)
+    .setBlendMode(Phaser.BlendModes.ADD);
+  scene.tweens.add({
+    targets: sprite,
+    scale: BOLT_FLOURISH_END_SCALE,
+    alpha: 0,
+    duration: BOLT_FLOURISH_MS,
+    ease: 'Cubic.easeOut',
+    onComplete: () => sprite.destroy(),
   });
 }
 

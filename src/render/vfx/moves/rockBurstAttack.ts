@@ -1,8 +1,24 @@
 import Phaser from 'phaser';
 import type { PokemonTypeName } from '../../../sim/types';
 import { getMoveTypeColor } from '../typeColor';
-import { buildRockParticleTexture, lighten } from './pixelTextures';
+import { lighten } from './pixelTextures';
 import { playImpactBurst } from './impactBurst';
+
+/** Real cropped art (see public/move-assets/rockBurst/README.md) — a
+ * tumbling rock chunk, replacing the procedural rock particle. Used as-is
+ * (no runtime tint): unlike most other real-asset families, this one now
+ * covers moves well outside its original ground-only scope (the physical
+ * spread-move fallback in moveAnimations.ts — Rock Slide, Diamond Storm,
+ * Explosion, Petal Blizzard, Brutal Swing, Breaking Swipe, Mortal Spin,
+ * ...), so a fixed rock-brown reads as "debris erupting" generically rather
+ * than always matching the move's own type — the same compromise the
+ * procedural texture's own per-move tint didn't actually resolve either
+ * (a green-tinted rock doesn't read as "petals" any more than a real one
+ * does), so real rock art is arguably the more honest choice here. */
+export const ROCK_TEXTURE_KEY = 'vfx-rock-cluster';
+export function preloadRockBurstVfxAssets(scene: Phaser.Scene): void {
+  scene.load.image(ROCK_TEXTURE_KEY, '/move-assets/rockBurst/cluster.png');
+}
 
 /** Earthquake/Bulldoze/Earth Power-style VFX (see moveAnimations.ts's type
  * rule) — the ground itself erupts into flying rock chunks AT the target,
@@ -34,7 +50,8 @@ export function playRockBurstAttack(
   type: PokemonTypeName
 ): void {
   const color = getMoveTypeColor(type);
-  const rockKey = buildRockParticleTexture(scene, color);
+  scene.textures.get(ROCK_TEXTURE_KEY).setFilter(Phaser.Textures.FilterMode.NEAREST);
+  const rockKey = ROCK_TEXTURE_KEY;
 
   const crack = scene.add.ellipse(toX, toY, 14, 5, lighten(color, 0.3), 0.7).setDepth(498);
   scene.tweens.add({

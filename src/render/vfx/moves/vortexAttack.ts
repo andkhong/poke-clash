@@ -28,6 +28,22 @@ const HOLD_MS = 120;
 const RECEDE_MS = 220;
 const TOTAL_MS = SPIN_UP_MS + HOLD_MS + RECEDE_MS;
 
+/** Real cropped art (see public/move-assets/vortex/README.md) — a twisted
+ * grey tornado column, layered in as a genuine spinning-funnel body behind
+ * the procedural concentric rings/orbiters below rather than replacing them
+ * (this family's core "field effect at the target" shape still needs the
+ * rings' independent per-ring spin, which a single static sprite can't do
+ * on its own). Used as-is (no runtime tint), same as water's pillar — grey
+ * reads as "wind" regardless of the move's actual type. */
+export const VORTEX_TWISTER_TEXTURE_KEY = 'vfx-vortex-twister';
+export function preloadVortexVfxAssets(scene: Phaser.Scene): void {
+  scene.load.image(VORTEX_TWISTER_TEXTURE_KEY, '/move-assets/vortex/twister.png');
+}
+/** twister.png is native 32x64 — scaled so its full height roughly matches
+ * the outermost ring's diameter (RINGS[2].radius * 2 = 96) at full curl. */
+const TWISTER_SCALE = 1.5;
+const TWISTER_SPIN_DEG_PER_SEC = 540;
+
 interface Ring {
   radius: number;
   /** Signed — sign flips per ring so adjacent rings spin opposite ways. */
@@ -61,6 +77,12 @@ export function playVortexAttack(
   const coreColor = lighten(color, 0.6);
   const windKey = buildWindParticleTexture(scene, color);
 
+  scene.textures.get(VORTEX_TWISTER_TEXTURE_KEY).setFilter(Phaser.Textures.FilterMode.NEAREST);
+  const twister = scene.add
+    .image(toX, toY, VORTEX_TWISTER_TEXTURE_KEY)
+    .setDepth(499)
+    .setAlpha(0);
+
   const rings = scene.add.graphics().setDepth(499);
   const orbiters = Array.from({ length: ORBIT_PARTICLE_COUNT }, () =>
     scene.add.image(toX, toY, windKey).setDepth(500).setBlendMode(Phaser.BlendModes.ADD).setAlpha(0)
@@ -68,6 +90,7 @@ export function playVortexAttack(
 
   const draw = (tMs: number): void => {
     const curl = curlAt(tMs);
+    twister.setScale(curl * TWISTER_SCALE).setAlpha(curl * 0.85).setAngle((tMs / 1000) * TWISTER_SPIN_DEG_PER_SEC);
     rings.clear();
     if (curl > 0.02) {
       rings.lineStyle(3, coreColor, 0.6 * curl);
@@ -101,6 +124,7 @@ export function playVortexAttack(
     onUpdate: () => draw(clock.tMs),
     onComplete: () => {
       rings.destroy();
+      twister.destroy();
       orbiters.forEach((img) => img.destroy());
     },
   });

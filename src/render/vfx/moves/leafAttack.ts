@@ -1,8 +1,18 @@
 import Phaser from 'phaser';
 import type { PokemonTypeName } from '../../../sim/types';
 import { getMoveTypeColor } from '../typeColor';
-import { buildLeafParticleTexture, lighten } from './pixelTextures';
+import { lighten } from './pixelTextures';
 import { playImpactBurst } from './impactBurst';
+
+/** Real cropped art (see public/move-assets/leaf/README.md) — a small
+ * tumbling leaf, replacing the procedural leaf particle. Used as-is (no
+ * runtime tint): this family has exactly one caller (Razor Leaf — see
+ * moveAnimations.ts), so grass-green is always correct, same convention as
+ * poison/water. */
+export const LEAF_TEXTURE_KEY = 'vfx-leaf-blade';
+export function preloadLeafVfxAssets(scene: Phaser.Scene): void {
+  scene.load.image(LEAF_TEXTURE_KEY, '/move-assets/leaf/blade.png');
+}
 
 /** Razor Leaf-style VFX (see moveAnimations.ts's override) — a spray of small
  * tumbling leaves from the attacker toward the target, the grass counterpart
@@ -33,7 +43,8 @@ export function playLeafAttack(
 ): void {
   const color = getMoveTypeColor(type);
   const glowColor = lighten(color, 0.7);
-  const leafKey = buildLeafParticleTexture(scene, color);
+  scene.textures.get(LEAF_TEXTURE_KEY).setFilter(Phaser.Textures.FilterMode.NEAREST);
+  const leafKey = LEAF_TEXTURE_KEY;
 
   const dx = toX - fromX;
   const dy = toY - fromY;

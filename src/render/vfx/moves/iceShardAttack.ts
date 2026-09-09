@@ -1,8 +1,18 @@
 import Phaser from 'phaser';
 import type { PokemonTypeName } from '../../../sim/types';
 import { getMoveTypeColor } from '../typeColor';
-import { buildIceShardParticleTexture, lighten } from './pixelTextures';
+import { lighten } from './pixelTextures';
 import { playImpactBurst } from './impactBurst';
+
+/** Real cropped art (see public/move-assets/iceShard/README.md) — a broken
+ * ice-crystal cluster, replacing the procedural diamond-shard particle.
+ * Used as-is (no runtime tint): ice-blue already reads correctly for this
+ * family's only two callers (Ice Shard/Icicle Spear and the special ice
+ * movepool — see moveAnimations.ts), same convention as poison/water. */
+export const ICE_SHARD_TEXTURE_KEY = 'vfx-iceshard-crystal';
+export function preloadIceShardVfxAssets(scene: Phaser.Scene): void {
+  scene.load.image(ICE_SHARD_TEXTURE_KEY, '/move-assets/iceShard/crystal.png');
+}
 
 /** Ice Shard/Icicle Spear-style VFX (see moveAnimations.ts's type rule and
  * overrides) — a spray of small tumbling ice crystals from the attacker
@@ -32,7 +42,8 @@ export function playIceShardAttack(
 ): void {
   const color = getMoveTypeColor(type);
   const glowColor = lighten(color, 0.75);
-  const shardKey = buildIceShardParticleTexture(scene, color);
+  scene.textures.get(ICE_SHARD_TEXTURE_KEY).setFilter(Phaser.Textures.FilterMode.NEAREST);
+  const shardKey = ICE_SHARD_TEXTURE_KEY;
 
   const dx = toX - fromX;
   const dy = toY - fromY;

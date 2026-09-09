@@ -1,8 +1,16 @@
 import Phaser from 'phaser';
 import type { PokemonTypeName } from '../../../sim/types';
-import { getMoveTypeColor } from '../typeColor';
-import { buildFlameParticleTexture } from './pixelTextures';
 import { playImpactBurst } from './impactBurst';
+
+/** Real cropped art (see public/move-assets/flame/README.md) — a single
+ * flame-burst frame, replacing the procedural flame-lick particle. Used
+ * as-is (no runtime tint): fire's own orange/red already reads correctly
+ * for this family's other caller too (dragon breath, reusing the same jet —
+ * see moveAnimations.ts), same convention as poison/water. */
+export const FLAME_TEXTURE_KEY = 'vfx-flame-burst';
+export function preloadFlameVfxAssets(scene: Phaser.Scene): void {
+  scene.load.image(FLAME_TEXTURE_KEY, '/move-assets/flame/burst.png');
+}
 
 /** Flamethrower/Fire Blast/Heat Wave-style VFX (see moveAnimations.ts's
  * fire-type routing) — a jet of small flickering flame sprites sprayed from
@@ -28,8 +36,8 @@ export function playFlameAttack(
   toY: number,
   type: PokemonTypeName
 ): void {
-  const color = getMoveTypeColor(type);
-  const flameKey = buildFlameParticleTexture(scene, color);
+  scene.textures.get(FLAME_TEXTURE_KEY).setFilter(Phaser.Textures.FilterMode.NEAREST);
+  const flameKey = FLAME_TEXTURE_KEY;
 
   const dx = toX - fromX;
   const dy = toY - fromY;

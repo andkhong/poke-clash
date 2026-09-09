@@ -9,18 +9,19 @@ import { preloadArenaTileset, createArenaBackground } from '../tileset/arenaBack
 import { preloadPokeballAsset } from '../sprites/pokeballAsset';
 import { playMoveImpact } from '../vfx/moveEffects';
 import { resolveMoveAnimation } from '../vfx/moveAnimations';
-import { playBeamAttack } from '../vfx/moves/beamAttack';
-import { playFlameAttack } from '../vfx/moves/flameAttack';
-import { playThunderAttack } from '../vfx/moves/thunderAttack';
-import { playLeafAttack } from '../vfx/moves/leafAttack';
-import { playBubbleAttack } from '../vfx/moves/bubbleAttack';
+import { playBeamAttack, preloadBeamVfxAssets } from '../vfx/moves/beamAttack';
+import { playFlameAttack, preloadFlameVfxAssets } from '../vfx/moves/flameAttack';
+import { playThunderAttack, preloadThunderVfxAssets } from '../vfx/moves/thunderAttack';
+import { playLeafAttack, preloadLeafVfxAssets } from '../vfx/moves/leafAttack';
+import { playBubbleAttack, preloadBubbleVfxAssets } from '../vfx/moves/bubbleAttack';
 import { playWaveAttack } from '../vfx/moves/waveAttack';
-import { playIceShardAttack } from '../vfx/moves/iceShardAttack';
-import { playVortexAttack } from '../vfx/moves/vortexAttack';
-import { playRockBurstAttack } from '../vfx/moves/rockBurstAttack';
+import { playIceShardAttack, preloadIceShardVfxAssets } from '../vfx/moves/iceShardAttack';
+import { playVortexAttack, preloadVortexVfxAssets } from '../vfx/moves/vortexAttack';
+import { playRockBurstAttack, preloadRockBurstVfxAssets } from '../vfx/moves/rockBurstAttack';
 import { playPoisonAttack, preloadPoisonVfxAssets } from '../vfx/moves/poisonAttack';
 import { playHydroPumpAttack, preloadHydroPumpVfxAssets } from '../vfx/moves/hydroPumpAttack';
 import { playImpactBurst } from '../vfx/moves/impactBurst';
+import { playLungePunchFlash, preloadLungeVfxAssets } from '../vfx/moves/lungeImpact';
 import { playMoveSound, type MoveSoundHandle } from '../sound/moveSound';
 import { playBattleMusic } from '../sound/battleMusic';
 import { getMoveDefinition } from '../../data/loader';
@@ -169,6 +170,15 @@ export class ArenaScene extends Phaser.Scene {
     preloadPokeballAsset(this);
     preloadPoisonVfxAssets(this);
     preloadHydroPumpVfxAssets(this);
+    preloadThunderVfxAssets(this);
+    preloadIceShardVfxAssets(this);
+    preloadBubbleVfxAssets(this);
+    preloadLeafVfxAssets(this);
+    preloadRockBurstVfxAssets(this);
+    preloadVortexVfxAssets(this);
+    preloadBeamVfxAssets(this);
+    preloadFlameVfxAssets(this);
+    preloadLungeVfxAssets(this);
   }
 
   create(): void {
@@ -356,7 +366,10 @@ export class ArenaScene extends Phaser.Scene {
       const lungeTarget = engagedTarget ?? hitTargets[0];
       if (lungeTarget) {
         attackerSprite.playLungeAttack(attackerPosition, lungeTarget.position, lungeTarget.collisionRadius, () => {
-          for (const target of hitTargets) playImpactBurst(this, target.position.x, target.position.y, move.type);
+          for (const target of hitTargets) {
+            playImpactBurst(this, target.position.x, target.position.y, move.type);
+            playLungePunchFlash(this, target.position.x, target.position.y);
+          }
         });
       }
     } else if (family === 'beam') {

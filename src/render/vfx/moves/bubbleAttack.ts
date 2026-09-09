@@ -1,8 +1,17 @@
 import Phaser from 'phaser';
 import type { PokemonTypeName } from '../../../sim/types';
 import { getMoveTypeColor } from '../typeColor';
-import { buildBubbleParticleTexture, lighten } from './pixelTextures';
+import { lighten } from './pixelTextures';
 import { playImpactBurst } from './impactBurst';
+
+/** Real cropped art (see public/move-assets/bubble/README.md) — a glossy
+ * round bubble, replacing the procedural bubble particle. Used as-is (no
+ * runtime tint): this family's only two callers (Bubble/Bubble Beam — see
+ * moveAnimations.ts) are always water-blue, same convention as poison/water. */
+export const BUBBLE_TEXTURE_KEY = 'vfx-bubble-orb';
+export function preloadBubbleVfxAssets(scene: Phaser.Scene): void {
+  scene.load.image(BUBBLE_TEXTURE_KEY, '/move-assets/bubble/orb.png');
+}
 
 /** Bubble/Bubble Beam-style VFX (see moveAnimations.ts's overrides) — a spray
  * of small round bubbles from the attacker toward the target, the water
@@ -32,7 +41,8 @@ export function playBubbleAttack(
 ): void {
   const color = getMoveTypeColor(type);
   const glowColor = lighten(color, 0.7);
-  const bubbleKey = buildBubbleParticleTexture(scene, color);
+  scene.textures.get(BUBBLE_TEXTURE_KEY).setFilter(Phaser.Textures.FilterMode.NEAREST);
+  const bubbleKey = BUBBLE_TEXTURE_KEY;
 
   const dx = toX - fromX;
   const dy = toY - fromY;

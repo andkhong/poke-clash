@@ -433,4 +433,74 @@ describe('SimulationEngine full match', () => {
 
     expect(checkedAtLeastOne).toBe(true); // sanity: paralysis + wander actually came up in the sample
   });
+
+  it('never lets a living Pokémon wander when MatchConfig.disableWander is set, for a real 1v1 match', () => {
+    // Full-stack check (MatchConfig -> matchSetup.ts's createMatch -> SimState
+    // -> ai.ts's updateTargeting), complementing ai.test.ts's direct unit
+    // tests of updateTargeting itself with a real running match.
+    //
+    // Excludes the exact tick 'intro' first flips to 'battle': stepOnce
+    // (engine.ts) returns immediately once it flips that flag, before ever
+    // calling updateTargeting (or stepMovement) for the first time — so
+    // aiState is still every Pokémon's stale initial 'wander' from
+    // buildInstance (matchSetup.ts) for that one tick, with zero actual
+    // wandering movement to go with it (stepMovement never ran either).
+    const engine = new SimulationEngine(
+      { level: 100, speciesIds: [1, 2], arena: { width: 500, height: 1000 }, shiny: false, disableWander: true },
+      FIXTURE_SPECIES,
+      moveLookup,
+      1
+    );
+    const maxSteps = Math.ceil(95_000 / TICK_MS);
+    let sawBattlePhase = false;
+    let wasInBattleLastTick = false;
+    for (let i = 0; i < maxSteps; i++) {
+      if (engine.getState().phase === 'complete') break;
+      engine.tick(TICK_MS);
+      const state = engine.getState();
+      const inBattle = state.phase === 'battle' || state.phase === 'finalTwo';
+      if (inBattle && wasInBattleLastTick) {
+        sawBattlePhase = true;
+        for (const id of state.livingOrder) {
+          expect(state.pokemon[id].aiState).not.toBe('wander');
+        }
+      }
+      wasInBattleLastTick = inBattle;
+    }
+    expect(sawBattlePhase).toBe(true); // sanity: the match actually reached battle phase
+  });
+
+  it('only ever uses the pinned move when MatchConfig.forcedMoveId is set, for a real 1v1 match', () => {
+    // Full-stack check (MatchConfig -> matchSetup.ts's buildInstance ->
+    // PokemonInstance.forcedMoveId -> ai.ts's chooseMove), complementing
+    // ai.test.ts's direct unit tests of chooseMove itself with a real
+    // running match, including engine.ts's maybeAct chase-buff suppression.
+    const engine = new SimulationEngine(
+      {
+        level: 100,
+        speciesIds: [1, 2],
+        arena: { width: 960, height: 1600 },
+        shiny: false,
+        forcedMoveId: { 1: 1 }, // Fixmander (species 1) always uses Fixture Tackle (move id 1)
+      },
+      FIXTURE_SPECIES,
+      moveLookup,
+      1
+    );
+    const maxSteps = Math.ceil(95_000 / TICK_MS);
+    for (let i = 0; i < maxSteps; i++) {
+      if (engine.getState().phase === 'complete') break;
+      engine.tick(TICK_MS);
+    }
+
+    const fixmander = Object.values(engine.getState().pokemon).find((p) => p.speciesId === 1)!;
+    const fixmanderMoves = engine
+      .getEventsSince(0)
+      .filter((e) => e.type === 'moveUsed' && e.attackerId === fixmander.instanceId);
+
+    expect(fixmanderMoves.length).toBeGreaterThan(0); // sanity: it actually attacked at least once
+    for (const e of fixmanderMoves) {
+      expect(e.type === 'moveUsed' && e.moveId).toBe(1);
+    }
+  });
 });

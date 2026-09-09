@@ -14,29 +14,40 @@ to be committed straight to git).
 
 ## Current status
 
-Every family except poison still draws its particles procedurally at runtime
-(`src/render/vfx/moves/pixelTextures.ts`), the same technique already used for the
-Pokémon reveal sparkle (`src/render/vfx/sparkle.ts`): a small hand-authored pixel grid
-rendered once via Phaser `Graphics.generateTexture` with nearest-neighbor filtering.
+Only `impact` (the original generic fallback, `moveEffects.ts`) and `wave`
+(Surf's curling water crest, `waveAttack.ts`) still draw everything
+procedurally at runtime (`src/render/vfx/moves/pixelTextures.ts`), the same
+technique already used for the Pokémon reveal sparkle
+(`src/render/vfx/sparkle.ts`): a small hand-authored pixel grid rendered once
+via Phaser `Graphics.generateTexture` with nearest-neighbor filtering. Every
+other family now has at least one real cropped-art asset (see each
+directory's own README for its specific source/credit note), loaded via an
+explicit preload rather than the lazy-generate-on-first-use pattern the
+procedural textures use.
 
-`poison/globule.png` and `water/pillar.png` are the first real files here — a
-sludge-orb frame and a water-column frame, each cropped from a different ripped
-GBA/DS attack-effects sheet (see each directory's own README for its specific source
-and credit note) — loaded via `src/render/vfx/moves/poisonAttack.ts` and
-`hydroPumpAttack.ts`'s explicit preloads rather than the lazy-generate-on-first-use
-pattern the procedural textures use. Both are also exceptions to the "flat, tinted at
-runtime" convention below: their source art is already the right color and only ever
-used on-type (poison-purple for poison moves, water-blue for Hydro Pump specifically),
-so they're drawn as-is, with no runtime tint.
+Most of these are drawn as-is, with no runtime tint — their source art is
+already the right color and only ever used on-type (poison-purple for
+poison, water-blue for Hydro Pump, fire-orange for flame, electric-yellow
+for thunder, ice-blue for iceShard, grass-green for leaf, rock-brown for
+rockBurst, grey for vortex, pink for the lunge punch flash). `beam` is the
+one exception: its charge-column art is near-white/yellow specifically so it
+still takes a runtime tint per move type, the same as the procedural texture
+it replaces (see its own README).
 
 ## Layout
 
 ```
 move-assets/
-  beam/    # projectile/particle art for beam-family moves (Ice Beam, Thunderbolt, Flamethrower, ...)
-  lunge/   # impact/contact-flash art for lunge-family moves (Fire Punch, Mach Punch, Close Combat, Tackle, ...)
-  poison/  # real hand-drawn art for the poison family (Sludge, Sludge Bomb, Gunk Shot, Acid, ...) — see its own README
-  water/   # real hand-drawn art for Hydro Pump specifically — see its own README
+  beam/      # real hand-drawn charge-column art, tinted per move type — see its own README
+  bubble/    # real hand-drawn art for Bubble/Bubble Beam — see its own README
+  flame/     # real hand-drawn art for fire (+ dragon) special moves — see its own README
+  iceShard/  # real hand-drawn art for Ice Shard/Icicle Spear + special ice movepool — see its own README
+  leaf/      # real hand-drawn art for Razor Leaf — see its own README
+  lunge/     # real hand-drawn punch-impact flip-book for lunge-family moves — see its own README
+  poison/    # real hand-drawn art for the poison family (Sludge, Sludge Bomb, Gunk Shot, Acid, ...) — see its own README
+  rockBurst/ # real hand-drawn art for ground spread moves + the physical-spread catch-all — see its own README
+  vortex/    # real hand-drawn art for Hurricane — see its own README
+  water/     # real hand-drawn art for Hydro Pump/Hydro Cannon specifically — see its own README
 ```
 
 ## Conventions for future files
