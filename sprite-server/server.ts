@@ -5,18 +5,17 @@ import { parseFile } from 'music-metadata';
 
 // Minimal standalone static-file server for locally-mirrored, gitignored
 // binary asset mirrors: PMDCollab sprite art (see
-// data-pipeline/fetch-pmd-sprites.ts), the user-supplied move-SFX mirror
-// (see data-pipeline/build-move-sound-index.ts), and the user-supplied
-// background-music mirror (sound-track/<pack>/*.mp3, e.g. "emerald",
-// "red-blue" — see the /soundtracks routes below). Runs as its own
-// process/port so none of these mirrors ever has to live under Vite's
-// public/ dir or get bundled into the app. In dev, Vite proxies
-// /pmd-sprites/*, /move-sounds/* and /soundtracks/* to this server (see
-// vite.config.ts) so client code just fetches root-relative URLs, same as
-// it already does for /cries/*.
+// data-pipeline/fetch-pmd-sprites.ts) and the user-supplied background-music
+// mirror (sound-track/<pack>/*.mp3, e.g. "emerald", "red-blue" — see the
+// /soundtracks routes below). Runs as its own process/port so neither
+// mirror ever has to live under Vite's public/ dir or get bundled into the
+// app. In dev, Vite proxies /pmd-sprites/* and /soundtracks/* to this
+// server (see vite.config.ts) so client code just fetches root-relative
+// URLs, same as it already does for /cries/* and /move-sounds/* (both of
+// which are plain static files under public/ — the move SFX used to be a
+// third mirror here, see data-pipeline/build-move-sound-index.ts).
 const PORT = Number(process.env.PMD_SPRITE_SERVER_PORT ?? 4310);
 const SPRITE_MIRROR_ROOT = new URL('../pmd-sprite-mirror/', import.meta.url).pathname;
-const SOUND_MIRROR_ROOT = new URL('../sound/', import.meta.url).pathname;
 const SOUNDTRACK_MIRROR_ROOT = new URL('../sound-track/', import.meta.url).pathname;
 
 // Strict allowlist for both path segments — this is what actually prevents
@@ -26,24 +25,7 @@ const SOUNDTRACK_MIRROR_ROOT = new URL('../sound-track/', import.meta.url).pathn
 // ("{id}-shiny/"), so the exact same route serves both tiers.
 const SPRITE_ROUTE_RE = /^\/pmd-sprites\/([0-9]{4}(?:-shiny)?)\/([A-Za-z]+-(?:Anim|Shadow)\.png)$/;
 
-// The move-sound mirror's own folder/file names (chosen by whoever packaged
-// it, not by this project) contain spaces, commas, parentheses etc., so
-// unlike the sprite route this can't be a tight character-class regex — the
-// folder segment is instead checked against an exact allowlist of the 7
-// known generation folder names, and the filename against a charset that
-// covers everything actually present while still excluding "/" and "..".
-const SOUND_GENERATION_FOLDERS = new Set([
-  'GEN 1 SFX - Attack Moves - RBY',
-  'GEN 2 SFX - Attack Moves - GSC',
-  'GEN 3 SFX - Attack Moves - RSE, FR, LG',
-  'GEN 4 SFX - Attack Moves - DPPL, HG, SS',
-  'GEN 5 SFX - Attack Moves - BLK, WHT, BLK2, WHT2',
-  'GEN 6 SFX - Attack Moves - XY, ORAS',
-  'GEN 7 SFX - Attack Moves - SUMO, USUM',
-]);
-const SOUND_ROUTE_RE = /^\/move-sounds\/([^/]+)\/([A-Za-z0-9 '.,_()+-]+\.(?:mp3|wav))$/i;
-
-// Unlike the move-SFX mirror's fixed 7 generation folders, sound-track/'s
+// Unlike the sprite mirror's fixed folder naming, sound-track/'s
 // packs (currently "emerald" and "red-blue") aren't known ahead of time —
 // the whole point is that dropping in a new pack directory picks it up
 // automatically, with no code change or rebuild step. So both routes below
@@ -169,18 +151,6 @@ const server = createServer((req, res) => {
     return;
   }
 
-  const soundMatch = SOUND_ROUTE_RE.exec(url);
-  if (soundMatch) {
-    const [, folder, file] = soundMatch;
-    if (!SOUND_GENERATION_FOLDERS.has(folder)) {
-      res.writeHead(404).end('not found');
-      return;
-    }
-    const contentType = file.toLowerCase().endsWith('.wav') ? 'audio/wav' : 'audio/mpeg';
-    serveFile(res, join(SOUND_MIRROR_ROOT, folder, file), contentType);
-    return;
-  }
-
   // Picks the random track server-side (rather than handing the client the
   // full catalog to pick from) so the catalog itself — which packs and
   // tracks currently exist on disk — never has to be duplicated into
@@ -217,7 +187,7 @@ const server = createServer((req, res) => {
 
 server.listen(PORT, () => {
   console.log(
-    `[sprite-server] serving ${SPRITE_MIRROR_ROOT}, ${SOUND_MIRROR_ROOT} and ${SOUNDTRACK_MIRROR_ROOT} at http://localhost:${PORT}`
+    `[sprite-server] serving ${SPRITE_MIRROR_ROOT} and ${SOUNDTRACK_MIRROR_ROOT} at http://localhost:${PORT}`
   );
 });
 

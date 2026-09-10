@@ -8,7 +8,7 @@
 		}
 	}
 
-	@assets path /pmd-sprites/* /move-sounds/* /soundtracks/*
+	@assets path /pmd-sprites/* /soundtracks/*
 	handle @assets {
 		reverse_proxy localhost:4310
 	}

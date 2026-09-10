@@ -21,10 +21,11 @@ data-pipeline/cache/
 # git entirely) the unrelated src/render/sound/ source directory.
 /pmd-sprite-mirror/
 
-# Move SFX mirror: ~1.1GB of per-generation move sound effects, served locally
-# by sprite-server/ the same way pmd-sprite-mirror/ is. Not committed — see
-# src/data/generated/moveSounds.json for the small derived index that IS
-# committed, and data-pipeline/build-move-sound-index.ts to regenerate it.
+# Move SFX mirror: ~1.1GB of per-generation move sound effects. Not
+# committed, and not served at runtime either — data-pipeline/
+# build-move-sound-index.ts transcodes just the ~460 clips the game
+# references into public/move-sounds/ (~12 MB, committed and shipped with
+# the build) and writes the small index src/data/generated/moveSounds.json.
 /sound/
 
 # Background-music mirror: user-supplied per-game soundtrack packs

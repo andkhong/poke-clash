@@ -5,17 +5,17 @@ import moveSoundIndexData from '../../data/generated/moveSounds.json';
 import { normalizedVolume } from './loudness';
 import { MOVE_SOUND_FALLBACK_VOLUME, MOVE_SOUND_TARGET_DB } from './mix';
 
-// Same "downloaded/mirrored locally, loaded on demand, cached forever" shape
-// as cryAudio.ts — see that file's comment. The clips themselves live in the
-// gitignored sound/ mirror (data-pipeline/build-move-sound-index.ts produces
-// this index from it) and are served root-relative via sprite-server/'s
-// /move-sounds route, proxied by Vite in dev the same way /pmd-sprites is.
-// Volume is per-clip loudness-normalized to MOVE_SOUND_TARGET_DB — the SFX
-// pack's clips range over ~11 dB among themselves (see loudness.ts).
+// Same "loaded on demand, cached forever" shape as cryAudio.ts — see that
+// file's comment. The clips are static files under public/move-sounds/
+// (data-pipeline/build-move-sound-index.ts transcodes them there from the
+// gitignored sound/ mirror and writes this index), served with the app
+// build like the cries are — no runtime dependency on the mirror. Volume is
+// per-clip loudness-normalized to MOVE_SOUND_TARGET_DB — the pack's clips
+// range over ~11 dB among themselves (see loudness.ts).
 const MOVE_SOUND_INDEX = moveSoundIndexData as MoveSoundIndex;
 
-function moveSoundUrl(folder: string, file: string): string {
-  return `/move-sounds/${encodeURIComponent(folder)}/${encodeURIComponent(file)}`;
+function moveSoundUrl(moveId: number): string {
+  return `/move-sounds/${moveId}.mp3`;
 }
 
 /** Handle for a clip started by playMoveSound — lets a caller cut it short
@@ -32,8 +32,7 @@ export interface MoveSoundHandle {
  * handle the caller can use to stop the clip early; undefined when there's
  * no matched sound to play. */
 export function playMoveSound(scene: Phaser.Scene, move: MoveDefinition): MoveSoundHandle | undefined {
-  const entry = MOVE_SOUND_INDEX[String(move.id)];
-  if (!entry) return undefined;
+  if (!MOVE_SOUND_INDEX[String(move.id)]) return undefined;
 
   const key = `move-sound-${move.id}`;
   // scene.sound.play(key, ...) (the shorthand used elsewhere, e.g.
@@ -60,7 +59,7 @@ export function playMoveSound(scene: Phaser.Scene, move: MoveDefinition): MoveSo
     // matters once many loads are in flight at once), so a plain .once() here
     // is safe.
     scene.load.once(`filecomplete-audio-${key}`, startPlayback);
-    scene.load.audio(key, moveSoundUrl(entry.folder, entry.file));
+    scene.load.audio(key, moveSoundUrl(move.id));
     if (!scene.load.isLoading()) scene.load.start();
   }
 

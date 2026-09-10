@@ -9,12 +9,12 @@ export default defineConfig({
   server: {
     // Forwards to sprite-server/ (run separately via `npm run sprite:serve`
     // or `npm run dev:all`) so client code can fetch root-relative
-    // /pmd-sprites/..., /move-sounds/... and /soundtracks/... URLs, same as
-    // it already does for /cries/.... /api forwards to game-server/ (the
+    // /pmd-sprites/... and /soundtracks/... URLs, same as it already does
+    // for /cries/... and /move-sounds/... (static files under public/).
+    // /api forwards to game-server/ (the
     // multiplayer room server) the same way, including its SSE room stream.
     proxy: {
       '/pmd-sprites': `http://localhost:${PMD_SPRITE_SERVER_PORT}`,
-      '/move-sounds': `http://localhost:${PMD_SPRITE_SERVER_PORT}`,
       '/soundtracks': `http://localhost:${PMD_SPRITE_SERVER_PORT}`,
       '/api': `http://localhost:${GAME_SERVER_PORT}`,
     },

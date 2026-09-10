@@ -67,15 +67,15 @@ export interface PmdSpriteIndexEntry {
 export type PmdSpriteIndex = Record<string, PmdSpriteIndexEntry>;
 
 // Shape of src/data/generated/moveSounds.json (see data-pipeline/build-move-sound-index.ts).
-// One entry per move id matched to a clip in the locally-mirrored sound/
-// directory (gitignored, served by sprite-server/ the same way
-// pmd-sprite-mirror/ is) — moves with no match (mostly generations 8+, which
-// the mirrored SFX pack doesn't cover) simply have no entry and play silently.
+// One entry per move id that has a clip at public/move-sounds/<moveId>.mp3
+// (committed, shipped with the app build like public/cries/) — moves with
+// no entry (mostly generations 8+, which the mirrored SFX pack doesn't
+// cover) simply play silently. The clip's URL is derived from the id, so
+// the entry only records provenance.
 export interface MoveSoundIndexEntry {
-  /** Exact folder name under sound/, e.g. "GEN 7 SFX - Attack Moves - SUMO, USUM". */
-  folder: string;
-  /** Exact filename within that folder, e.g. "Flamethrower.mp3". */
-  file: string;
+  /** "<folder>/<file>" the clip was transcoded from in the gitignored sound/
+   * mirror, e.g. "GEN 7 SFX - Attack Moves - SUMO, USUM/Flamethrower.mp3". */
+  source: string;
 }
 
 export type MoveSoundIndex = Record<string, MoveSoundIndexEntry>;
