@@ -1,4 +1,5 @@
 import type {
+  ActiveAttack,
   MatchConfig,
   MoveDefinition,
   PokemonInstance,
@@ -38,11 +39,14 @@ import { STRUGGLE_MOVE, STRUGGLE_MOVE_ID, STRUGGLE_RECOIL_FRACTION } from './str
 import {
   AGGRESSIVE_COOLDOWN_MULTIPLIER,
   AGGRESSIVE_SPEED_MULTIPLIER,
+  ATTACK_DEFERRED_RETRY_MS,
+  ATTACK_GAP_MS,
   BASELINE_SPEED,
   BASE_ACTION_COOLDOWN_MS,
   isAggressivePhase,
   MATCH_TIME_LIMIT_MS,
   MAX_ACTION_COOLDOWN_MS,
+  MAX_SIMULTANEOUS_ATTACKS,
   MIN_ACTION_COOLDOWN_MS,
   MIN_ACTION_COOLDOWN_MS_AGGRESSIVE,
   POST_ATTACK_HOLD_MS,
@@ -50,6 +54,10 @@ import {
   STATUS_TURN_INTERVAL_MS,
   TICK_MS,
 } from './constants';
+
+/** What the arena-wide attack gate says to a Pokémon that's ready to fire —
+ * see SimulationEngine.attackGateVerdict. */
+type AttackGateVerdict = 'fire' | 'wait' | 'defer';
 
 export class SimulationEngine implements EngineLike {
   private state: SimState;
@@ -116,6 +124,13 @@ export class SimulationEngine implements EngineLike {
       return;
     }
 
+    // Retire any attack whose hold window has now played out (and arm the gap
+    // it leaves behind) before anyone decides whether to act this tick — a
+    // slot that frees on the same tick a Pokémon is ready still can't be used
+    // until ATTACK_GAP_MS has passed, so ordering here isn't load-bearing,
+    // but keeping the gate current first keeps the rest of the tick simple.
+    this.settleAttackGate(nowMs);
+
     const livingIds = [...this.state.livingOrder];
     const positions = new Map<string, Vec2>();
     for (const id of livingIds) positions.set(id, { ...this.state.pokemon[id].position });
@@ -146,11 +161,7 @@ export class SimulationEngine implements EngineLike {
       }
     }
 
-    for (const id of livingIds) {
-      const self = this.state.pokemon[id];
-      if (self.currentHp <= 0) continue;
-      this.maybeAct(self, nowMs);
-    }
+    this.stepActions(livingIds, nowMs);
 
     for (const id of livingIds) {
       const self = this.state.pokemon[id];
@@ -215,37 +226,157 @@ export class SimulationEngine implements EngineLike {
     return walkingWanderLeg;
   }
 
-  private maybeAct(self: PokemonInstance, nowMs: number): void {
-    if (self.aiState === 'incapacitated') {
-      this.tickIncapacitated(self, nowMs);
-      return;
-    }
+  /**
+   * Everyone's "may I act this tick?" pass, run through the arena-wide
+   * attack gate (see MAX_SIMULTANEOUS_ATTACKS in constants.ts). Rather than
+   * letting each Pokémon fire the instant its own cooldown clears — which in
+   * livingOrder means a low spawn index always wins a contested slot — every
+   * Pokémon that's ready is collected first, then offered the free slots in
+   * order of who has gone longest without attacking (ties keep spawn order;
+   * Array.prototype.sort is stable). Real attacks are offered slots before
+   * opportunistic chase-buffs, so a buff never crowds out a hit.
+   */
+  private stepActions(livingIds: readonly string[], nowMs: number): void {
+    const attackers: PokemonInstance[] = [];
+    const buffers: { self: PokemonInstance; move: MoveDefinition }[] = [];
 
-    if (self.aiState === 'attack') {
-      if (self.actionCooldownMs > 0) return;
-      const target = self.targetInstanceId ? this.state.pokemon[self.targetInstanceId] : undefined;
-      if (!target || target.currentHp <= 0) return;
-      const moveId = chooseMove(self, this.rng);
-      const move = moveId === STRUGGLE_MOVE_ID ? STRUGGLE_MOVE : this.moves(moveId);
-      if (!move) return;
-      this.executeMove(self, move, moveId, target, nowMs);
-      return;
-    }
+    for (const id of livingIds) {
+      const self = this.state.pokemon[id];
+      if (self.currentHp <= 0) continue;
+      if (self.aiState === 'incapacitated') {
+        this.tickIncapacitated(self, nowMs);
+        continue;
+      }
+      if (self.actionCooldownMs > 0) continue;
 
-    // Only buff while actively closing in on a spotted target (never in pure
-    // 'wander', which means no enemy is within aggro radius at all, and never
-    // during the cold-open — updateTargeting forces 'wander' for both cases,
-    // so gating on 'chase' excludes them for free) — otherwise a Pokémon with
-    // nobody around plays a full attack swing/sound/label at thin air. Also
-    // never for a forcedMoveId Pokémon (see that field's own comment) — a
-    // move-testing pin means only that exact move should ever fire, not an
-    // opportunistic buff sneaking in first.
-    if (self.aiState === 'chase' && self.actionCooldownMs <= 0 && self.forcedMoveId === undefined) {
-      const buffMove = findSelfBuffMove(self, this.moves);
-      if (buffMove && rngChance(this.rng, 0.3)) {
-        this.executeMove(self, buffMove, buffMove.id, null, nowMs);
+      if (self.aiState === 'attack') {
+        const target = self.targetInstanceId ? this.state.pokemon[self.targetInstanceId] : undefined;
+        if (target && target.currentHp > 0) attackers.push(self);
+        continue;
+      }
+
+      // Only buff while actively closing in on a spotted target (never in
+      // pure 'wander', which means no enemy is within aggro radius at all,
+      // and never during the cold-open — updateTargeting forces 'wander' for
+      // both cases, so gating on 'chase' excludes them for free) — otherwise
+      // a Pokémon with nobody around plays a full attack swing/sound/label
+      // at thin air. Also never for a forcedMoveId Pokémon (see that field's
+      // own comment) — a move-testing pin means only that exact move should
+      // ever fire, not an opportunistic buff sneaking in first.
+      if (self.aiState === 'chase' && self.forcedMoveId === undefined) {
+        const buffMove = findSelfBuffMove(self, this.moves);
+        if (buffMove && rngChance(this.rng, 0.3)) buffers.push({ self, move: buffMove });
       }
     }
+
+    // Both HP re-checks below matter because everyone was collected before
+    // anyone fired: an attacker earlier in this same pass may have just KO'd
+    // this Pokémon *or* its target (either stays in livingOrder until
+    // sweepFaints, so the collection-time checks above can't see it). The
+    // self check is what stops a mutual same-tick KO — the old one-at-a-time
+    // loop skipped a just-KO'd Pokémon for free, and without this two
+    // finalists could take each other out in one tick and leave no winner.
+    attackers.sort((a, b) => (a.lastAttackAtMs ?? -1) - (b.lastAttackAtMs ?? -1));
+    for (const self of attackers) {
+      if (self.currentHp <= 0) continue;
+      const verdict = this.attackGateVerdict(self, nowMs);
+      if (verdict === 'wait') continue;
+      if (verdict === 'defer') {
+        this.deferAttack(self);
+        continue;
+      }
+      const target = this.state.pokemon[self.targetInstanceId!];
+      if (!target || target.currentHp <= 0) continue;
+      const moveId = chooseMove(self, this.rng);
+      const move = moveId === STRUGGLE_MOVE_ID ? STRUGGLE_MOVE : this.moves(moveId);
+      if (!move) continue;
+      this.executeMove(self, move, moveId, target, nowMs);
+    }
+
+    // A chase-buff that doesn't get a slot is simply skipped — the Pokémon
+    // is mid-chase and keeps closing in regardless, and rolls again next
+    // tick — so it never earns the deferral wander leg a blocked attack does.
+    for (const { self, move } of buffers) {
+      if (self.currentHp <= 0) continue;
+      if (this.attackGateVerdict(self, nowMs) !== 'fire') continue;
+      this.executeMove(self, move, move.id, null, nowMs);
+    }
+  }
+
+  /** Frees the slot of every in-flight attack whose hold/visual window has
+   * ended by now, and pushes the gate's reopening out to ATTACK_GAP_MS past
+   * each such completion. */
+  private settleAttackGate(nowMs: number): void {
+    const gate = this.state.attackGate;
+    if (gate.active.length === 0) return;
+    const stillActive: ActiveAttack[] = [];
+    for (const attack of gate.active) {
+      if (attack.endsAtMs <= nowMs) {
+        gate.closedUntilMs = Math.max(gate.closedUntilMs, attack.endsAtMs + ATTACK_GAP_MS);
+      } else {
+        stillActive.push(attack);
+      }
+    }
+    gate.active = stillActive;
+  }
+
+  /**
+   * 'wait': inside the post-attack gap — short enough (ATTACK_GAP_MS) to
+   *   just stand facing the target and try again next tick.
+   * 'defer': every slot is taken, or this Pokémon fired the arena's most
+   *   recent attack and someone else is around to take this one — could be
+   *   a while, so it's sent off on a wander leg instead (see deferAttack).
+   * 'fire': a slot is free, the gap has passed, and it's this Pokémon's turn.
+   */
+  private attackGateVerdict(self: PokemonInstance, nowMs: number): AttackGateVerdict {
+    const gate = this.state.attackGate;
+    if (nowMs < gate.closedUntilMs) return 'wait';
+    if (gate.active.length >= MAX_SIMULTANEOUS_ATTACKS) return 'defer';
+    if (gate.lastAttackerId === self.instanceId && this.anyoneElseCouldAttack(self)) return 'defer';
+    return 'fire';
+  }
+
+  /** Whether any other living Pokémon is in a state to attack at all — i.e.
+   * not asleep/frozen. "Could attack" deliberately ignores whether they're
+   * currently in range of anyone: the no-repeat rule is meant to hand the
+   * turn to whoever's next, and a still-chasing or still-cooling-down rival
+   * will get there within a few seconds. Only when literally nobody else
+   * could ever take the turn (everyone else is out cold) is the last
+   * attacker allowed to go again, so a lone awake Pokémon isn't stuck
+   * politely waiting on a sleeping opponent. */
+  private anyoneElseCouldAttack(self: PokemonInstance): boolean {
+    for (const id of this.state.livingOrder) {
+      if (id === self.instanceId) continue;
+      const other = this.state.pokemon[id];
+      if (other.currentHp <= 0) continue;
+      if (isIncapacitatingStatus(other.status)) continue;
+      return true;
+    }
+    return false;
+  }
+
+  /** Turned away by the gate: rather than standing motionless next to its
+   * target until a slot frees, put it on a short cooldown — updateTargeting
+   * (ai.ts) reads any positive cooldown as "wander this off", and its
+   * justBecameAvailable trigger re-evaluates the target when that clears —
+   * so it visibly moves on and comes back for another try. Same fresh-leg
+   * reasoning as resetCooldown for clearing the stale waypoint. Under
+   * MatchConfig.disableWander this simply holds ground for the same span. */
+  private deferAttack(self: PokemonInstance): void {
+    self.actionCooldownMs = ATTACK_DEFERRED_RETRY_MS;
+    self.wanderWaypoint = undefined;
+  }
+
+  /** Books this move into the arena-wide gate: it occupies a slot for its
+   * whole POST_ATTACK_HOLD_MS hold window (the same span the attacker holds
+   * still and the renderer plays its visual for), becomes the most recent
+   * attacker for the no-repeat rule, and stamps lastAttackAtMs for the
+   * longest-waiting-first ordering in stepActions. */
+  private claimAttackSlot(attacker: PokemonInstance, nowMs: number): void {
+    const gate = this.state.attackGate;
+    gate.active.push({ attackerId: attacker.instanceId, endsAtMs: nowMs + POST_ATTACK_HOLD_MS });
+    gate.lastAttackerId = attacker.instanceId;
+    attacker.lastAttackAtMs = nowMs;
   }
 
   /** A sleeping/frozen Pokémon's "turns". It can't attack, so it never goes
@@ -309,6 +440,11 @@ export class SimulationEngine implements EngineLike {
     }
 
     this.resetCooldown(attacker, move);
+    // Every path through here — including a fully-paralyzed whiff below,
+    // which still holds the attacker still for its whole hold window — is
+    // one use of an attack slot, so this sits next to resetCooldown rather
+    // than with the callers, where the two could drift apart.
+    this.claimAttackSlot(attacker, nowMs);
 
     if (attacker.status === 'paralysis') {
       const gate = gateAction(attacker, this.rng);

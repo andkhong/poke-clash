@@ -2,7 +2,7 @@ import Phaser from 'phaser';
 import type { EngineLike } from '../../sim/engineLike';
 import type { SimState, Vec2 } from '../../sim/types';
 import { EventCursor } from '../../sim/events';
-import { POST_ATTACK_HOLD_MS } from '../../sim/constants';
+import { MAX_SIMULTANEOUS_ATTACKS, POST_ATTACK_HOLD_MS } from '../../sim/constants';
 import { STRUGGLE_MOVE, STRUGGLE_MOVE_ID } from '../../sim/struggle';
 import { PokemonSprite } from '../sprites/PokemonSprite';
 import { preloadArenaTileset, createArenaBackground } from '../tileset/arenaBackground';
@@ -104,19 +104,18 @@ function logBattleEvent(event: MoveUsedEvent, state: Readonly<SimState>): void {
   );
 }
 
-// How many attack visuals can be in flight at once. At the full 16-Pokémon
-// roster's aggressive phase, most/all combatants sit on the same
-// POST_ATTACK_HOLD_MS-floored cooldown (see resetCooldown in engine.ts), so
-// the sim itself can legitimately produce attacks several times faster than
-// a low concurrency cap here can ever drain — the surplus piles up in
-// attackQueue until MAX_ATTACK_QUEUE_AGE_MS/MAX_QUEUED_ATTACKS below start
-// silently dropping them: no move-name callout, no impact VFX, nothing but
-// an HP bar that moved with no visible cause. Sized well above the old 4 (a
-// leftover from when the largest roster was 6) so a busy 16-mon brawl's
-// realistic burst rate is actually absorbed instead of routinely
-// overflowing — some simultaneous attacks are exactly what a 16-Pokémon
-// free-for-all should look like anyway, not something to hide.
-const MAX_CONCURRENT_ATTACKS = 8;
+// How many attack visuals can be in flight at once. The sim's own attack
+// gate (MAX_SIMULTANEOUS_ATTACKS, see engine.ts's stepActions) is what
+// actually paces attacks now: it never lets more than that many be in their
+// POST_ATTACK_HOLD_MS window at once, and leaves ATTACK_GAP_MS of quiet after
+// each one ends, so ordinarily this cap is never even reached — every attack
+// the sim produces gets its visual, and the "HP bar moved with no visible
+// cause" overflow that a higher render-side cap used to guard against can't
+// happen. Pinned to the same constant so the render side can never show
+// more simultaneous attacks than the sim intends, even if a burst of events
+// drains in one frame after a hitch (see MAX_ATTACK_QUEUE_AGE_MS for what
+// happens to the stragglers).
+const MAX_CONCURRENT_ATTACKS = MAX_SIMULTANEOUS_ATTACKS;
 // Roughly the longest a single attack's visuals stay on screen (beam/flame
 // charge+extend, lunge dash+impact burst, etc.) — used to know when a
 // concurrency slot frees up, and (see handleMoveUsed's callers) when to cut

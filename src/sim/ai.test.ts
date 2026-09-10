@@ -54,6 +54,7 @@ function makeState(pokemonList: PokemonInstance[], introDurationMs = 0): SimStat
     winnerInstanceIds: [],
     arena: { width: 2000, height: 2000 },
     introDurationMs,
+    attackGate: { active: [], closedUntilMs: 0, lastAttackerId: null },
     shiny: false,
   };
 }

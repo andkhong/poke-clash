@@ -198,6 +198,7 @@ export function createMatch(
     winnerInstanceIds: [],
     arena: config.arena,
     introDurationMs: computeIntroDurationMs(livingOrder.length),
+    attackGate: { active: [], closedUntilMs: 0, lastAttackerId: null },
     shiny: config.shiny,
     teams: config.teams,
     disableWander: config.disableWander,

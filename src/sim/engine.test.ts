@@ -5,18 +5,23 @@ import type { MoveDefinition } from './types';
 import {
   ARENA_HEIGHT,
   ARENA_WIDTH,
+  ATTACK_DEFERRED_RETRY_MS,
+  ATTACK_GAP_MS,
   BURN_CHIP_FRACTION,
   COMBAT_START_DELAY_MS,
   FREEZE_MAX_TURNS,
   MAX_ACTION_COOLDOWN_MS,
+  MAX_SIMULTANEOUS_ATTACKS,
   POISON_CHIP_FRACTION,
+  POST_ATTACK_HOLD_MS,
   SLEEP_MAX_TURNS,
   STATUS_TICK_INTERVAL_MS,
   STATUS_TURN_INTERVAL_MS,
   TICK_MS,
 } from './constants';
-import type { StatusCondition } from './types';
+import type { MatchConfig, SimEvent, StatusCondition } from './types';
 import { distance } from './movement';
+import { isIncapacitatingStatus } from './statusEffects';
 
 const FIXTURE_MOVES: MoveDefinition[] = [
   { id: 1, name: 'Fixture Tackle', type: 'normal', category: 'physical', power: 40, accuracy: 100, pp: 35, priority: 0, targeting: 'enemy' },
@@ -408,14 +413,14 @@ describe('SimulationEngine full match', () => {
     // stale leftover, only ever genuinely unset or freshly repicked.
     const afterHold = replay.getState().pokemon[attackerId];
     // A paralyzed Pokémon is a third legitimate case alongside the two
-    // below: stepMovement's paralysis branch (checked before 'wander's own)
-    // holds it in place without ever reaching the wanderWaypoint-picking
-    // logic at all, so aiState reads 'wander' (updateTargeting has no reason
-    // to say otherwise) while wanderWaypoint stays genuinely unset — not a
-    // stale leftover, just never assigned because idle wandering itself is
-    // suppressed for as long as the paralysis lasts.
+    // below: whatever aiState updateTargeting lands it in — 'wander' (held
+    // in place by stepMovement's paralysis branch, checked before 'wander's
+    // own waypoint-picking logic), or straight back to 'attack'/'chase' if
+    // its cooldown cleared alongside the hold — wanderWaypoint stays
+    // genuinely unset: not a stale leftover, just never assigned because
+    // idle wandering itself is suppressed for as long as the paralysis
+    // lasts, and engaged states never pick one.
     if (afterHold.status === 'paralysis') {
-      expect(afterHold.aiState).toBe('wander');
       expect(afterHold.wanderWaypoint).toBeUndefined();
     } else if (afterHold.aiState === 'wander') {
       expect(afterHold.wanderWaypoint).toBeDefined(); // freshly repicked, not a stale/absent one
@@ -756,5 +761,218 @@ describe('cold-open wander in a packed spawn', () => {
       // frozen in the formation.
       expect(counts.some((c) => c > 0)).toBe(true);
     }
+  });
+});
+
+describe('arena-wide attack gate', () => {
+  type MoveUsed = Extract<SimEvent, { type: 'moveUsed' }>;
+
+  function moveEvents(engine: SimulationEngine): MoveUsed[] {
+    return engine.getEventsSince(0).filter((e): e is MoveUsed => e.type === 'moveUsed');
+  }
+
+  /** Fixture Thunder Wave-ish (move 6) is the only fixture move species 1-6
+   * carry that paralyzes, and a fully-paralyzed "attack" is a genuine use
+   * of a gate slot (it holds the attacker still for the whole window and
+   * counts as its turn) that emits no moveUsed event — so a strictly
+   * event-log-based check of the gate's rules needs a roster that can't
+   * paralyze anyone. Pins the three species that would otherwise draw it
+   * to the rest of their pool. */
+  const NO_PARALYSIS_MOVES: MatchConfig['customMoves'] = { 1: [1, 2, 5], 3: [1, 3, 4], 4: [1, 5, 3] };
+  const BRAWL = [1, 2, 3, 4, 5, 6];
+  const FULL_ROSTER = Array.from({ length: 16 }, (_, i) => (i % 6) + 1);
+
+  function runGatedMatch(seed: number, speciesIds: number[]): SimulationEngine {
+    const engine = new SimulationEngine(
+      { level: 100, speciesIds, arena: { width: 960, height: 1600 }, shiny: false, customMoves: NO_PARALYSIS_MOVES },
+      FIXTURE_SPECIES,
+      moveLookup,
+      seed
+    );
+    for (let i = 0; i < Math.ceil(95_000 / TICK_MS); i++) {
+      if (engine.getState().phase === 'complete') break;
+      engine.tick(TICK_MS);
+    }
+    return engine;
+  }
+
+  it('never has more than MAX_SIMULTANEOUS_ATTACKS attacks in flight, in a 6- or a full 16-Pokémon brawl', () => {
+    for (const roster of [BRAWL, FULL_ROSTER]) {
+      for (const seed of [1, 2, 3, 4]) {
+        const events = moveEvents(runGatedMatch(seed, roster));
+        expect(events.length).toBeGreaterThan(MAX_SIMULTANEOUS_ATTACKS); // sanity: enough combat to contend for slots
+        for (const e of events) {
+          // Every attack still inside its hold/visual window at the instant e fired, e itself included.
+          const inFlight = events.filter((f) => f.atMs <= e.atMs && e.atMs < f.atMs + POST_ATTACK_HOLD_MS);
+          expect(inFlight.length).toBeLessThanOrEqual(MAX_SIMULTANEOUS_ATTACKS);
+        }
+      }
+    }
+  });
+
+  it('leaves at least ATTACK_GAP_MS of quiet after any attack completes before the next one starts', () => {
+    for (const roster of [BRAWL, FULL_ROSTER]) {
+      for (const seed of [1, 2, 3, 4]) {
+        const events = moveEvents(runGatedMatch(seed, roster));
+        for (const e of events) {
+          for (const f of events) {
+            const completedAtMs = f.atMs + POST_ATTACK_HOLD_MS;
+            if (completedAtMs > e.atMs) continue; // f was still in flight (or hadn't fired) when e started — see the test above
+            expect(e.atMs).toBeGreaterThanOrEqual(completedAtMs + ATTACK_GAP_MS);
+          }
+        }
+      }
+    }
+  });
+
+  it('never lets the same Pokémon fire twice in a row while anyone else is awake to take the turn', () => {
+    // Nothing in this roster can put anyone to sleep or freeze them, so the
+    // "everyone else is out cold" exception never applies and consecutive
+    // attacks must strictly alternate attackers all match long.
+    for (const roster of [BRAWL, FULL_ROSTER]) {
+      for (const seed of [1, 2, 3, 4]) {
+        const events = moveEvents(runGatedMatch(seed, roster));
+        for (let i = 1; i < events.length; i++) {
+          expect(events[i].attackerId).not.toBe(events[i - 1].attackerId);
+        }
+      }
+    }
+  });
+
+  it('lets the last attacker go again only while every other Pokémon is out cold', () => {
+    // Fixspore (only Spore) vs Fixolax, wandering off so they stay engaged:
+    // once Fixolax is asleep nobody else could possibly take the next turn,
+    // so Fixspore is allowed to keep going rather than politely waiting on a
+    // sleeping opponent — but the moment Fixolax is awake again the strict
+    // alternation is back.
+    const engine = new SimulationEngine(
+      {
+        level: 100,
+        speciesIds: [7, 5],
+        arena: { width: 500, height: 1000 },
+        shiny: false,
+        disableWander: true,
+        forcedMoveId: { 7: 9 },
+      },
+      FIXTURE_SPECIES,
+      moveLookup,
+      21
+    );
+    for (let i = 0; i < Math.ceil(95_000 / TICK_MS); i++) {
+      if (engine.getState().phase === 'complete') break;
+      engine.tick(TICK_MS);
+    }
+    const sporeId = Object.values(engine.getState().pokemon).find((p) => p.speciesId === 7)!.instanceId;
+    const victimId = Object.values(engine.getState().pokemon).find((p) => p.speciesId === 5)!.instanceId;
+    const all = engine.getEventsSince(0);
+
+    // Whether the victim was asleep going into event `seq`: the most recent
+    // sleep status change logged before it. A wake-up is logged during the
+    // same tick's action pass, ahead of any attack that tick, so it's
+    // correctly seen as "awake" by an attack fired on the very tick it woke.
+    function victimAsleepBefore(seq: number): boolean {
+      let asleep = false;
+      for (const e of all) {
+        if (e.seq >= seq) break;
+        if (e.type !== 'statusApplied' && e.type !== 'statusCleared') continue;
+        if (e.instanceId !== victimId || e.status !== 'sleep') continue;
+        asleep = e.type === 'statusApplied';
+      }
+      return asleep;
+    }
+
+    const events = moveEvents(engine);
+    let sawRepeat = false;
+    for (let i = 1; i < events.length; i++) {
+      if (events[i].attackerId !== events[i - 1].attackerId) continue;
+      sawRepeat = true;
+      expect(events[i].attackerId).toBe(sporeId);
+      expect(victimAsleepBefore(events[i].seq)).toBe(true);
+    }
+    expect(sawRepeat).toBe(true); // sanity: the exception actually came up
+  });
+
+  it("never lets a Pokémon that was KO'd earlier in the same tick still get its attack off", () => {
+    // Two one-shot glass cannons, wandering off in a tiny arena so they close
+    // in symmetrically and both come off cooldown in range on the very same
+    // tick — the gate happily offers both a slot. The first to fire KOs the
+    // other, and the other (at 0 HP, but still in livingOrder until
+    // sweepFaints) must be skipped, not allowed a posthumous mutual KO that
+    // leaves the match with no winner. The old one-Pokémon-at-a-time action
+    // loop got this for free; the collect-then-fire gate has to re-check.
+    const GLASS_CANNON = { hp: 1, atk: 255, def: 5, spa: 5, spd: 5, spe: 100 };
+    const species: Record<number, SpeciesData> = {
+      11: { id: 11, name: 'Fixcannon A', types: ['normal'], baseStats: GLASS_CANNON, movePool: [1], collisionRadius: 40 },
+      12: { id: 12, name: 'Fixcannon B', types: ['normal'], baseStats: GLASS_CANNON, movePool: [1], collisionRadius: 40 },
+    };
+    const engine = new SimulationEngine(
+      { level: 100, speciesIds: [11, 12], arena: { width: 400, height: 700 }, shiny: false, disableWander: true },
+      species,
+      moveLookup,
+      1
+    );
+    for (let i = 0; i < Math.ceil(95_000 / TICK_MS); i++) {
+      if (engine.getState().phase === 'complete') break;
+      engine.tick(TICK_MS);
+    }
+    const state = engine.getState();
+    expect(state.phase).toBe('complete');
+    expect(state.livingOrder).toHaveLength(1);
+    expect(state.eliminationOrder).toHaveLength(1);
+    const events = moveEvents(engine);
+    expect(events).toHaveLength(1); // one shot, one KO, match over — the loser never fired
+    expect(events[0].attackerId).toBe(state.livingOrder[0]);
+  });
+
+  it('sends a Pokémon the gate turns away off on a wander leg instead of leaving it standing over its target', () => {
+    // Walks a busy brawl tick by tick: any Pokémon that's engaged and off
+    // cooldown but didn't fire was either waiting out the short post-attack
+    // gap in place (cooldown still 0), or got deferred (cooldown set to the
+    // retry delay) — and a deferred one is visibly wandering with a fresh
+    // waypoint by the next tick.
+    const engine = new SimulationEngine(
+      { level: 100, speciesIds: FULL_ROSTER, arena: { width: 960, height: 1600 }, shiny: false, customMoves: NO_PARALYSIS_MOVES },
+      FIXTURE_SPECIES,
+      moveLookup,
+      2
+    );
+    let deferrals = 0;
+    let deferredLastTick = new Set<string>();
+    for (let i = 0; i < Math.ceil(95_000 / TICK_MS); i++) {
+      if (engine.getState().phase === 'complete') break;
+      engine.tick(TICK_MS);
+      const state = engine.getState();
+      const nowMs = state.elapsedMs;
+      const firedNow = new Set(moveEvents(engine).filter((e) => e.atMs === nowMs).map((e) => e.attackerId));
+      const deferredNow = new Set<string>();
+
+      for (const id of deferredLastTick) {
+        if (!state.livingOrder.includes(id)) continue;
+        const p = state.pokemon[id];
+        if (isIncapacitatingStatus(p.status)) continue; // put to sleep/frozen since — a different hold entirely
+        expect(p.aiState).toBe('wander');
+        expect(p.wanderWaypoint).toBeDefined();
+      }
+
+      for (const id of state.livingOrder) {
+        const p = state.pokemon[id];
+        if (p.aiState !== 'attack' || isIncapacitatingStatus(p.status)) continue;
+        if (!p.targetInstanceId || !state.livingOrder.includes(p.targetInstanceId)) continue;
+        if (firedNow.has(id)) continue;
+        if (p.actionCooldownMs === 0) {
+          // Only ever waits in place for the gap — never for a slot or a turn.
+          expect(state.attackGate.closedUntilMs).toBeGreaterThan(nowMs);
+          continue;
+        }
+        // Any other positive cooldown on a Pokémon still in 'attack' must have
+        // been set this very tick (updateTargeting would have wandered it
+        // otherwise) — i.e. it was deferred.
+        expect(p.actionCooldownMs).toBe(ATTACK_DEFERRED_RETRY_MS);
+        deferrals += 1;
+        deferredNow.add(id);
+      }
+      deferredLastTick = deferredNow;
+    }
+    expect(deferrals).toBeGreaterThan(0); // sanity: a 16-Pokémon brawl really does contend for the two slots
   });
 });
