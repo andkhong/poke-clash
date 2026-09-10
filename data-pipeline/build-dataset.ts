@@ -162,6 +162,7 @@ async function main(): Promise<void> {
       baseStats: extractBaseStats(pokemon),
       levelUpMoves: supportedLevelUp,
       tmMoves: supportedTm,
+      heightDm: pokemon.height,
     });
   }
 

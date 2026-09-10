@@ -1,0 +1,13 @@
+node_modules
+dist
+dist-ssr
+.git
+.claude
+data-pipeline/cache
+pmd-sprite-mirror
+sound
+sound-track
+examples
+*.tsbuildinfo
+*.log
+.DS_Store

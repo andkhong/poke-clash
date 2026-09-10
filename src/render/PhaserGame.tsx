@@ -2,7 +2,6 @@ import { useEffect, useRef } from 'react';
 import Phaser from 'phaser';
 import type { EngineLike } from '../sim/engineLike';
 import { ArenaScene } from './scenes/ArenaScene';
-import { ARENA_HEIGHT, ARENA_WIDTH } from '../app/config';
 
 export interface StageRect {
   left: number;
@@ -39,11 +38,19 @@ export function PhaserGame({ engine, highlightInstanceId = null, onStageRectChan
       gameRef.current = null;
     }
 
+    // Read off the match's real arena (not a fixed constant) — a Custom
+    // Battle "Small"/"Tiny" map, or the mobile-vs-wide-desktop arena picked at
+    // match start (see app/config.ts's resolveMatchArena), would otherwise
+    // render inside the wrong-sized canvas: content confined to a corner
+    // instead of filling it, since Phaser's own FIT scaling only scales
+    // *this* canvas to its container, it can't correct for the canvas
+    // itself being the wrong resolution to begin with.
+    const { width: arenaWidth, height: arenaHeight } = engine.getState().arena;
     const game = new Phaser.Game({
       type: Phaser.AUTO,
       parent: containerRef.current,
-      width: ARENA_WIDTH,
-      height: ARENA_HEIGHT,
+      width: arenaWidth,
+      height: arenaHeight,
       backgroundColor: '#1a1a1a',
       scale: {
         mode: Phaser.Scale.FIT,

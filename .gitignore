@@ -34,6 +34,20 @@ data-pipeline/cache/
 # sync, so there's nothing here to commit even a small derived copy of.
 /sound-track/
 
+# Cover-art-stripped/re-encoded copies of /sound/ and /sound-track/ (see
+# transcode.sh run during deploy prep) — same "not committed" reasoning as
+# the raw mirrors above, just a second local tree staged for upload.
+/sound-optimized/
+/sound-track-optimized/
+
+# The tarball of those mirrors that gets uploaded to the Fly volume by hand
+# (entrypoint.sh symlinks /data/<mirror> into the container — nothing in the
+# image or the repo needs it). Over 1 GB: GitHub refuses any single file
+# past 100 MB, so this can never be committed, and it once was — see the
+# history rewrite noted in the commit that added this rule.
+/assets.tar.gz
+/*.tar.gz
+
 *.log
 npm-debug.log*
 *.tsbuildinfo

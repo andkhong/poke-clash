@@ -130,6 +130,11 @@ export interface PokemonInstance {
   targetInstanceId: string | null;
   lastRetargetMs: number;
   wanderWaypoint?: Vec2;
+  /** Consecutive ms this Pokémon has spent steering toward wanderWaypoint
+   * without making real headway (blocked by a neighbor or a wall) — see
+   * WANDER_STUCK_REPICK_MS and movement.ts's trackWanderHeadway(). Unset or
+   * 0 whenever it isn't currently walking a wander leg. */
+  wanderStuckMs?: number;
 
   /** Milliseconds remaining before this Pokémon may act (attack) again. */
   actionCooldownMs: number;
@@ -138,6 +143,13 @@ export interface PokemonInstance {
    * governs only when it may act *again*, not how long it stays put after
    * acting. */
   postAttackHoldMs: number;
+
+  /** When this Pokémon last fired a move (any executeMove, including a
+   * self-buff or a fully-paralyzed whiff). The attack gate (engine.ts's
+   * stepActions) hands a free slot to whoever has gone longest without one
+   * first, so a low spawn index never gets a standing head start in a
+   * crowded arena. Unset until its first move. */
+  lastAttackAtMs?: number;
 
   /** Set the tick a hit lands, so renderers can play a one-shot flash/shake and clear it themselves. */
   lastHitAtMs?: number;
@@ -150,6 +162,29 @@ export type MatchPhase = 'intro' | 'battle' | 'finalTwo' | 'complete';
 export interface ArenaBounds {
   width: number;
   height: number;
+}
+
+/** One attack currently in flight arena-wide — see AttackGateState. */
+export interface ActiveAttack {
+  attackerId: string;
+  /** When its POST_ATTACK_HOLD_MS hold/visual window ends and the slot frees. */
+  endsAtMs: number;
+}
+
+/** Arena-wide attack pacing bookkeeping (see MAX_SIMULTANEOUS_ATTACKS and
+ * friends in constants.ts, and engine.ts's stepActions). Lives on SimState
+ * rather than as private engine fields so it's part of the deterministic,
+ * inspectable snapshot like every other piece of sim state. */
+export interface AttackGateState {
+  /** Attacks still inside their hold window, in firing order. Never longer
+   * than MAX_SIMULTANEOUS_ATTACKS. */
+  active: ActiveAttack[];
+  /** No attack may start before this instant — pushed out to
+   * completion + ATTACK_GAP_MS every time an in-flight attack finishes. */
+  closedUntilMs: number;
+  /** Whoever fired the most recent attack. Not allowed to fire the next one
+   * while any other living, non-incapacitated Pokémon exists to take it. */
+  lastAttackerId: string | null;
 }
 
 export interface SimState {
@@ -172,6 +207,8 @@ export interface SimState {
   arena: ArenaBounds;
   /** Computed from roster size — see constants.ts computeIntroDurationMs. */
   introDurationMs: number;
+  /** See AttackGateState. */
+  attackGate: AttackGateState;
   /** Purely cosmetic (see MatchConfig.shiny) — echoed here, same as `arena`,
    * so the renderer can read it off the state it already has without a
    * separate plumbing path. The sim itself never branches on this. */
@@ -224,7 +261,7 @@ export type SimEvent =
     }
   | { seq: number; atMs: number; type: 'statusApplied'; instanceId: string; status: StatusCondition }
   | { seq: number; atMs: number; type: 'statusTick'; instanceId: string; status: StatusCondition; amount: number }
-  | { seq: number; atMs: number; type: 'statCleared'; instanceId: string; status: StatusCondition }
+  | { seq: number; atMs: number; type: 'statusCleared'; instanceId: string; status: StatusCondition }
   | { seq: number; atMs: number; type: 'fainted'; instanceId: string; byInstanceId: string | null }
   | { seq: number; atMs: number; type: 'milestone'; kind: 'matchStart' | 'finalTwo' | 'matchEnd' };
 

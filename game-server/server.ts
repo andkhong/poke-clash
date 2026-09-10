@@ -52,7 +52,7 @@ const server = createServer(async (req, res) => {
 
   if (method === 'POST' && url === '/api/rooms') {
     const body = await readJsonBody<CreateRoomRequest>(req);
-    const room = createRoom(body.mode ?? 'classic');
+    const room = createRoom(body.mode ?? 'classic', body.arena);
     sendJson(res, 201, { room: toRoomSummary(room) });
     return;
   }

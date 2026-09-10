@@ -1,10 +1,12 @@
 import type {
+  ActiveAttack,
   MatchConfig,
   MoveDefinition,
   PokemonInstance,
   SimEvent,
   SimState,
   StageKey,
+  StatusCondition,
   Vec2,
 } from './types';
 import type { MoveLookup, SpeciesData } from './matchSetup';
@@ -19,6 +21,8 @@ import {
   pickWanderWaypoint,
   resolveCollisions,
   steerToward,
+  trackWanderHeadway,
+  WANDER_ARRIVAL_DISTANCE,
   WANDER_MOVE_SPEED,
 } from './movement';
 import { chooseMove, findSelfBuffMove, retaliate, updateTargeting } from './ai';
@@ -28,6 +32,7 @@ import {
   applyStatus,
   canApplyStatus,
   gateAction,
+  isIncapacitatingStatus,
   maybeThawOnFireHit,
   tickStatusDamage,
 } from './statusEffects';
@@ -35,18 +40,26 @@ import { STRUGGLE_MOVE, STRUGGLE_MOVE_ID, STRUGGLE_RECOIL_FRACTION } from './str
 import {
   AGGRESSIVE_COOLDOWN_MULTIPLIER,
   AGGRESSIVE_SPEED_MULTIPLIER,
+  ATTACK_DEFERRED_RETRY_MAX_MS,
+  ATTACK_DEFERRED_RETRY_MIN_MS,
+  ATTACK_GAP_MS,
   BASELINE_SPEED,
   BASE_ACTION_COOLDOWN_MS,
   isAggressivePhase,
   MATCH_TIME_LIMIT_MS,
   MAX_ACTION_COOLDOWN_MS,
+  MAX_SIMULTANEOUS_ATTACKS,
   MIN_ACTION_COOLDOWN_MS,
   MIN_ACTION_COOLDOWN_MS_AGGRESSIVE,
   POST_ATTACK_HOLD_MS,
   PRIORITY_COOLDOWN_DISCOUNT,
-  SPREAD_MOVE_RADIUS,
+  STATUS_TURN_INTERVAL_MS,
   TICK_MS,
 } from './constants';
+
+/** What the arena-wide attack gate says to a Pokémon that's ready to fire —
+ * see SimulationEngine.attackGateVerdict. */
+type AttackGateVerdict = 'fire' | 'wait' | 'defer';
 
 export class SimulationEngine implements EngineLike {
   private state: SimState;
@@ -113,33 +126,50 @@ export class SimulationEngine implements EngineLike {
       return;
     }
 
+    // Retire any attack whose hold window has now played out (and arm the gap
+    // it leaves behind) before anyone decides whether to act this tick — a
+    // slot that frees on the same tick a Pokémon is ready still can't be used
+    // until ATTACK_GAP_MS has passed, so ordering here isn't load-bearing,
+    // but keeping the gate current first keeps the rest of the tick simple.
+    this.settleAttackGate(nowMs);
+
     const livingIds = [...this.state.livingOrder];
     const positions = new Map<string, Vec2>();
     for (const id of livingIds) positions.set(id, { ...this.state.pokemon[id].position });
     const neighbors = buildNeighborListFromPositions(livingIds, positions, this.state.pokemon);
+    const speedMult = isAggressivePhase(nowMs) ? AGGRESSIVE_SPEED_MULTIPLIER : 1;
 
+    const wanderers: string[] = [];
     for (const id of livingIds) {
       const self = this.state.pokemon[id];
       if (self.currentHp <= 0) continue;
       updateTargeting(self, this.state, positions, nowMs, this.rng);
-      this.stepMovement(self, positions, neighbors);
+      if (this.stepMovement(self, positions, neighbors, speedMult)) wanderers.push(id);
+      else self.wanderStuckMs = 0;
     }
 
-    // Same reasoning as applyMovement's own wall case (see stepMovement): a
-    // wandering Pokémon hard-shoved apart from another one here has no memory
-    // of that either, so its stale waypoint would just steer it straight back
-    // into the same spot next tick instead of heading off differently.
-    const collided = resolveCollisions(livingIds, this.state.pokemon, this.state.arena);
-    for (const id of collided) {
+    resolveCollisions(livingIds, this.state.pokemon, this.state.arena);
+
+    // Only now — with every position-changing pass for this tick done — can a
+    // wander leg's headway be judged. A Pokémon that's been getting nowhere
+    // for a while gives up on that waypoint and picks a replacement that
+    // turns it away from whatever was blocking it; being jostled while still
+    // making progress is left alone entirely (see trackWanderHeadway).
+    for (const id of wanderers) {
       const self = this.state.pokemon[id];
-      if (self.aiState === 'wander') self.wanderWaypoint = undefined;
+      const blockedHeading = trackWanderHeadway(self, positions.get(id)!, WANDER_MOVE_SPEED * speedMult, TICK_MS);
+      if (blockedHeading) {
+        self.wanderWaypoint = pickWanderWaypoint(
+          this.rng,
+          this.state.arena,
+          self.position,
+          blockedHeading,
+          this.otherPositions(id, positions)
+        );
+      }
     }
 
-    for (const id of livingIds) {
-      const self = this.state.pokemon[id];
-      if (self.currentHp <= 0) continue;
-      this.maybeAct(self, nowMs);
-    }
+    this.stepActions(livingIds, nowMs);
 
     for (const id of livingIds) {
       const self = this.state.pokemon[id];
@@ -151,18 +181,21 @@ export class SimulationEngine implements EngineLike {
     this.checkMilestones(nowMs);
   }
 
+  /** Returns true when this Pokémon spent the tick walking a wander leg
+   * (steering toward its wanderWaypoint) — the one case stepOnce has to
+   * follow up on after collisions are resolved, see trackWanderHeadway. */
   private stepMovement(
     self: PokemonInstance,
     positions: ReadonlyMap<string, Vec2>,
-    neighbors: ReturnType<typeof buildNeighborListFromPositions>
-  ): void {
+    neighbors: ReturnType<typeof buildNeighborListFromPositions>,
+    speedMult: number
+  ): boolean {
     if (self.aiState === 'incapacitated') {
       self.velocity = { x: 0, y: 0 };
-      return;
+      return false;
     }
 
-    const speedMult = isAggressivePhase(this.state.elapsedMs) ? AGGRESSIVE_SPEED_MULTIPLIER : 1;
-
+    let walkingWanderLeg = false;
     if (self.postAttackHoldMs > 0) {
       // Hold perfectly still (separation-only, same as 'attack' below) until
       // the render's whole attack-visual window (pose/label/sound — see
@@ -182,10 +215,18 @@ export class SimulationEngine implements EngineLike {
       steerToward(self, self.position, 0, neighbors);
     } else if (self.aiState === 'wander') {
       const selfPos = positions.get(self.instanceId) ?? self.position;
-      if (!self.wanderWaypoint || distance(selfPos, self.wanderWaypoint) < 12) {
-        self.wanderWaypoint = pickWanderWaypoint(this.rng, this.state.arena, selfPos);
+      if (!self.wanderWaypoint || distance(selfPos, self.wanderWaypoint) < WANDER_ARRIVAL_DISTANCE) {
+        self.wanderWaypoint = pickWanderWaypoint(
+          this.rng,
+          this.state.arena,
+          selfPos,
+          undefined,
+          this.otherPositions(self.instanceId, positions)
+        );
+        self.wanderStuckMs = 0;
       }
       steerToward(self, self.wanderWaypoint, WANDER_MOVE_SPEED * speedMult, neighbors);
+      walkingWanderLeg = true;
     } else if (self.aiState === 'chase' && self.targetInstanceId) {
       const target = this.state.pokemon[self.targetInstanceId];
       const targetPos = positions.get(target.instanceId) ?? target.position;
@@ -195,45 +236,206 @@ export class SimulationEngine implements EngineLike {
       steerToward(self, self.position, 0, neighbors);
     }
 
-    const hitWall = applyMovement(self, TICK_MS, this.state.arena);
-    // Wandering straight into the arena boundary — steerToward() has no
-    // memory of last tick's motion, so without this it would just keep
-    // re-aiming at the same (unreachable, through-the-wall) waypoint forever
-    // instead of heading off in a new direction. See applyMovement's own
-    // comment. Only 'wander' uses wanderWaypoint at all — chase/attack steer
-    // at a live target/itself every tick regardless, so there's nothing stale
-    // to clear for them.
-    if (hitWall && self.aiState === 'wander') self.wanderWaypoint = undefined;
+    applyMovement(self, TICK_MS, this.state.arena);
+    return walkingWanderLeg;
   }
 
-  private maybeAct(self: PokemonInstance, nowMs: number): void {
-    if (self.aiState === 'incapacitated') return;
+  /** Everyone else's tick-start position — what pickWanderWaypoint judges a
+   * candidate leg's open space against, so a new wander leg eases the
+   * Pokémon away from the crowd rather than deeper into it. */
+  private otherPositions(selfId: string, positions: ReadonlyMap<string, Vec2>): Vec2[] {
+    const others: Vec2[] = [];
+    for (const [id, pos] of positions) if (id !== selfId) others.push(pos);
+    return others;
+  }
 
-    if (self.aiState === 'attack') {
-      if (self.actionCooldownMs > 0) return;
-      const target = self.targetInstanceId ? this.state.pokemon[self.targetInstanceId] : undefined;
-      if (!target || target.currentHp <= 0) return;
-      const moveId = chooseMove(self, this.rng);
-      const move = moveId === STRUGGLE_MOVE_ID ? STRUGGLE_MOVE : this.moves(moveId);
-      if (!move) return;
-      this.executeMove(self, move, moveId, target, nowMs);
-      return;
-    }
+  /**
+   * Everyone's "may I act this tick?" pass, run through the arena-wide
+   * attack gate (see MAX_SIMULTANEOUS_ATTACKS in constants.ts). Rather than
+   * letting each Pokémon fire the instant its own cooldown clears — which in
+   * livingOrder means a low spawn index always wins a contested slot — every
+   * Pokémon that's ready is collected first into this tick's attack queue,
+   * then offered the free slot(s) fastest first (effective Speed, so
+   * paralysis and stat stages count), with ties going to whoever has gone
+   * longest without attacking and then spawn order (Array.prototype.sort is
+   * stable). The queue is rebuilt every tick from whoever is actually in
+   * position to attack right now, so a Pokémon that faints — or wanders off
+   * while deferred — simply isn't in it any more; an attack that already
+   * fired is untouched by its attacker fainting afterwards (its slot runs
+   * out on its own, see settleAttackGate). Real attacks are offered slots
+   * before opportunistic chase-buffs, so a buff never crowds out a hit.
+   */
+  private stepActions(livingIds: readonly string[], nowMs: number): void {
+    const attackers: PokemonInstance[] = [];
+    const buffers: { self: PokemonInstance; move: MoveDefinition }[] = [];
 
-    // Only buff while actively closing in on a spotted target (never in pure
-    // 'wander', which means no enemy is within aggro radius at all, and never
-    // during the cold-open — updateTargeting forces 'wander' for both cases,
-    // so gating on 'chase' excludes them for free) — otherwise a Pokémon with
-    // nobody around plays a full attack swing/sound/label at thin air. Also
-    // never for a forcedMoveId Pokémon (see that field's own comment) — a
-    // move-testing pin means only that exact move should ever fire, not an
-    // opportunistic buff sneaking in first.
-    if (self.aiState === 'chase' && self.actionCooldownMs <= 0 && self.forcedMoveId === undefined) {
-      const buffMove = findSelfBuffMove(self, this.moves);
-      if (buffMove && rngChance(this.rng, 0.3)) {
-        this.executeMove(self, buffMove, buffMove.id, null, nowMs);
+    for (const id of livingIds) {
+      const self = this.state.pokemon[id];
+      if (self.currentHp <= 0) continue;
+      if (self.aiState === 'incapacitated') {
+        this.tickIncapacitated(self, nowMs);
+        continue;
+      }
+      if (self.actionCooldownMs > 0) continue;
+
+      if (self.aiState === 'attack') {
+        const target = self.targetInstanceId ? this.state.pokemon[self.targetInstanceId] : undefined;
+        if (target && target.currentHp > 0) attackers.push(self);
+        continue;
+      }
+
+      // Only buff while actively closing in on a spotted target (never in
+      // pure 'wander', which means no enemy is within aggro radius at all,
+      // and never during the cold-open — updateTargeting forces 'wander' for
+      // both cases, so gating on 'chase' excludes them for free) — otherwise
+      // a Pokémon with nobody around plays a full attack swing/sound/label
+      // at thin air. Also never for a forcedMoveId Pokémon (see that field's
+      // own comment) — a move-testing pin means only that exact move should
+      // ever fire, not an opportunistic buff sneaking in first.
+      if (self.aiState === 'chase' && self.forcedMoveId === undefined) {
+        const buffMove = findSelfBuffMove(self, this.moves);
+        if (buffMove && rngChance(this.rng, 0.3)) buffers.push({ self, move: buffMove });
       }
     }
+
+    // Both HP re-checks below matter because everyone was collected before
+    // anyone fired: an attacker earlier in this same pass may have just KO'd
+    // this Pokémon *or* its target (either stays in livingOrder until
+    // sweepFaints, so the collection-time checks above can't see it). The
+    // self check is what stops a mutual same-tick KO — the old one-at-a-time
+    // loop skipped a just-KO'd Pokémon for free, and without this two
+    // finalists could take each other out in one tick and leave no winner.
+    const speedOf = (p: PokemonInstance) =>
+      getEffectiveStat(p.computedStats, p.statStages, 'spe', p.status === 'paralysis' ? 'paralysis' : null);
+    attackers.sort((a, b) => speedOf(b) - speedOf(a) || (a.lastAttackAtMs ?? -1) - (b.lastAttackAtMs ?? -1));
+    for (const self of attackers) {
+      if (self.currentHp <= 0) continue;
+      const verdict = this.attackGateVerdict(self, nowMs);
+      if (verdict === 'wait') continue;
+      if (verdict === 'defer') {
+        this.deferAttack(self);
+        continue;
+      }
+      const target = this.state.pokemon[self.targetInstanceId!];
+      if (!target || target.currentHp <= 0) continue;
+      const moveId = chooseMove(self, this.rng);
+      const move = moveId === STRUGGLE_MOVE_ID ? STRUGGLE_MOVE : this.moves(moveId);
+      if (!move) continue;
+      this.executeMove(self, move, moveId, target, nowMs);
+    }
+
+    // A chase-buff that doesn't get a slot is simply skipped — the Pokémon
+    // is mid-chase and keeps closing in regardless, and rolls again next
+    // tick — so it never earns the deferral wander leg a blocked attack does.
+    for (const { self, move } of buffers) {
+      if (self.currentHp <= 0) continue;
+      if (this.attackGateVerdict(self, nowMs) !== 'fire') continue;
+      this.executeMove(self, move, move.id, null, nowMs);
+    }
+  }
+
+  /** Frees the slot of every in-flight attack whose hold/visual window has
+   * ended by now, and pushes the gate's reopening out to ATTACK_GAP_MS past
+   * each such completion. */
+  private settleAttackGate(nowMs: number): void {
+    const gate = this.state.attackGate;
+    if (gate.active.length === 0) return;
+    const stillActive: ActiveAttack[] = [];
+    for (const attack of gate.active) {
+      if (attack.endsAtMs <= nowMs) {
+        gate.closedUntilMs = Math.max(gate.closedUntilMs, attack.endsAtMs + ATTACK_GAP_MS);
+      } else {
+        stillActive.push(attack);
+      }
+    }
+    gate.active = stillActive;
+  }
+
+  /**
+   * 'wait': inside the post-attack gap — short enough (ATTACK_GAP_MS) to
+   *   just stand facing the target and try again next tick.
+   * 'defer': every slot is taken, or this Pokémon fired the arena's most
+   *   recent attack and someone else is around to take this one — could be
+   *   a while, so it's sent off on a wander leg instead (see deferAttack).
+   * 'fire': a slot is free, the gap has passed, and it's this Pokémon's turn.
+   */
+  private attackGateVerdict(self: PokemonInstance, nowMs: number): AttackGateVerdict {
+    const gate = this.state.attackGate;
+    if (nowMs < gate.closedUntilMs) return 'wait';
+    if (gate.active.length >= MAX_SIMULTANEOUS_ATTACKS) return 'defer';
+    if (gate.lastAttackerId === self.instanceId && this.anyoneElseCouldAttack(self)) return 'defer';
+    return 'fire';
+  }
+
+  /** Whether any other living Pokémon is in a state to attack at all — i.e.
+   * not asleep/frozen. "Could attack" deliberately ignores whether they're
+   * currently in range of anyone: the no-repeat rule is meant to hand the
+   * turn to whoever's next, and a still-chasing or still-cooling-down rival
+   * will get there within a few seconds. Only when literally nobody else
+   * could ever take the turn (everyone else is out cold) is the last
+   * attacker allowed to go again, so a lone awake Pokémon isn't stuck
+   * politely waiting on a sleeping opponent. */
+  private anyoneElseCouldAttack(self: PokemonInstance): boolean {
+    for (const id of this.state.livingOrder) {
+      if (id === self.instanceId) continue;
+      const other = this.state.pokemon[id];
+      if (other.currentHp <= 0) continue;
+      if (isIncapacitatingStatus(other.status)) continue;
+      return true;
+    }
+    return false;
+  }
+
+  /** Turned away by the gate: rather than standing motionless next to its
+   * target until a slot frees, put it on a cooldown — updateTargeting
+   * (ai.ts) reads any positive cooldown as "wander this off", and its
+   * justBecameAvailable trigger re-evaluates the target when that clears —
+   * so it visibly moves on and comes back for another try. Randomized
+   * (ATTACK_DEFERRED_RETRY_MIN_MS..MAX_MS) so a crowd of deferred Pokémon
+   * doesn't all turn around in lockstep and re-converge on the same tick.
+   * Same fresh-leg reasoning as resetCooldown for clearing the stale
+   * waypoint. Under MatchConfig.disableWander this simply holds ground for
+   * the same span. */
+  private deferAttack(self: PokemonInstance): void {
+    self.actionCooldownMs =
+      ATTACK_DEFERRED_RETRY_MIN_MS + this.rng() * (ATTACK_DEFERRED_RETRY_MAX_MS - ATTACK_DEFERRED_RETRY_MIN_MS);
+    self.wanderWaypoint = undefined;
+  }
+
+  /** Books this move into the arena-wide gate: it occupies a slot for its
+   * whole POST_ATTACK_HOLD_MS hold window (the same span the attacker holds
+   * still and the renderer plays its visual for), becomes the most recent
+   * attacker for the no-repeat rule, and stamps lastAttackAtMs for the
+   * longest-waiting-first ordering in stepActions. */
+  private claimAttackSlot(attacker: PokemonInstance, nowMs: number): void {
+    const gate = this.state.attackGate;
+    gate.active.push({ attackerId: attacker.instanceId, endsAtMs: nowMs + POST_ATTACK_HOLD_MS });
+    gate.lastAttackerId = attacker.instanceId;
+    attacker.lastAttackAtMs = nowMs;
+  }
+
+  /** A sleeping/frozen Pokémon's "turns". It can't attack, so it never goes
+   * through executeMove — where a paralyzed Pokémon rolls its own gate — and
+   * without this nothing would ever count its sleep down or roll its thaw:
+   * it would simply stay out of the fight until it fainted. Reuses
+   * actionCooldownMs (which updateTargeting keeps ticking down regardless of
+   * status) as the turn timer: each time it expires, take one gateAction
+   * turn, and if that didn't clear the status, arm the next turn. A cleared
+   * status leaves the cooldown at 0, so it can rejoin the fight on its very
+   * next tick — updateTargeting stops reporting 'incapacitated' the moment
+   * status is null. */
+  private tickIncapacitated(self: PokemonInstance, nowMs: number): void {
+    if (!isIncapacitatingStatus(self.status) || self.actionCooldownMs > 0) return;
+    const gate = gateAction(self, this.rng);
+    if (gate.clearedStatus) {
+      this.pushStatusClearedEvent(self, gate.clearedStatus, nowMs);
+      return;
+    }
+    self.actionCooldownMs = STATUS_TURN_INTERVAL_MS;
+  }
+
+  private pushStatusClearedEvent(self: PokemonInstance, status: StatusCondition, nowMs: number): void {
+    this.events.push({ seq: this.nextSeq(), atMs: nowMs, type: 'statusCleared', instanceId: self.instanceId, status });
   }
 
   private resetCooldown(attacker: PokemonInstance, move: MoveDefinition): void {
@@ -273,6 +475,11 @@ export class SimulationEngine implements EngineLike {
     }
 
     this.resetCooldown(attacker, move);
+    // Every path through here — including a fully-paralyzed whiff below,
+    // which still holds the attacker still for its whole hold window — is
+    // one use of an attack slot, so this sits next to resetCooldown rather
+    // than with the callers, where the two could drift apart.
+    this.claimAttackSlot(attacker, nowMs);
 
     if (attacker.status === 'paralysis') {
       const gate = gateAction(attacker, this.rng);
@@ -287,7 +494,7 @@ export class SimulationEngine implements EngineLike {
 
     if (!primaryTarget || primaryTarget.currentHp <= 0) return;
 
-    const targets = this.resolveTargets(attacker, primaryTarget, move);
+    const targets = this.resolveTargets(primaryTarget);
     const hit: Record<string, boolean> = {};
     const crit: Record<string, boolean> = {};
     const effectiveness: Record<string, number> = {};
@@ -317,7 +524,9 @@ export class SimulationEngine implements EngineLike {
         target.lastHitAtMs = nowMs;
         target.lastDamagedByInstanceId = attacker.instanceId;
       }
-      maybeThawOnFireHit(target, move.type === 'fire' && !move.typeless);
+      if (maybeThawOnFireHit(target, move.type === 'fire' && !move.typeless)) {
+        this.pushStatusClearedEvent(target, 'freeze', nowMs);
+      }
       this.applyMoveEffect(move, attacker, target);
     }
 
@@ -341,20 +550,18 @@ export class SimulationEngine implements EngineLike {
     );
   }
 
-  private resolveTargets(
-    attacker: PokemonInstance,
-    primary: PokemonInstance,
-    move: MoveDefinition
-  ): PokemonInstance[] {
-    if (move.targeting !== 'all-enemies-in-radius') return [primary];
-    const result: PokemonInstance[] = [];
-    for (const id of this.state.livingOrder) {
-      if (id === attacker.instanceId) continue;
-      const p = this.state.pokemon[id];
-      if (p.team === attacker.team) continue; // never splash allies (Boss Mode's party)
-      if (distance(p.position, primary.position) <= SPREAD_MOVE_RADIUS) result.push(p);
-    }
-    return result.length > 0 ? result : [primary];
+  /** Every attack lands on exactly one Pokémon — the one the attacker is
+   * engaged with — including moves the dataset marks 'all-enemies-in-radius'
+   * (Earthquake, Heat Wave, Blizzard, Surf, ...). Those used to splash every
+   * enemy within SPREAD_MOVE_RADIUS of the primary, which in a packed
+   * 16-Pokémon brawl meant one Blizzard could hit (and the renderer would
+   * draw a separate jet to) three or four Pokémon at once — a single attack
+   * has to read as one Pokémon hitting one other. The targeting flag is left
+   * on the move data itself untouched; it's simply not splash here.
+   * Returned as a list so the moveUsed event's per-target maps keep their
+   * shape. */
+  private resolveTargets(primary: PokemonInstance): PokemonInstance[] {
+    return [primary];
   }
 
   private applyMoveEffect(move: MoveDefinition, attacker: PokemonInstance, target: PokemonInstance): void {
@@ -368,6 +575,15 @@ export class SimulationEngine implements EngineLike {
     if (effect.kind === 'statusInflict' && effect.status) {
       if (canApplyStatus(recipient)) {
         applyStatus(recipient, effect.status, this.rng);
+        // A Pokémon put to sleep/frozen while its cooldown happens to be at 0
+        // (say, mid-wander) would otherwise take its first status turn on the
+        // very next tick — a 1-turn sleep over in 50ms. Its first turn has to
+        // be a full turn away, same as every one after it (see
+        // tickIncapacitated); a longer in-progress attack cooldown is left
+        // alone, since that just means its first turn comes a little later.
+        if (isIncapacitatingStatus(effect.status)) {
+          recipient.actionCooldownMs = Math.max(recipient.actionCooldownMs, STATUS_TURN_INTERVAL_MS);
+        }
         this.events.push({
           seq: this.nextSeq(),
           atMs: this.state.elapsedMs,

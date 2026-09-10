@@ -54,6 +54,7 @@ function makeState(pokemonList: PokemonInstance[], introDurationMs = 0): SimStat
     winnerInstanceIds: [],
     arena: { width: 2000, height: 2000 },
     introDurationMs,
+    attackGate: { active: [], closedUntilMs: 0, lastAttackerId: null },
     shiny: false,
   };
 }
@@ -101,6 +102,51 @@ describe('updateTargeting — wander-after-attack', () => {
     const enemyFar = makePokemon('enemy', 'b', ENGAGE_RANGE + 50, 0); // outside ENGAGE_RANGE, inside AGGRO_RADIUS
     updateTargeting(far, makeState([far, enemyFar]), positionsOf([far, enemyFar]), NOW_MS, createRng(1));
     expect(far.aiState).toBe('chase');
+  });
+});
+
+describe('updateTargeting — a wander leg is walked to its end', () => {
+  it('stays in wander until it reaches its waypoint, even off cooldown with an enemy right in engage range', () => {
+    const self = makePokemon('self', 'a', 0, 0, { wanderWaypoint: { x: 500, y: 0 } });
+    const enemy = makePokemon('enemy', 'b', 10, 10);
+    updateTargeting(self, makeState([self, enemy]), positionsOf([self, enemy]), NOW_MS, createRng(1));
+    expect(self.aiState).toBe('wander');
+    expect(self.wanderWaypoint).toEqual({ x: 500, y: 0 }); // the leg is still on
+  });
+
+  it('engages the moment the leg is done, clearing the waypoint and taking a fresh look at targets', () => {
+    // Arrived (within WANDER_ARRIVAL_DISTANCE of the waypoint), with a stale
+    // target set and the periodic retarget timer nowhere near due — arriving
+    // is itself a retarget trigger, so the closer enemy is picked up.
+    const self = makePokemon('self', 'a', 0, 0, {
+      wanderWaypoint: { x: 5, y: 0 },
+      targetInstanceId: 'staleTarget',
+      lastRetargetMs: NOW_MS - 100,
+    });
+    const staleTarget = makePokemon('staleTarget', 'b', AGGRO_RADIUS + 80, 0); // outside radius, not a candidate
+    const closerEnemy = makePokemon('closerEnemy', 'b', 10, 10);
+    const list = [self, staleTarget, closerEnemy];
+    updateTargeting(self, makeState(list), positionsOf(list), NOW_MS, createRng(1));
+    expect(self.wanderWaypoint).toBeUndefined();
+    expect(self.targetInstanceId).toBe('closerEnemy');
+    expect(self.aiState).toBe('attack');
+  });
+
+  it('never makes a paralyzed Pokémon wait out a leg it cannot walk', () => {
+    // stepMovement holds a paralyzed wanderer in place, so a leg would never
+    // end — it has to be able to engage regardless.
+    const self = makePokemon('self', 'a', 0, 0, { status: 'paralysis', wanderWaypoint: { x: 500, y: 0 } });
+    const enemy = makePokemon('enemy', 'b', 10, 10);
+    updateTargeting(self, makeState([self, enemy]), positionsOf([self, enemy]), NOW_MS, createRng(1));
+    expect(self.aiState).toBe('attack');
+  });
+
+  it('is skipped entirely under disableWander', () => {
+    const self = makePokemon('self', 'a', 0, 0, { wanderWaypoint: { x: 500, y: 0 } });
+    const enemy = makePokemon('enemy', 'b', 10, 10);
+    const state: SimState = { ...makeState([self, enemy]), disableWander: true };
+    updateTargeting(self, state, positionsOf([self, enemy]), NOW_MS, createRng(1));
+    expect(self.aiState).toBe('attack');
   });
 });
 

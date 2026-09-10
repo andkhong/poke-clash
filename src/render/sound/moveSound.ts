@@ -2,14 +2,17 @@ import Phaser from 'phaser';
 import type { MoveDefinition } from '../../sim/types';
 import type { MoveSoundIndex } from '../../data/types';
 import moveSoundIndexData from '../../data/generated/moveSounds.json';
+import { normalizedVolume } from './loudness';
+import { MOVE_SOUND_FALLBACK_VOLUME, MOVE_SOUND_TARGET_DB } from './mix';
 
 // Same "downloaded/mirrored locally, loaded on demand, cached forever" shape
 // as cryAudio.ts — see that file's comment. The clips themselves live in the
 // gitignored sound/ mirror (data-pipeline/build-move-sound-index.ts produces
 // this index from it) and are served root-relative via sprite-server/'s
 // /move-sounds route, proxied by Vite in dev the same way /pmd-sprites is.
+// Volume is per-clip loudness-normalized to MOVE_SOUND_TARGET_DB — the SFX
+// pack's clips range over ~11 dB among themselves (see loudness.ts).
 const MOVE_SOUND_INDEX = moveSoundIndexData as MoveSoundIndex;
-const MOVE_SOUND_VOLUME = 0.5;
 
 function moveSoundUrl(folder: string, file: string): string {
   return `/move-sounds/${encodeURIComponent(folder)}/${encodeURIComponent(file)}`;
@@ -42,7 +45,9 @@ export function playMoveSound(scene: Phaser.Scene, move: MoveDefinition): MoveSo
 
   const startPlayback = (): void => {
     if (stopped) return;
-    sound = scene.sound.add(key, { volume: MOVE_SOUND_VOLUME });
+    sound = scene.sound.add(key, {
+      volume: normalizedVolume(scene, key, MOVE_SOUND_TARGET_DB, MOVE_SOUND_FALLBACK_VOLUME),
+    });
     sound.once('complete', () => sound?.destroy());
     sound.play();
   };

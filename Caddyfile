@@ -1,0 +1,21 @@
+:8080 {
+	encode gzip
+
+	@api path /api/*
+	handle @api {
+		reverse_proxy localhost:4311 {
+			flush_interval -1
+		}
+	}
+
+	@assets path /pmd-sprites/* /move-sounds/* /soundtracks/*
+	handle @assets {
+		reverse_proxy localhost:4310
+	}
+
+	handle {
+		root * /app/dist
+		try_files {path} /index.html
+		file_server
+	}
+}

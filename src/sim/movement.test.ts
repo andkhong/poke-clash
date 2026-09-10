@@ -1,6 +1,22 @@
 import { describe, expect, it } from 'vitest';
-import { distance, pickWanderWaypoint, resolveCollisions, velocityToFacing } from './movement';
+import {
+  distance,
+  pickWanderWaypoint,
+  resolveCollisions,
+  steerToward,
+  trackWanderHeadway,
+  velocityToFacing,
+} from './movement';
 import { createRng } from './rng';
+import {
+  ARENA_TOP_PADDING,
+  RED_ZONE_RIGHT_FRACTION,
+  TICK_MS,
+  WANDER_SPEED,
+  WANDER_STUCK_REPICK_MS,
+  WANDER_TURN_AWAY_MIN_RAD,
+  getRedZoneInsets,
+} from './constants';
 import type { FacingDirection, PokemonInstance } from './types';
 
 function makeCollider(id: string, x: number, y: number, collisionRadius: number): PokemonInstance {
@@ -85,6 +101,62 @@ describe('velocityToFacing (8-way)', () => {
   });
 });
 
+describe('steerToward facing', () => {
+  it('faces the seek direction even when crowding neighbors would push the blended velocity a very different way', () => {
+    const self = makeCollider('self', 500, 500, 40);
+    self.facing = 'S';
+    const target = { x: 900, y: 500 }; // due east — an unambiguous seek direction
+    // Five heavily-overlapping neighbors packed just north of self, all well
+    // within separation's influence radius — their combined push is strong
+    // enough to swing the blended velocity to ~38° off due east (confirmed
+    // against the pre-fix formula: this exact setup used to flip facing to
+    // 'SE'), despite this Pokémon actually trying to go straight east.
+    const neighbors = [
+      { instanceId: 'self', position: self.position, collisionRadius: 40 },
+      { instanceId: 'n1', position: { x: 495, y: 485 }, collisionRadius: 40 },
+      { instanceId: 'n2', position: { x: 500, y: 485 }, collisionRadius: 40 },
+      { instanceId: 'n3', position: { x: 505, y: 485 }, collisionRadius: 40 },
+      { instanceId: 'n4', position: { x: 497, y: 483 }, collisionRadius: 40 },
+      { instanceId: 'n5', position: { x: 503, y: 483 }, collisionRadius: 40 },
+    ];
+    steerToward(self, target, 180, neighbors);
+    expect(self.facing).toBe('E');
+  });
+
+  it('stays on one stable facing across ticks despite the crowd jittering, as long as the seek target does not move', () => {
+    const self = makeCollider('self', 500, 500, 40);
+    const target = { x: 900, y: 500 };
+    const facingsSeen = new Set<FacingDirection>();
+    // The same strong 5-neighbor cluster as above, alternating between
+    // packed just north and just south of self each tick — as it would if
+    // several separate Pokémon were jostling past each other tick to tick.
+    // Confirmed against the pre-fix formula: this exact alternation used to
+    // flip facing between 'SE' and 'NE' every other tick, despite this
+    // Pokémon's own seek target never moving at all.
+    for (let i = 0; i < 20; i++) {
+      const ySign = i % 2 === 0 ? -1 : 1;
+      const neighbors = [
+        { instanceId: 'self', position: self.position, collisionRadius: 40 },
+        { instanceId: 'n1', position: { x: 495, y: 500 + ySign * 15 }, collisionRadius: 40 },
+        { instanceId: 'n2', position: { x: 500, y: 500 + ySign * 15 }, collisionRadius: 40 },
+        { instanceId: 'n3', position: { x: 505, y: 500 + ySign * 15 }, collisionRadius: 40 },
+        { instanceId: 'n4', position: { x: 497, y: 500 + ySign * 17 }, collisionRadius: 40 },
+        { instanceId: 'n5', position: { x: 503, y: 500 + ySign * 17 }, collisionRadius: 40 },
+      ];
+      steerToward(self, target, 180, neighbors);
+      facingsSeen.add(self.facing);
+    }
+    expect(facingsSeen).toEqual(new Set<FacingDirection>(['E']));
+  });
+
+  it('leaves facing untouched when there is nowhere to go (hold-still callers passing target=self.position)', () => {
+    const self = makeCollider('self', 500, 500, 40);
+    self.facing = 'NW';
+    steerToward(self, self.position, 0, []);
+    expect(self.facing).toBe('NW');
+  });
+});
+
 describe('resolveCollisions', () => {
   it('separates two overlapping Pokémon until their circles just touch', () => {
     const a = makeCollider('a', 500, 500, 30);
@@ -120,13 +192,56 @@ describe('pickWanderWaypoint', () => {
 
   it('always picks a point a meaningful minimum distance from the current position', () => {
     const rng = createRng(1);
-    // A large arena, from its center, so the minimum-distance guarantee isn't
-    // masked by bounds-clamping pulling a far pick back close to `from`.
-    const from = { x: 450, y: 975 };
+    // A large, square arena (square isn't "mobile"-shaped — see
+    // isMobileArena — so it also carries no red-zone reservation), from its
+    // center, so the minimum-distance guarantee isn't masked by
+    // bounds-clamping pulling a far pick back close to `from`. The portrait
+    // arena used elsewhere in this file is intentionally too narrow for that
+    // isolation — its own red-zone reservation is exactly what the tests
+    // below exercise.
+    const bigArena = { width: 4000, height: 4000 };
+    const from = { x: 2000, y: 2000 };
     for (let i = 0; i < 50; i++) {
-      const wp = pickWanderWaypoint(rng, arena, from);
+      const wp = pickWanderWaypoint(rng, bigArena, from);
       expect(distance(from, wp)).toBeGreaterThanOrEqual(400 - 1e-6);
     }
+  });
+
+  it('never picks a waypoint past the red zone on any of the four edges of a portrait (mobile) arena', () => {
+    const rng = createRng(4);
+    const from = { x: 450, y: 975 };
+    const redZone = getRedZoneInsets(arena);
+    // Sanity: this arena is portrait, so a reservation applies on every edge.
+    expect(redZone.top).toBeGreaterThan(0);
+    expect(redZone.right).toBeGreaterThan(0);
+    expect(redZone.bottom).toBeGreaterThan(0);
+    expect(redZone.left).toBeGreaterThan(0);
+    const topBound = Math.max(ARENA_TOP_PADDING, redZone.top);
+    for (let i = 0; i < 200; i++) {
+      const wp = pickWanderWaypoint(rng, arena, from);
+      expect(wp.x).toBeGreaterThanOrEqual(48 + redZone.left - 1e-6);
+      expect(wp.x).toBeLessThanOrEqual(arena.width - 48 - redZone.right + 1e-6);
+      expect(wp.y).toBeGreaterThanOrEqual(topBound - 1e-6);
+      expect(wp.y).toBeLessThanOrEqual(arena.height - 48 - redZone.bottom + 1e-6);
+    }
+  });
+
+  it('applies no red-zone reservation on a landscape (desktop) arena', () => {
+    const rng = createRng(5);
+    const desktopArena = { width: 1920, height: 1080 };
+    const from = { x: 960, y: 540 };
+    const redZone = getRedZoneInsets(desktopArena);
+    expect(redZone).toEqual({ top: 0, right: 0, bottom: 0, left: 0 });
+    let sawNearRightEdge = false;
+    for (let i = 0; i < 200; i++) {
+      const wp = pickWanderWaypoint(rng, desktopArena, from);
+      expect(wp.x).toBeLessThanOrEqual(desktopArena.width - 48 + 1e-6);
+      if (wp.x > desktopArena.width - 48 - desktopArena.width * RED_ZONE_RIGHT_FRACTION) sawNearRightEdge = true;
+    }
+    // Confirms the loose upper bound above isn't just trivially true — some
+    // picks really do land in what would've been the red zone on a portrait
+    // arena, proving the desktop arena genuinely imposes no such reservation.
+    expect(sawNearRightEdge).toBe(true);
   });
 
   it('stays within the padded arena bounds even when the pick would overshoot', () => {
@@ -141,11 +256,149 @@ describe('pickWanderWaypoint', () => {
     }
   });
 
+  it('mostly escapes into the open arena instead of re-landing on the same wall it started at', () => {
+    const rng = createRng(6);
+    const topLeftCorner = { x: 48, y: 200 }; // exactly ARENA_PADDING/ARENA_TOP_PADDING's corner
+    const EPSILON = 1e-6;
+    const trials = 300;
+    let stillOnAWall = 0;
+    for (let i = 0; i < trials; i++) {
+      const wp = pickWanderWaypoint(rng, arena, topLeftCorner);
+      const onVerticalWall = wp.x <= 48 + EPSILON || wp.x >= arena.width - 48 + EPSILON;
+      const onHorizontalWall = wp.y <= 200 + EPSILON || wp.y >= arena.height - 48 + EPSILON;
+      if (onVerticalWall || onHorizontalWall) stillOnAWall++;
+    }
+    // A single uncontested random cast (the old behavior) lands back on one
+    // of this corner's two walls roughly 3 times out of 4 — steerToward then
+    // just walks it along that wall to the new point instead of into the
+    // arena, which repeated over a few legs reads as sliding along the wall
+    // rather than redirecting away from it. The retry keeps that a rare
+    // fallback instead of the common case.
+    expect(stillOnAWall / trials).toBeLessThan(0.2);
+  });
+
   it('varies direction across repeated calls rather than always picking the same spot', () => {
     const rng = createRng(3);
     const from = { x: 450, y: 975 };
     const points = Array.from({ length: 10 }, () => pickWanderWaypoint(rng, arena, from));
     const uniqueX = new Set(points.map((p) => Math.round(p.x)));
     expect(uniqueX.size).toBeGreaterThan(1);
+  });
+
+  it('leans toward open space when given everyone else\'s positions, without ever ignoring the distance window', () => {
+    // A crowd parked in the top third of the arena: legs picked with that
+    // crowd in view should land in the emptier bottom half far more often
+    // than not, and every pick still has to be a real trek away from `from`.
+    const rng = createRng(11);
+    const from = { x: 450, y: 700 };
+    const crowd = Array.from({ length: 8 }, (_, i) => ({ x: 200 + i * 60, y: 450 + (i % 3) * 40 }));
+    const trials = 300;
+    let landedInEmptierHalf = 0;
+    let outsideWindow = 0;
+    for (let i = 0; i < trials; i++) {
+      const wp = pickWanderWaypoint(rng, arena, from, undefined, crowd);
+      const d = distance(from, wp);
+      if (d < 400 - 1e-6 || d > 900 + 1e-6) outsideWindow++;
+      if (wp.y > arena.height / 2) landedInEmptierHalf++;
+    }
+    // Only the every-draw-rejected fallback can land outside the window —
+    // from this spot roughly half the arena is acceptable, so a dozen
+    // straight misses is a once-in-a-thousand event, not a pattern.
+    expect(outsideWindow / trials).toBeLessThan(0.01);
+    // From y=700, roughly half the acceptable ring is above the midline and
+    // half below — with no crowd in view that'd be ~50/50. With the crowd
+    // sitting on the upper half's side, the open-space preference should
+    // tip it decisively.
+    expect(landedInEmptierHalf / trials).toBeGreaterThan(0.85);
+  });
+
+  it('turns at least WANDER_TURN_AWAY_MIN_RAD off the heading it was blocked on when one is given', () => {
+    const rng = createRng(9);
+    const from = { x: 450, y: 975 };
+    const blockedHeading = { x: 1, y: 0 }; // was walking due east into something
+    const trials = 300;
+    let tooCloseToBlocked = 0;
+    for (let i = 0; i < trials; i++) {
+      const wp = pickWanderWaypoint(rng, arena, from, blockedHeading);
+      const angle = Math.atan2(wp.y - from.y, wp.x - from.x); // 0 = east
+      if (Math.abs(angle) < WANDER_TURN_AWAY_MIN_RAD - 1e-9) tooCloseToBlocked++;
+    }
+    // Only the out-of-attempts fallback (a clamped candidate whose direction
+    // shifted in the clamp) could ever land inside the cone — vanishingly
+    // rare from the open middle of the arena.
+    expect(tooCloseToBlocked / trials).toBeLessThan(0.01);
+  });
+});
+
+describe('trackWanderHeadway', () => {
+  const waypoint = { x: 1000, y: 500 };
+  const seekSpeed = WANDER_SPEED;
+
+  function wanderer(x: number, y: number): PokemonInstance {
+    const p = makeCollider('w', x, y, 40);
+    p.wanderWaypoint = { ...waypoint };
+    return p;
+  }
+
+  it('keeps the waypoint while real headway is being made, even if a shove knocked it partly off course', () => {
+    const p = wanderer(500, 500);
+    const tickStart = { x: 500, y: 500 };
+    // A full tick's walk east, plus a sideways shove from a neighbor.
+    p.position = { x: 500 + WANDER_SPEED * (TICK_MS / 1000), y: 500 + 30 };
+    expect(trackWanderHeadway(p, tickStart, seekSpeed, TICK_MS)).toBeNull();
+    expect(p.wanderWaypoint).toEqual(waypoint);
+    expect(p.wanderStuckMs).toBe(0);
+  });
+
+  it('abandons the waypoint only after WANDER_STUCK_REPICK_MS of getting nowhere, reporting the blocked heading', () => {
+    const p = wanderer(500, 500);
+    const pinned = { x: 500, y: 500 };
+    const ticksToGiveUp = Math.ceil(WANDER_STUCK_REPICK_MS / TICK_MS);
+    for (let i = 0; i < ticksToGiveUp - 1; i++) {
+      expect(trackWanderHeadway(p, pinned, seekSpeed, TICK_MS)).toBeNull();
+      expect(p.wanderWaypoint).toEqual(waypoint); // still committed
+    }
+    const blocked = trackWanderHeadway(p, pinned, seekSpeed, TICK_MS);
+    expect(blocked).not.toBeNull();
+    expect(blocked!.x).toBeCloseTo(1, 6); // unit vector toward where it was trying to go
+    expect(blocked!.y).toBeCloseTo(0, 6);
+    expect(p.wanderWaypoint).toBeUndefined();
+    expect(p.wanderStuckMs).toBe(0);
+  });
+
+  it('resets the stuck clock the moment headway resumes, so brief bumps never add up to a give-up', () => {
+    const p = wanderer(500, 500);
+    const pinned = { x: 500, y: 500 };
+    const almost = Math.ceil(WANDER_STUCK_REPICK_MS / TICK_MS) - 1;
+    for (let i = 0; i < almost; i++) trackWanderHeadway(p, pinned, seekSpeed, TICK_MS);
+    expect(p.wanderStuckMs).toBeGreaterThan(0);
+    // One clean tick of progress...
+    p.position = { x: 500 + WANDER_SPEED * (TICK_MS / 1000), y: 500 };
+    expect(trackWanderHeadway(p, pinned, seekSpeed, TICK_MS)).toBeNull();
+    expect(p.wanderStuckMs).toBe(0);
+    // ...and it takes a whole fresh WANDER_STUCK_REPICK_MS of being pinned
+    // again before it would give up.
+    const nowPinned = { ...p.position };
+    for (let i = 0; i < almost; i++) {
+      expect(trackWanderHeadway(p, nowPinned, seekSpeed, TICK_MS)).toBeNull();
+    }
+    expect(p.wanderWaypoint).toEqual(waypoint);
+  });
+
+  it('does not mistake the deliberate arrival slowdown near the waypoint for being blocked', () => {
+    // 20px out: steerToward halves the speed there, so a tick only covers
+    // ~4.5px unobstructed — 2px of that must still count as headway.
+    const p = wanderer(980, 500);
+    const tickStart = { x: 980, y: 500 };
+    p.position = { x: 982, y: 500 };
+    expect(trackWanderHeadway(p, tickStart, seekSpeed, TICK_MS)).toBeNull();
+    expect(p.wanderStuckMs).toBe(0);
+  });
+
+  it('is a no-op (and clears the stuck clock) when there is no waypoint to judge against', () => {
+    const p = makeCollider('w', 500, 500, 40);
+    p.wanderStuckMs = 300;
+    expect(trackWanderHeadway(p, { x: 500, y: 500 }, seekSpeed, TICK_MS)).toBeNull();
+    expect(p.wanderStuckMs).toBe(0);
   });
 });

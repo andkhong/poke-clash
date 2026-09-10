@@ -11,6 +11,8 @@ export interface GeneratedSpecies {
   baseStats: StatBlock;
   levelUpMoves: { moveId: number; level: number }[];
   tmMoves: number[];
+  /** Decimeters, from PokeAPI — see loader.ts's computeCollisionRadius. */
+  heightDm: number;
 }
 
 // Shape of src/data/generated/moves.json — a Record keyed by move id.

@@ -1,9 +1,10 @@
-import { useState } from 'react';
+import { useState, type CSSProperties } from 'react';
 import { PhaserGame, type StageRect } from '../../render/PhaserGame';
 import { RosterPanel } from '../hud/RosterPanel';
 import { BannerOverlay } from '../hud/BannerOverlay';
 import { useSimSnapshot } from '../hooks/useSimSnapshot';
 import type { SimStore } from '../state/simStore';
+import { isMobileArena } from '../../sim/constants';
 
 interface MatchScreenProps {
   store: SimStore;
@@ -30,80 +31,130 @@ export function MatchScreen({
   // canvas first reports in; nothing overlay-related renders until then.
   const [stageRect, setStageRect] = useState<StageRect | null>(null);
 
+  // A portrait/mobile arena fills the whole page edge-to-edge, same as
+  // always — it's meant to become full-bleed vertical video. A landscape
+  // desktop arena instead sits in a bounded, centered panel with the page's
+  // own background showing around it, per the "won't take the entire
+  // screen" design — a wide arena filling an ultrawide monitor edge-to-edge
+  // would just be an even more extreme letterbox than the portrait shape
+  // ever was.
+  const isMobile = isMobileArena(state.arena);
+
   return (
-    <div style={{ position: 'relative', width: '100%', height: '100%', background: '#000' }}>
-      <PhaserGame
-        engine={store.getEngine()}
-        highlightInstanceId={highlightInstanceId}
-        onStageRectChange={setStageRect}
-      />
+    <div style={pageStyle}>
+      <div style={isMobile ? mobileFrameStyle : desktopFrameStyle}>
+        <PhaserGame
+          engine={store.getEngine()}
+          highlightInstanceId={highlightInstanceId}
+          onStageRectChange={setStageRect}
+        />
 
-      {stageRect && (
-        <div
-          style={{
-            position: 'absolute',
-            left: stageRect.left,
-            top: stageRect.top,
-            width: stageRect.width,
-            height: stageRect.height,
-            overflow: 'hidden',
-            pointerEvents: 'none',
-          }}
-        >
-          <div style={{ position: 'absolute', top: 0, left: 0, right: 0 }}>
-            <RosterPanel state={state} />
+        {stageRect && (
+          // Sized/positioned to the canvas's real on-screen rect, not the
+          // frame's — FIT scaling can pillarbox/letterbox the canvas within
+          // the frame (most visibly on the new desktop arena's much wider
+          // frame), and anchoring to the frame instead of this rect left
+          // both the HUD and these buttons floating off-center over empty
+          // letterbox space rather than the visible arena.
+          <div
+            style={{
+              position: 'absolute',
+              left: stageRect.left,
+              top: stageRect.top,
+              width: stageRect.width,
+              height: stageRect.height,
+              overflow: 'hidden',
+              pointerEvents: 'none',
+            }}
+          >
+            <div style={{ position: 'absolute', top: 0, left: 0, right: 0 }}>
+              <RosterPanel state={state} />
+            </div>
+
+            <BannerOverlay state={state} />
+
+            {state.phase !== 'complete' && showEndMatchControl && (
+              <button
+                onClick={() => store.getEngine().endMatchNow()}
+                style={{ ...endMatchButtonStyle, pointerEvents: 'auto' }}
+              >
+                END MATCH
+              </button>
+            )}
+
+            {state.phase === 'complete' && (
+              <button onClick={onExit} style={{ ...completeButtonStyle, pointerEvents: 'auto' }}>
+                {completeButtonLabel}
+              </button>
+            )}
           </div>
-
-          <BannerOverlay state={state} />
-        </div>
-      )}
-
-      {state.phase !== 'complete' && showEndMatchControl && (
-        <button
-          onClick={() => store.getEngine().endMatchNow()}
-          style={{
-            position: 'absolute',
-            bottom: 16,
-            right: 16,
-            padding: '6px 14px',
-            fontSize: 11,
-            fontFamily: 'monospace',
-            fontWeight: 'bold',
-            letterSpacing: 1,
-            color: '#e8e2d4',
-            background: 'rgba(20,22,28,0.75)',
-            border: '1px solid rgba(232,226,212,0.4)',
-            borderRadius: 5,
-            cursor: 'pointer',
-          }}
-        >
-          END MATCH
-        </button>
-      )}
-
-      {state.phase === 'complete' && (
-        <button
-          onClick={onExit}
-          style={{
-            position: 'absolute',
-            bottom: 28,
-            left: '50%',
-            transform: 'translateX(-50%)',
-            padding: '10px 26px',
-            fontSize: 14,
-            fontFamily: 'monospace',
-            fontWeight: 'bold',
-            letterSpacing: 1,
-            color: '#20242c',
-            background: '#e0b030',
-            border: 'none',
-            borderRadius: 6,
-            cursor: 'pointer',
-          }}
-        >
-          {completeButtonLabel}
-        </button>
-      )}
+        )}
+      </div>
     </div>
   );
 }
+
+const pageStyle: CSSProperties = {
+  width: '100%',
+  height: '100%',
+  display: 'flex',
+  alignItems: 'center',
+  justifyContent: 'center',
+  background: '#101216',
+};
+
+const mobileFrameStyle: CSSProperties = {
+  position: 'relative',
+  width: '100%',
+  height: '100%',
+  background: '#000',
+};
+
+const desktopFrameStyle: CSSProperties = {
+  position: 'relative',
+  width: 'min(92vw, 1200px)',
+  aspectRatio: '16 / 9',
+  maxHeight: '92vh',
+  background: '#000',
+  border: '1px solid rgba(255,255,255,0.12)',
+  borderRadius: 8,
+  boxShadow: '0 8px 40px rgba(0,0,0,0.5)',
+  overflow: 'hidden',
+};
+
+// Positioned absolute within the stageRect box above, so these sit at the
+// visible arena's own corner (see that box's own comment). The safe-area
+// insets only matter on mobile (iPhone home-indicator / Android gesture bar)
+// but cost nothing to include on desktop, where they're just 0.
+const endMatchButtonStyle: CSSProperties = {
+  position: 'absolute',
+  bottom: 'max(16px, env(safe-area-inset-bottom))',
+  right: 'max(16px, env(safe-area-inset-right))',
+  padding: '6px 14px',
+  fontSize: 11,
+  fontFamily: 'monospace',
+  fontWeight: 'bold',
+  letterSpacing: 1,
+  color: '#e8e2d4',
+  background: 'rgba(20,22,28,0.75)',
+  border: '1px solid rgba(232,226,212,0.4)',
+  borderRadius: 5,
+  cursor: 'pointer',
+};
+
+const completeButtonStyle: CSSProperties = {
+  position: 'absolute',
+  bottom: 'max(28px, env(safe-area-inset-bottom))',
+  left: '50%',
+  transform: 'translateX(-50%)',
+  padding: '10px 26px',
+  fontSize: 14,
+  fontFamily: 'monospace',
+  fontWeight: 'bold',
+  letterSpacing: 1,
+  color: '#20242c',
+  background: '#e0b030',
+  border: 'none',
+  borderRadius: 6,
+  cursor: 'pointer',
+};

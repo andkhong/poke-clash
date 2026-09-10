@@ -2,7 +2,7 @@ import Phaser from 'phaser';
 import type { EngineLike } from '../../sim/engineLike';
 import type { SimState, Vec2 } from '../../sim/types';
 import { EventCursor } from '../../sim/events';
-import { POST_ATTACK_HOLD_MS } from '../../sim/constants';
+import { MAX_SIMULTANEOUS_ATTACKS, POST_ATTACK_HOLD_MS } from '../../sim/constants';
 import { STRUGGLE_MOVE, STRUGGLE_MOVE_ID } from '../../sim/struggle';
 import { PokemonSprite } from '../sprites/PokemonSprite';
 import { preloadArenaTileset, createArenaBackground } from '../tileset/arenaBackground';
@@ -24,6 +24,7 @@ import { playImpactBurst } from '../vfx/moves/impactBurst';
 import { playLungePunchFlash, preloadLungeVfxAssets } from '../vfx/moves/lungeImpact';
 import { playMoveSound, type MoveSoundHandle } from '../sound/moveSound';
 import { playBattleMusic } from '../sound/battleMusic';
+import { installMasterLimiter } from '../sound/mix';
 import { getMoveDefinition } from '../../data/loader';
 import { teamColorHex } from '../../ui/teamColors';
 import type { PmdSpriteIndex, SpriteIndex } from '../../data/types';
@@ -54,11 +55,17 @@ type MoveUsedEvent = Extract<import('../../sim/types').SimEvent, { type: 'moveUs
  * connects with nothing. Snapshotting once at enqueue time and never
  * touching live state again in handleMoveUsed fixes that regardless of how
  * long the event then waits in the queue. */
+interface AttackTargetSnapshot {
+  instanceId: string;
+  position: Vec2;
+  collisionRadius: number;
+}
+
 interface QueuedAttack {
   event: MoveUsedEvent;
   attackerPosition: Vec2;
-  engagedTarget?: { position: Vec2; collisionRadius: number };
-  hitTargets: { position: Vec2; collisionRadius: number }[];
+  engagedTarget?: AttackTargetSnapshot;
+  hitTargets: AttackTargetSnapshot[];
 }
 
 /** Logs every moveUsed event as it's drained — unconditionally, before the
@@ -98,9 +105,18 @@ function logBattleEvent(event: MoveUsedEvent, state: Readonly<SimState>): void {
   );
 }
 
-const MAX_CONCURRENT_ATTACKS = 4;
-const ATTACK_QUEUE_STAGGER_MIN_MS = 250;
-const ATTACK_QUEUE_STAGGER_MAX_MS = 500;
+// How many attack visuals can be in flight at once. The sim's own attack
+// gate (MAX_SIMULTANEOUS_ATTACKS, see engine.ts's stepActions) is what
+// actually paces attacks now: it never lets more than that many be in their
+// POST_ATTACK_HOLD_MS window at once, and leaves ATTACK_GAP_MS of quiet after
+// each one ends, so ordinarily this cap is never even reached — every attack
+// the sim produces gets its visual, and the "HP bar moved with no visible
+// cause" overflow that a higher render-side cap used to guard against can't
+// happen. Pinned to the same constant so the render side can never show
+// more simultaneous attacks than the sim intends, even if a burst of events
+// drains in one frame after a hitch (see MAX_ATTACK_QUEUE_AGE_MS for what
+// happens to the stragglers).
+const MAX_CONCURRENT_ATTACKS = MAX_SIMULTANEOUS_ATTACKS;
 // Roughly the longest a single attack's visuals stay on screen (beam/flame
 // charge+extend, lunge dash+impact burst, etc.) — used to know when a
 // concurrency slot frees up, and (see handleMoveUsed's callers) when to cut
@@ -202,6 +218,10 @@ export class ArenaScene extends Phaser.Scene {
     });
 
     this.cameras.main.setBackgroundColor('#1a1a1a');
+    // Before any sound plays: the Pokéball-pop cries the sprites above are
+    // about to fire overlap heavily, and everything is loudness-normalized
+    // to targets hot enough to need this — see mix.ts.
+    installMasterLimiter(this);
     playBattleMusic(this);
   }
 
@@ -261,20 +281,20 @@ export class ArenaScene extends Phaser.Scene {
     const engagedTargetId = event.primaryTargetId;
     const engagedPosition = engagedTargetId ? event.targetPositions[engagedTargetId] : undefined;
     const engagedSource = engagedTargetId ? state.pokemon[engagedTargetId] : undefined;
-    const hitTargets: { position: Vec2; collisionRadius: number }[] = [];
+    const hitTargets: AttackTargetSnapshot[] = [];
     for (const targetId of event.targetIds) {
       if (!event.hit[targetId]) continue;
       const target = state.pokemon[targetId];
       const position = event.targetPositions[targetId];
-      if (target && position) hitTargets.push({ position, collisionRadius: target.collisionRadius });
+      if (target && position) hitTargets.push({ instanceId: targetId, position, collisionRadius: target.collisionRadius });
     }
 
     this.attackQueue.push({
       event,
       attackerPosition: event.attackerPosition,
       engagedTarget:
-        engagedSource && engagedPosition
-          ? { position: engagedPosition, collisionRadius: engagedSource.collisionRadius }
+        engagedTargetId && engagedSource && engagedPosition
+          ? { instanceId: engagedTargetId, position: engagedPosition, collisionRadius: engagedSource.collisionRadius }
           : undefined,
       hitTargets,
     });
@@ -285,8 +305,9 @@ export class ArenaScene extends Phaser.Scene {
   // earlier move is still sitting in the queue waiting for a slot. Without
   // this, that stale attack would eventually get dequeued, find no attacker
   // sprite (handleMoveUsed's existing `!attackerSprite` guard), and silently
-  // no-op — wasting one of the concurrency slots and a full stagger delay on
-  // nothing instead of letting a real pending attack play sooner.
+  // no-op — wasting one of the concurrency slots (and however long it sat
+  // queued first) on nothing instead of letting a real pending attack play
+  // sooner.
   private removeQueuedAttacksBy(instanceId: string): void {
     for (let i = this.attackQueue.length - 1; i >= 0; i--) {
       if (this.attackQueue[i].event.attackerId === instanceId) this.attackQueue.splice(i, 1);
@@ -316,12 +337,18 @@ export class ArenaScene extends Phaser.Scene {
     }
   }
 
+  // Just frees the slot — no need to explicitly re-pump the queue here.
+  // update() calls consumeEvents() (which ends with pumpAttackQueue()) every
+  // rendered frame regardless of what triggered this call, so the freed slot
+  // gets noticed and refilled on the very next frame on its own. An earlier
+  // version scheduled a further 250-500ms "stagger" delay here before
+  // re-pumping, on top of that — which never actually staggered anything
+  // (the per-frame pump always got there first) and just ate into how many
+  // attacks could be drained per second, worsening the exact
+  // dropped-attack/missing-visual problem MAX_CONCURRENT_ATTACKS's own
+  // comment describes.
   private releaseAttackSlot(): void {
     this.activeAttackSlots -= 1;
-    if (this.attackQueue.length > 0) {
-      const stagger = Phaser.Math.Between(ATTACK_QUEUE_STAGGER_MIN_MS, ATTACK_QUEUE_STAGGER_MAX_MS);
-      this.time.delayedCall(stagger, () => this.pumpAttackQueue());
-    }
   }
 
   private handleMoveUsed(
@@ -358,70 +385,60 @@ export class ArenaScene extends Phaser.Scene {
     // there.
     attackerSprite.playPmdAttack(attackerPosition, engagedTarget?.position, ranged);
 
+    // One attack, one target, one VFX — never a beam/jet/dash to more than
+    // one Pokémon. The sim itself now only ever lands a move on the single
+    // engaged target (see engine.ts's resolveTargets), so hitTargets holds
+    // at most one entry; this still deliberately picks exactly one (the
+    // engaged target if it was hit, else the first hit) rather than looping,
+    // so a multi-target event from an older game server in a multiplayer
+    // room can't draw the fan of simultaneous effects this used to produce.
+    const target = pickVfxTarget(engagedTarget, hitTargets);
+    if (!target) return { soundHandle, hideMoveLabel, unlockPosition }; // a clean miss: pose/label/sound only
+
+    const { x: fromX, y: fromY } = attackerPosition;
+    const { x: toX, y: toY } = target.position;
     if (family === 'lunge') {
-      // A lunge repositions the attacker itself, so it only makes sense to
-      // dash toward one point even for a (rare) multi-hit physical move —
-      // the engaged target if there is one, else whichever hit target the
-      // sim picked first. The impact flash still plays at every hit target.
-      const lungeTarget = engagedTarget ?? hitTargets[0];
-      if (lungeTarget) {
-        attackerSprite.playLungeAttack(attackerPosition, lungeTarget.position, lungeTarget.collisionRadius, () => {
-          for (const target of hitTargets) {
-            playImpactBurst(this, target.position.x, target.position.y, move.type);
-            playLungePunchFlash(this, target.position.x, target.position.y);
-          }
-        });
-      }
+      attackerSprite.playLungeAttack(attackerPosition, target.position, target.collisionRadius, () => {
+        playImpactBurst(this, toX, toY, move.type);
+        playLungePunchFlash(this, toX, toY);
+      });
     } else if (family === 'beam') {
-      for (const target of hitTargets) {
-        playBeamAttack(this, attackerPosition.x, attackerPosition.y, target.position.x, target.position.y, move.type);
-      }
+      playBeamAttack(this, fromX, fromY, toX, toY, move.type);
     } else if (family === 'flame') {
-      for (const target of hitTargets) {
-        playFlameAttack(this, attackerPosition.x, attackerPosition.y, target.position.x, target.position.y, move.type);
-      }
+      playFlameAttack(this, fromX, fromY, toX, toY, move.type);
     } else if (family === 'thunder') {
-      for (const target of hitTargets) {
-        playThunderAttack(this, attackerPosition.x, attackerPosition.y, target.position.x, target.position.y, move.type);
-      }
+      playThunderAttack(this, fromX, fromY, toX, toY, move.type);
     } else if (family === 'leaf') {
-      for (const target of hitTargets) {
-        playLeafAttack(this, attackerPosition.x, attackerPosition.y, target.position.x, target.position.y, move.type);
-      }
+      playLeafAttack(this, fromX, fromY, toX, toY, move.type);
     } else if (family === 'bubble') {
-      for (const target of hitTargets) {
-        playBubbleAttack(this, attackerPosition.x, attackerPosition.y, target.position.x, target.position.y, move.type);
-      }
+      playBubbleAttack(this, fromX, fromY, toX, toY, move.type);
     } else if (family === 'wave') {
-      for (const target of hitTargets) {
-        playWaveAttack(this, attackerPosition.x, attackerPosition.y, target.position.x, target.position.y, move.type);
-      }
+      playWaveAttack(this, fromX, fromY, toX, toY, move.type);
     } else if (family === 'iceShard') {
-      for (const target of hitTargets) {
-        playIceShardAttack(this, attackerPosition.x, attackerPosition.y, target.position.x, target.position.y, move.type);
-      }
+      playIceShardAttack(this, fromX, fromY, toX, toY, move.type);
     } else if (family === 'vortex') {
-      for (const target of hitTargets) {
-        playVortexAttack(this, attackerPosition.x, attackerPosition.y, target.position.x, target.position.y, move.type);
-      }
+      playVortexAttack(this, fromX, fromY, toX, toY, move.type);
     } else if (family === 'rockBurst') {
-      for (const target of hitTargets) {
-        playRockBurstAttack(this, attackerPosition.x, attackerPosition.y, target.position.x, target.position.y, move.type);
-      }
+      playRockBurstAttack(this, fromX, fromY, toX, toY, move.type);
     } else if (family === 'poison') {
-      for (const target of hitTargets) {
-        playPoisonAttack(this, attackerPosition.x, attackerPosition.y, target.position.x, target.position.y, move.type);
-      }
+      playPoisonAttack(this, fromX, fromY, toX, toY, move.type);
     } else if (family === 'hydroPump') {
-      for (const target of hitTargets) {
-        playHydroPumpAttack(this, attackerPosition.x, attackerPosition.y, target.position.x, target.position.y, move.type);
-      }
+      playHydroPumpAttack(this, fromX, fromY, toX, toY, move.type);
     } else {
-      for (const target of hitTargets) {
-        playMoveImpact(this, attackerPosition.x, attackerPosition.y, target.position.x, target.position.y, move.type);
-      }
+      playMoveImpact(this, fromX, fromY, toX, toY, move.type);
     }
 
     return { soundHandle, hideMoveLabel, unlockPosition };
   }
+}
+
+/** The single Pokémon an attack's VFX flies at: the one the attacker was
+ * engaged with, provided the move actually connected with it, else whichever
+ * hit the sim listed first; undefined when nothing was hit at all. */
+function pickVfxTarget(
+  engagedTarget: AttackTargetSnapshot | undefined,
+  hitTargets: readonly AttackTargetSnapshot[]
+): AttackTargetSnapshot | undefined {
+  if (engagedTarget && hitTargets.some((t) => t.instanceId === engagedTarget.instanceId)) return engagedTarget;
+  return hitTargets[0];
 }

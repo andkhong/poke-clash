@@ -10,15 +10,11 @@ import { POKEBALL_TEXTURE_KEY } from './pokeballAsset';
 import { playCry } from './cryAudio';
 import { playSparkleReveal } from '../vfx/sparkle';
 import { buildThunderParticleTexture } from '../vfx/moves/pixelTextures';
+import { POISON_GLOBULE_TEXTURE_KEY } from '../vfx/moves/poisonAttack';
+import { FLAME_TEXTURE_KEY } from '../vfx/moves/flameAttack';
+import { ICE_SHARD_TEXTURE_KEY } from '../vfx/moves/iceShardAttack';
 import type { MoveDefinition } from '../../sim/types';
-import {
-  ARENA_TOP_PADDING,
-  BALL_DROP_DURATION_MS,
-  BALL_DROP_STAGGER_MS,
-  PMD_MAX_SPRITE_SIZE,
-  PMD_MIN_SPRITE_SIZE,
-  PMD_NATIVE_SCALE,
-} from '../../sim/constants';
+import { ARENA_TOP_PADDING, BALL_DROP_DURATION_MS, BALL_DROP_STAGGER_MS, COLLISION_RADIUS_FACTOR } from '../../sim/constants';
 import { BOSS_CONFIG } from '../../sim/bossConfig';
 
 /** Target on-screen size (px, longest side) — sprite sources range from ~30px
@@ -33,7 +29,12 @@ const HP_BAR_WIDTH = 56;
 const HP_BAR_HEIGHT = 6;
 /** Gap (px) between the HP bar and the sprite's actual bottom edge (feet). */
 const HP_BAR_GAP = 4;
-const STATUS_TEXT_Y = -44;
+/** Gap (px) between the HP bar's bottom edge and the status box under it. */
+const STATUS_BOX_GAP = 3;
+const STATUS_BOX_FONT_SIZE = 8;
+const STATUS_BOX_PAD_X = 5;
+const STATUS_BOX_PAD_Y = 3;
+const STATUS_BOX_CORNER_RADIUS = 4;
 /** Gap (px) between the move-name label and the sprite's actual top edge. */
 const MOVE_LABEL_GAP = 8;
 /** Retro arcade-style pixel font, matching the reference battle-UI callout style. */
@@ -102,30 +103,49 @@ const POSITION_SMOOTHING = 0.25;
  * reading as a teleport/snap rather than motion — clamping it forces the
  * same catch-up into a natural-looking glide instead. */
 const MAX_POSITION_STEP_PER_FRAME = CHASE_MOVE_SPEED / 60;
+/** Full words rather than the mainline games' three-letter codes — at arena
+ * scale "PSN"/"BRN"/"FRZ" are easy to confuse, and there's room under every
+ * sprite for the word (see buildStatusBox). */
 const STATUS_LABELS: Record<StatusCondition, string> = {
-  sleep: 'ZZZ',
-  paralysis: 'PAR',
-  burn: 'BRN',
-  poison: 'PSN',
-  freeze: 'FRZ',
+  sleep: 'ASLEEP',
+  paralysis: 'PARALYZED',
+  burn: 'BURNED',
+  poison: 'POISONED',
+  freeze: 'FROZEN',
 };
-const STATUS_COLORS: Record<StatusCondition, string> = {
-  sleep: '#7b68c4',
-  paralysis: '#e0c030',
-  burn: '#e0703c',
-  poison: '#9048c0',
-  freeze: '#60c8e0',
+const STATUS_COLORS: Record<StatusCondition, number> = {
+  sleep: 0x7b68c4,
+  paralysis: 0xe0c030,
+  burn: 0xe0703c,
+  poison: 0x9048c0,
+  freeze: 0x60c8e0,
 };
 
-/** How often (ms) a new spark pops somewhere around a paralyzed Pokémon's
- * body — reuses thunderAttack.ts's own jagged-bolt particle texture (see
- * pixelTextures.ts) rather than a bespoke asset, tinted electric-yellow, so a
- * paralyzed Pokémon reads as visibly crackling with the same static shown
- * mid-swing by an actual Thunder-family move, not just the 'PAR' text label
- * already shown by updateStatus(). Purely cosmetic — driven off
- * pokemon.status each frame, never fed back into the sim. */
-const PARALYSIS_SPARK_INTERVAL_MS = 220;
+/** Ambient per-status VFX, spawned on a repeating timer for as long as the
+ * status lasts (see updateStatusVfx) so a condition is visible on the body
+ * itself, not just from the status box under it. Each borrows the real art
+ * of the move family that inflicts it — poison's sludge globule, fire's
+ * flame, ice's crystal, thunder's jagged bolt — rather than a bespoke
+ * asset, the same "one base asset per concept" convention as
+ * public/move-assets/README.md; sleep's "Z" is plain text in the labels'
+ * own pixel font. Purely cosmetic: driven off pokemon.status each frame,
+ * never fed back into the sim. */
+const STATUS_VFX_INTERVAL_MS: Record<StatusCondition, number> = {
+  paralysis: 220,
+  sleep: 700,
+  poison: 320,
+  burn: 150,
+  freeze: 420,
+};
 const PARALYSIS_SPARK_LIFESPAN_MS = 220;
+const SLEEP_Z_FONT_SIZE = 12;
+const SLEEP_Z_LIFESPAN_MS = 1500;
+const POISON_BUBBLE_LIFESPAN_MS = 1000;
+const BURN_FLAME_LIFESPAN_MS = 480;
+const FREEZE_GLINT_LIFESPAN_MS = 800;
+/** Body tint while frozen — pale ice-blue, light enough that the sprite's
+ * own detail still reads through it (see applyBodyTint). */
+const FREEZE_BODY_TINT = 0xa8dcff;
 
 /**
  * PMDCollab/SpriteCollab sheets lay out one row per compass direction, in a
@@ -137,24 +157,22 @@ const FACING_TO_ROW: Record<FacingDirection, number> = {
   S: 0, SE: 1, E: 2, NE: 3, N: 4, NW: 5, W: 6, SW: 7,
 };
 
-// PMD_NATIVE_SCALE/PMD_MIN_SPRITE_SIZE/PMD_MAX_SPRITE_SIZE live in
-// sim/constants.ts (imported above) rather than here, so the sim's collision
-// radius (loader.ts's computeCollisionRadius) can share the exact same
-// on-screen-size math — a Pokémon's hitbox always matches what's drawn.
+// A PMD-tier sprite's on-screen target size comes from the sim's own
+// collisionRadius (see the constructor's targetOnScreenSize, and
+// tryLoadPmdSprites() below) rather than being recomputed here from the
+// spritesheet's own Idle-frame pixel dimensions. computeOnScreenSizeFromHeight
+// (sim/constants.ts) — which is what loader.ts used to derive that
+// collisionRadius in the first place — scales off each species' real height,
+// not its PMD frame's incidental canvas size, so this is guaranteed to be the
+// exact same number the sim used for its hitbox, and a Pokémon's visible size
+// always matches what it can actually collide with.
 //
-// Unlike the hotlink tier (which normalizes every sprite to
+// Unlike the hotlink tier below (which normalizes every sprite to
 // TARGET_SPRITE_SIZE regardless of source resolution, since Showdown/PokeAPI
-// art isn't drawn at a consistent relative scale), PMD frame sizes ARE
-// authored at consistent in-game scale across the whole roster — a Wailord's
-// Idle frame really is bigger than a Voltorb's on purpose. Normalizing each
-// species to the same box (as the hotlink tier does) would erase that and
-// make every Pokémon the same apparent size, so every PMD sprite instead
-// shares ONE multiplier applied to its native frame size, preserving
-// relative proportions. Idle frame longest-side across the full indexed
-// roster ranges 24-128px (median 48px); the multiplier and clamp were picked
-// so that range lands roughly in the same on-screen ballpark as
-// TARGET_SPRITE_SIZE without letting the smallest/largest outliers disappear
-// or dominate the arena.
+// art isn't drawn at a consistent relative scale), PMD species keep their
+// real relative proportions — a Wailord looks bigger than a Voltorb — since
+// every PMD sprite is scaled off the same real-world-height formula instead
+// of being normalized to one fixed box.
 
 /**
  * No hand-drawn art exists for diagonal facings (or for any Pokémon facing
@@ -204,6 +222,12 @@ export class PokemonSprite {
   /** Boss Mode's boss renders at BOSS_CONFIG.spriteScaleMultiplier — applied
    * on top of the normal per-species scale wherever that's computed. */
   private readonly isBoss: boolean;
+  /** This species' on-screen target size (px, longest side), read straight
+   * off pokemon.collisionRadius rather than recomputed independently — see
+   * tryLoadPmdSprites() below. matchSetup.ts's buildInstance already bakes
+   * BOSS_CONFIG.spriteScaleMultiplier into a boss's own collisionRadius, so
+   * this is correctly boss-scaled too without needing to reapply it here. */
+  private readonly targetOnScreenSize: number;
   /** True only once real shiny PMD art (a genuine per-species recolor, not a
    * tint) is actually loaded — see tryLoadPmdSprites(). Also folded into the
    * PMD texture/anim key names, so a species played once normally and once
@@ -214,7 +238,11 @@ export class PokemonSprite {
   private body: Phaser.GameObjects.Sprite | Phaser.GameObjects.Image | null = null;
   private readonly hpBarBg: Phaser.GameObjects.Rectangle;
   private readonly hpBarFill: Phaser.GameObjects.Rectangle;
-  private readonly statusText: Phaser.GameObjects.Text;
+  /** The status callout under the Pokémon (see buildStatusBox), or null while healthy. */
+  private statusBox: Phaser.GameObjects.Container | null = null;
+  /** pokemon.status as of the last update() — what statusBox and the body
+   * tint currently reflect (see updateStatusBox / applyBodyTint). */
+  private shownStatus: StatusCondition | null = null;
   private moveLabel: Phaser.GameObjects.Container | null = null;
 
   private frontIsAnimated = false;
@@ -240,6 +268,10 @@ export class PokemonSprite {
    * different row mid-playback — see triggerPmdOneShot(). */
   private oneShotFacing: FacingDirection | null = null;
   private lastFacing: FacingDirection = 'S';
+  /** Facing locked in once for the whole post-attack hold window (see
+   * desiredFacing() below) — captured the one sim tick the move actually
+   * fires, then held fixed rather than recomputed every frame. */
+  private heldAttackFacing: FacingDirection | null = null;
 
   private hasRevealed = false;
   private pokeball: Phaser.GameObjects.Image | null = null;
@@ -260,9 +292,10 @@ export class PokemonSprite {
    * fed back into the sim. */
   private positionLockToken: symbol | null = null;
 
-  /** Repeating spark spawner while pokemon.status === 'paralysis' — see
-   * updateParalysisVfx(). Null whenever not currently paralyzed. */
-  private paralysisSparkTimer: Phaser.Time.TimerEvent | null = null;
+  /** Repeating spawner for the current status's ambient VFX — see
+   * updateStatusVfx(). Null whenever the Pokémon is healthy. */
+  private statusVfxTimer: Phaser.Time.TimerEvent | null = null;
+  private statusVfxFor: StatusCondition | null = null;
 
   /**
    * `spawnIndex`/`totalCount` drive the clockwise Pokéball-drop entrance —
@@ -283,6 +316,7 @@ export class PokemonSprite {
     this.speciesId = pokemon.speciesId;
     this.shiny = shiny;
     this.isBoss = !!pokemon.isBoss;
+    this.targetOnScreenSize = pokemon.collisionRadius / COLLISION_RADIUS_FACTOR;
     this.renderPos = { x: pokemon.position.x, y: pokemon.position.y };
 
     this.container = scene.add.container(pokemon.position.x, pokemon.position.y - BALL_DROP_HEIGHT);
@@ -309,13 +343,6 @@ export class PokemonSprite {
     this.hpBarBg.setVisible(false);
     this.hpBarFill.setVisible(false);
     this.container.add([this.hpBarBg, this.hpBarFill]);
-
-    this.statusText = scene.add
-      .text(0, STATUS_TEXT_Y, '', { fontSize: '9px', fontFamily: 'monospace', fontStyle: 'bold' })
-      .setOrigin(0.5, 0.5)
-      .setPadding(2, 1, 2, 1);
-    this.statusText.setVisible(false);
-    this.container.add(this.statusText);
 
     this.pokeball = scene.add.image(0, 0, POKEBALL_TEXTURE_KEY);
     this.pokeball.setDisplaySize(POKEBALL_ICON_SIZE, POKEBALL_ICON_SIZE);
@@ -449,9 +476,12 @@ export class PokemonSprite {
     }
     this.pmdActions = loaded;
     this.isPmdTier = true;
+    // nativeSize here is purely the spritesheet's own Idle-frame pixel size —
+    // needed only to convert targetOnScreenSize (already correctly boss-scaled,
+    // see that field's own comment) into the Phaser texture scale factor that
+    // actually reaches it. Not used to decide *how big* this should render.
     const nativeSize = Math.max(loaded.Idle.frameWidth, loaded.Idle.frameHeight, 1);
-    const targetSize = Math.min(PMD_MAX_SPRITE_SIZE, Math.max(PMD_MIN_SPRITE_SIZE, nativeSize * PMD_NATIVE_SCALE));
-    this.pmdScale = (targetSize / nativeSize) * (this.isBoss ? BOSS_CONFIG.spriteScaleMultiplier : 1);
+    this.pmdScale = this.targetOnScreenSize / nativeSize;
     this.onPmdSpritesReady();
     return true;
   }
@@ -510,9 +540,7 @@ export class PokemonSprite {
     sprite.setVisible(this.hasRevealed); // stays hidden under the Pokéball until it pops open
     this.container.addAt(sprite, 0);
     this.body = sprite;
-    // Real shiny art already IS the correct colors — the flat tint is only a
-    // fallback for species PMDCollab has no shiny recolor for yet.
-    if (this.shiny && !this.usingRealShinyArt) sprite.setTint(SHINY_TINT_COLOR);
+    this.applyBodyTint();
     // No synthetic idle-bob tween here — PMD's own Idle animation already has
     // baked motion; adding the old hotlink-tier tween on top would double it.
     sprite.play(this.pmdAnimKey('Idle', FACING_TO_ROW.S));
@@ -600,7 +628,7 @@ export class PokemonSprite {
     sprite.setVisible(this.hasRevealed); // stays hidden under the Pokéball until it pops open
     this.container.addAt(sprite, 0);
     this.body = sprite;
-    if (this.shiny) sprite.setTint(SHINY_TINT_COLOR);
+    this.applyBodyTint();
 
     if (this.frontIsAnimated) {
       sprite.play(frontKey);
@@ -643,8 +671,8 @@ export class PokemonSprite {
 
     this.updateFacing(pokemon, allPokemon);
     this.updateHpBar(pokemon);
-    this.updateStatus(pokemon);
-    this.updateParalysisVfx(pokemon);
+    this.updateStatusBox(pokemon);
+    this.updateStatusVfx(pokemon);
     this.updateHitFlash(pokemon, nowMs, allPokemon);
   }
 
@@ -656,14 +684,46 @@ export class PokemonSprite {
    * "turns to attack, then snaps back to a stale direction" glitch: the
    * one-shot swing correctly faces the target (see triggerPmdOneShot's
    * caller in ArenaScene), but the moment it ends, rendering would fall back
-   * to the stale sim facing. So while actively engaged, always face the
-   * current target instead; movement states keep using the sim's facing,
-   * since there it's already correct (and is what makes walking look right). */
+   * to the stale sim facing. So while actively engaged, face the target
+   * instead; movement states keep using the sim's facing, since there it's
+   * already correct (and is what makes walking look right).
+   *
+   * `aiState` alone isn't a wide enough window, though: it only reads
+   * 'attack' for the single ~50ms sim tick the move actually fires on —
+   * updateTargeting (ai.ts) forces it back to 'wander' the very next tick
+   * while actionCooldownMs is still counting down, well before the attack's
+   * on-screen pose/hold has actually finished playing (ATTACK_VISUAL_DURATION_MS
+   * in ArenaScene, deliberately kept equal to postAttackHoldMs below — see
+   * POST_ATTACK_HOLD_MS's own comment). This needs to keep facing the target
+   * for that whole window too, or the sprite snaps to the stale
+   * pokemon.facing partway through its own attack animation instead of at
+   * the end of it.
+   *
+   * Critically, though, that target-facing is computed *once* (on the
+   * 'attack' tick itself) and held fixed via heldAttackFacing for the rest of
+   * the hold — not recomputed live every frame. Both combatants can still be
+   * getting nudged by separation from other crowding neighbors during a
+   * hold-still window (that's the one force stepMovement still allows there),
+   * so the raw angle between them is noisier than it looks for something
+   * that's supposedly standing still — recomputing it every frame let that
+   * jitter walk the facing back and forth across an 8-way sector boundary
+   * repeatedly over the ~1.2s hold. For an 8-direction PMD sprite that's
+   * flickering between entirely different drawn rows several times a
+   * second — most obvious on a large, visually asymmetric species (a
+   * legendary like Rayquaza reads as "spinning" far more than a small,
+   * roughly-symmetric one does) — and for a species without full PMD art,
+   * whose facing fallback fakes diagonals by rotating a single sprite image
+   * (FACING_CONFIG's tiltDeg) instead, it's a literal spin either way.
+   * targetInstanceId stays pointed at whoever was just attacked for this
+   * whole window (nothing reassigns it while actionCooldownMs > 0), so it's
+   * safe to read once and trust for the duration. */
   private desiredFacing(pokemon: PokemonInstance, allPokemon: Record<string, PokemonInstance>): FacingDirection {
     if (pokemon.aiState === 'attack' && pokemon.targetInstanceId) {
       const target = allPokemon[pokemon.targetInstanceId];
-      if (target) return this.facingToward(pokemon.position, target.position);
+      if (target) this.heldAttackFacing = this.facingToward(pokemon.position, target.position);
     }
+    if (pokemon.postAttackHoldMs > 0 && this.heldAttackFacing) return this.heldAttackFacing;
+    this.heldAttackFacing = null;
     return pokemon.facing;
   }
 
@@ -691,6 +751,7 @@ export class PokemonSprite {
 
     this.body.setFlipX(config.flip);
     this.body.setAngle(config.tiltDeg);
+    this.applyFrozenPause(pokemon.status === 'freeze');
   }
 
   private desiredPmdAction(pokemon: PokemonInstance): string {
@@ -710,10 +771,18 @@ export class PokemonSprite {
     // yank the animation to a different row every frame.
     const facing = this.pendingOneShot ? (this.oneShotFacing ?? desiredFacing) : desiredFacing;
     const row = meta.directions === 8 ? FACING_TO_ROW[facing] : 0;
+    const key = this.pmdAnimKey(action, row);
+    // A frozen Pokémon's looping animation is held on its current frame (see
+    // applyFrozenPause) — and Phaser counts a paused animation as not
+    // playing, so the ignoreIfPlaying check below would restart it from
+    // frame 0 every frame instead of leaving it held.
+    const frozenStill = pokemon.status === 'freeze' && !this.pendingOneShot;
+    if (frozenStill && this.body.anims.isPaused && this.body.anims.currentAnim?.key === key) return;
     // ignoreIfPlaying=true: no-ops if this exact key (same action AND
     // direction) is already current, so only a genuine action/facing change
     // restarts the animation from frame 0.
-    this.body.play(this.pmdAnimKey(action, row), true);
+    this.body.play(key, true);
+    this.applyFrozenPause(frozenStill);
   }
 
   /** Fires a one-shot PMD action (Attack/Hurt/Faint), then lets the looping
@@ -831,42 +900,289 @@ export class PokemonSprite {
     this.hpBarFill.fillColor = ratio > 0.5 ? 0x4caf50 : ratio > 0.2 ? 0xe0b030 : 0xd9453d;
   }
 
-  private updateStatus(pokemon: PokemonInstance): void {
-    if (!pokemon.status) {
-      this.statusText.setVisible(false);
-      return;
+  /** Rebuilds the status callout whenever pokemon.status changes (see
+   * buildStatusBox), and keeps it parked just under the HP bar — which
+   * itself tracks the body's feet (see updateHpBar), so the box follows
+   * along for any sprite size. Also where the body tint gets re-resolved on
+   * a status change, since a frozen Pokémon reads ice-blue. */
+  private updateStatusBox(pokemon: PokemonInstance): void {
+    if (pokemon.status !== this.shownStatus) {
+      this.shownStatus = pokemon.status;
+      this.statusBox?.destroy();
+      this.statusBox = pokemon.status ? this.buildStatusBox(pokemon.status) : null;
+      this.applyBodyTint();
     }
-    this.statusText.setText(STATUS_LABELS[pokemon.status]);
-    this.statusText.setBackgroundColor(STATUS_COLORS[pokemon.status]);
-    this.statusText.setColor('#ffffff');
-    this.statusText.setVisible(true);
+    if (this.statusBox) {
+      this.statusBox.y = this.hpBarBg.y + HP_BAR_HEIGHT / 2 + STATUS_BOX_GAP + this.statusBox.height / 2;
+    }
   }
 
-  /** Starts/stops the repeating spark spawner as pokemon.status flips into or
-   * out of 'paralysis' — see PARALYSIS_SPARK_INTERVAL_MS's own comment. */
-  private updateParalysisVfx(pokemon: PokemonInstance): void {
-    const shouldSpark = pokemon.status === 'paralysis';
-    if (shouldSpark && !this.paralysisSparkTimer) {
-      this.spawnParalysisSpark(); // one immediately, don't wait a full interval to first appear
-      this.paralysisSparkTimer = this.scene.time.addEvent({
-        delay: PARALYSIS_SPARK_INTERVAL_MS,
-        loop: true,
-        callback: () => this.spawnParalysisSpark(),
-      });
-    } else if (!shouldSpark && this.paralysisSparkTimer) {
-      this.paralysisSparkTimer.remove();
-      this.paralysisSparkTimer = null;
+  /** The status callout under the Pokémon: a small pill in the status's own
+   * color, styled like the move-name label above the sprite (same pixel
+   * font, gradient fill, dark border) so the two read as one HUD family. */
+  private buildStatusBox(status: StatusCondition): Phaser.GameObjects.Container {
+    const color = STATUS_COLORS[status];
+    const text = this.scene.add
+      .text(0, 0, STATUS_LABELS[status], {
+        fontSize: `${STATUS_BOX_FONT_SIZE}px`,
+        fontFamily: MOVE_LABEL_FONT_FAMILY,
+        color: '#ffffff',
+        stroke: '#1a1a1a',
+        strokeThickness: 2,
+      })
+      .setOrigin(0.5, 0.5)
+      .setPadding(STATUS_BOX_PAD_X, STATUS_BOX_PAD_Y, STATUS_BOX_PAD_X, STATUS_BOX_PAD_Y);
+    const boxWidth = text.width;
+    const boxHeight = text.height;
+    const bg = this.scene.add.graphics();
+    const topColor = shadeColor(color, MOVE_LABEL_SHADE_AMOUNT);
+    const bottomColor = shadeColor(color, -MOVE_LABEL_SHADE_AMOUNT);
+    bg.fillGradientStyle(topColor, topColor, bottomColor, bottomColor, 1);
+    bg.fillRoundedRect(-boxWidth / 2, -boxHeight / 2, boxWidth, boxHeight, STATUS_BOX_CORNER_RADIUS);
+    bg.lineStyle(MOVE_LABEL_BORDER_WIDTH, MOVE_LABEL_BORDER_COLOR, 1);
+    bg.strokeRoundedRect(-boxWidth / 2, -boxHeight / 2, boxWidth, boxHeight, STATUS_BOX_CORNER_RADIUS);
+
+    const box = this.scene.add.container(0, 0, [bg, text]).setSize(boxWidth, boxHeight);
+    this.container.add(box);
+    // Pops in rather than blinking on, so the moment a status lands is
+    // itself a visible beat.
+    box.setScale(0);
+    this.scene.tweens.add({ targets: box, scale: 1, duration: 180, ease: 'Back.easeOut' });
+    return box;
+  }
+
+  /** The body has exactly one tint slot (Phaser tints don't layer), so every
+   * tint source resolves through here, in priority order: a frozen Pokémon
+   * reads ice-blue over everything; otherwise the fallback shiny recolor
+   * (SHINY_TINT_COLOR — real shiny art needs no tint, its own colors are
+   * already right); otherwise none. Re-run whenever any of those inputs
+   * changes: a new body GameObject, a status change, a hit flash ending. */
+  private applyBodyTint(): void {
+    if (!(this.body instanceof Phaser.GameObjects.Sprite || this.body instanceof Phaser.GameObjects.Image)) return;
+    if (this.shownStatus === 'freeze') this.body.setTint(FREEZE_BODY_TINT);
+    else if (this.shiny && !this.usingRealShinyArt) this.body.setTint(SHINY_TINT_COLOR);
+    else this.body.clearTint();
+  }
+
+  /** A frozen Pokémon is a solid block of ice — its looping Idle/Walk (or the
+   * hotlink tier's GIF loop / idle bob) shouldn't keep moving under it.
+   * One-shots (Hurt, from being hit while frozen) still play through:
+   * pausing those would strand pendingOneShot waiting on an
+   * animationcomplete that never fires. */
+  private applyFrozenPause(frozenStill: boolean): void {
+    if (this.body instanceof Phaser.GameObjects.Sprite) {
+      if (frozenStill) {
+        if (!this.body.anims.isPaused) this.body.anims.pause();
+      } else if (this.body.anims.isPaused) {
+        this.body.anims.resume();
+      }
     }
+    if (this.idleTween) {
+      if (frozenStill) this.idleTween.pause();
+      else if (this.idleTween.isPaused()) this.idleTween.resume();
+    }
+  }
+
+  /** Starts/stops the ambient VFX spawner as pokemon.status changes — one
+   * timer for whichever status is current, each with its own cadence and
+   * particle (see STATUS_VFX_INTERVAL_MS and spawnStatusVfx). */
+  private updateStatusVfx(pokemon: PokemonInstance): void {
+    if (pokemon.status === this.statusVfxFor) return;
+    this.statusVfxTimer?.remove();
+    this.statusVfxTimer = null;
+    this.statusVfxFor = pokemon.status;
+    const status = pokemon.status;
+    if (!status) return;
+    this.spawnStatusVfx(status); // one immediately, don't wait a full interval to first appear
+    this.statusVfxTimer = this.scene.time.addEvent({
+      delay: STATUS_VFX_INTERVAL_MS[status],
+      loop: true,
+      callback: () => this.spawnStatusVfx(status),
+    });
+  }
+
+  private spawnStatusVfx(status: StatusCondition): void {
+    if (this.container.scene === undefined) return; // destroyed mid-timer
+    switch (status) {
+      case 'paralysis':
+        this.spawnParalysisSpark();
+        break;
+      case 'sleep':
+        this.spawnSleepZ();
+        break;
+      case 'poison':
+        this.spawnPoisonBubble();
+        break;
+      case 'burn':
+        this.spawnBurnFlame();
+        break;
+      case 'freeze':
+        this.spawnFreezeGlint();
+        break;
+    }
+  }
+
+  /** Half the body's current on-screen width — the horizontal band the
+   * ambient status particles scatter across. */
+  private bodyHalfWidth(): number {
+    return (this.body ? this.body.displayWidth : PLACEHOLDER_RADIUS * 2) * 0.45;
+  }
+
+  /** Guard for the status particles that borrow a move family's preloaded
+   * real art: false (skip this spawn — the status box still shows) if the
+   * asset never loaded, otherwise makes sure it's drawn as crisp pixel art. */
+  private statusAssetReady(key: string): boolean {
+    if (!this.scene.textures.exists(key)) return false;
+    this.scene.textures.get(key).setFilter(Phaser.Textures.FilterMode.NEAREST);
+    return true;
+  }
+
+  /** One "Z" drifting up and away from the sleeping Pokémon's head — the
+   * classic snooze glyph, drawn as text in the labels' own pixel font rather
+   * than a dedicated asset. Pairs with the PMD Sleep animation
+   * (desiredPmdAction) that nearly every species has; for the hotlink tier's
+   * static art, which has no sleep pose at all, the Z's are the whole tell. */
+  private spawnSleepZ(): void {
+    const halfWidth = this.bodyHalfWidth();
+    const startX = Phaser.Math.Between(halfWidth * 0.2, halfWidth * 0.7);
+    const startY = this.topOfBodyY() + 8;
+    const z = this.scene.add
+      .text(startX, startY, 'Z', {
+        fontSize: `${SLEEP_Z_FONT_SIZE}px`,
+        fontFamily: MOVE_LABEL_FONT_FAMILY,
+        color: '#ffffff',
+        stroke: '#1a1a1a',
+        strokeThickness: 3,
+      })
+      .setOrigin(0.5, 0.5)
+      .setScale(0.55)
+      .setAlpha(0.95);
+    this.container.add(z);
+    this.scene.tweens.add({
+      targets: z,
+      x: startX + 16 + Math.random() * 12,
+      y: startY - 44,
+      scale: 1.2,
+      duration: SLEEP_Z_LIFESPAN_MS,
+      ease: 'Sine.easeOut',
+      onComplete: () => z.destroy(),
+    });
+    this.scene.tweens.add({
+      targets: z,
+      alpha: 0,
+      delay: SLEEP_Z_LIFESPAN_MS * 0.55,
+      duration: SLEEP_Z_LIFESPAN_MS * 0.45,
+    });
+  }
+
+  /** One sludge globule — the poison family's real hand-drawn asset
+   * (public/move-assets/poison/globule.png, see poisonAttack.ts) — welling
+   * up from a random point on the lower body and drifting upward as it
+   * shrinks away, so a poisoned Pokémon reads as steadily oozing toxic
+   * bubbles. Normal blending, same as the attack it's borrowed from: opaque
+   * matter, not light. */
+  private spawnPoisonBubble(): void {
+    if (!this.statusAssetReady(POISON_GLOBULE_TEXTURE_KEY)) return;
+    const halfWidth = this.bodyHalfWidth();
+    const top = this.topOfBodyY();
+    const bottom = this.bottomOfBodyY();
+    const bubble = this.scene.add
+      .image(
+        Phaser.Math.Between(-halfWidth, halfWidth),
+        Phaser.Math.FloatBetween(top + (bottom - top) * 0.45, bottom),
+        POISON_GLOBULE_TEXTURE_KEY
+      )
+      .setScale(0.5 + Math.random() * 0.5)
+      .setAngle(Phaser.Math.Between(0, 359))
+      .setAlpha(0.9);
+    this.container.add(bubble);
+    this.scene.tweens.add({
+      targets: bubble,
+      y: bubble.y - 30 - Math.random() * 16,
+      x: bubble.x + Phaser.Math.Between(-8, 8),
+      angle: bubble.angle + Phaser.Math.Between(-90, 90),
+      alpha: 0,
+      scaleX: bubble.scaleX * 0.4,
+      scaleY: bubble.scaleY * 0.4,
+      duration: POISON_BUBBLE_LIFESPAN_MS,
+      ease: 'Sine.easeOut',
+      onComplete: () => bubble.destroy(),
+    });
+  }
+
+  /** One small flame — the fire family's real asset
+   * (public/move-assets/flame/burst.png, see flameAttack.ts) — licking up
+   * from the lower body and burning out, additive like the attack it's
+   * borrowed from, so a burned Pokémon visibly smolders. */
+  private spawnBurnFlame(): void {
+    if (!this.statusAssetReady(FLAME_TEXTURE_KEY)) return;
+    const halfWidth = this.bodyHalfWidth();
+    const top = this.topOfBodyY();
+    const bottom = this.bottomOfBodyY();
+    const flame = this.scene.add
+      .image(
+        Phaser.Math.Between(-halfWidth * 0.8, halfWidth * 0.8),
+        Phaser.Math.FloatBetween(top + (bottom - top) * 0.5, bottom - 4),
+        FLAME_TEXTURE_KEY
+      )
+      .setScale(0.45 + Math.random() * 0.4)
+      .setAngle(Phaser.Math.Between(-15, 15))
+      .setFlipX(Math.random() < 0.5)
+      .setAlpha(0.9)
+      .setBlendMode(Phaser.BlendModes.ADD);
+    this.container.add(flame);
+    this.scene.tweens.add({
+      targets: flame,
+      y: flame.y - 18 - Math.random() * 12,
+      alpha: 0,
+      scaleX: flame.scaleX * 0.5,
+      scaleY: flame.scaleY * 1.3,
+      duration: BURN_FLAME_LIFESPAN_MS,
+      ease: 'Sine.easeOut',
+      onComplete: () => flame.destroy(),
+    });
+  }
+
+  /** One ice crystal — the ice family's real asset
+   * (public/move-assets/iceShard/crystal.png, see iceShardAttack.ts) —
+   * glinting into view somewhere on the body and fading again, additive
+   * like the attack it's borrowed from. Together with the ice-blue body tint
+   * (applyBodyTint) and the held animation (applyFrozenPause), it's what
+   * sells "encased in ice" rather than merely "standing still". */
+  private spawnFreezeGlint(): void {
+    if (!this.statusAssetReady(ICE_SHARD_TEXTURE_KEY)) return;
+    const halfWidth = this.bodyHalfWidth();
+    const crystal = this.scene.add
+      .image(
+        Phaser.Math.Between(-halfWidth, halfWidth),
+        Phaser.Math.FloatBetween(this.topOfBodyY(), this.bottomOfBodyY()),
+        ICE_SHARD_TEXTURE_KEY
+      )
+      .setScale(0.3)
+      .setAngle(Phaser.Math.Between(0, 359))
+      .setAlpha(0)
+      .setBlendMode(Phaser.BlendModes.ADD);
+    this.container.add(crystal);
+    this.scene.tweens.add({
+      targets: crystal,
+      alpha: 0.95,
+      scale: 0.7 + Math.random() * 0.4,
+      duration: FREEZE_GLINT_LIFESPAN_MS * 0.4,
+      ease: 'Sine.easeOut',
+      yoyo: true,
+      hold: FREEZE_GLINT_LIFESPAN_MS * 0.2,
+      onComplete: () => crystal.destroy(),
+    });
   }
 
   /** One small electric spark at a random point around the body's current
    * bounding box, using thunderAttack.ts's own jagged-bolt particle texture
-   * (see pixelTextures.ts) tinted electric-yellow — see
-   * PARALYSIS_SPARK_INTERVAL_MS's own comment for why this specific asset. */
+   * (see pixelTextures.ts) tinted electric-yellow, so a paralyzed Pokémon
+   * reads as crackling with the same static an actual Thunder-family move
+   * shows mid-swing. */
   private spawnParalysisSpark(): void {
-    if (this.container.scene === undefined) return; // destroyed mid-timer
     const key = buildThunderParticleTexture(this.scene, getMoveTypeColor('electric'));
-    const halfWidth = (this.body ? this.body.displayWidth : PLACEHOLDER_RADIUS * 2) * 0.45;
+    const halfWidth = this.bodyHalfWidth();
     const spark = this.scene.add
       .image(Phaser.Math.Between(-halfWidth, halfWidth), Phaser.Math.FloatBetween(this.topOfBodyY(), this.bottomOfBodyY()), key)
       .setScale(1 + Math.random() * 0.8)
@@ -892,14 +1208,11 @@ export class PokemonSprite {
     if (this.body instanceof Phaser.GameObjects.Sprite) {
       this.body.setTintFill(0xffffff);
       this.scene.time.delayedCall(HIT_FLASH_MS, () => {
-        // clearTint() would also wipe the fallback shiny tint (Phaser has one
-        // tint slot, not layered tints) — reapply it rather than leaving a
-        // shiny Pokémon un-tinted after its first hit. Real shiny art needs
-        // no tint at all — the loaded texture's own colors are already right.
-        if (this.body) {
-          if (this.shiny && !this.usingRealShinyArt) this.body.setTint(SHINY_TINT_COLOR);
-          else this.body.clearTint();
-        }
+        // clearTint() would also wipe whatever tint the body is meant to be
+        // wearing (Phaser has one tint slot, not layered tints) — the
+        // fallback shiny recolor, or a frozen Pokémon's ice-blue — so
+        // re-resolve it rather than leaving the body un-tinted after a hit.
+        this.applyBodyTint();
       });
       this.triggerPmdOneShot('Hurt', this.computeHitFacing(pokemon, allPokemon));
     }
@@ -1015,8 +1328,8 @@ export class PokemonSprite {
   destroy(): void {
     this.moveLabel?.destroy();
     this.idleTween?.stop();
-    this.paralysisSparkTimer?.remove();
-    this.paralysisSparkTimer = null;
+    this.statusVfxTimer?.remove();
+    this.statusVfxTimer = null;
     this.container.destroy();
   }
 }

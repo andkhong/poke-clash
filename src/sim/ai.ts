@@ -1,7 +1,7 @@
 import type { MoveDefinition, PokemonInstance, SimState } from './types';
 import type { Rng } from './rng';
 import { rngPick, rngWeightedPick } from './rng';
-import { distance } from './movement';
+import { distance, WANDER_ARRIVAL_DISTANCE } from './movement';
 import {
   AGGRO_RADIUS,
   AGGRO_RADIUS_AGGRESSIVE,
@@ -112,6 +112,38 @@ export function updateTargeting(
     return;
   }
 
+  const selfPos = positions.get(self.instanceId) ?? self.position;
+
+  // A wander leg already under way is walked to its end before this Pokémon
+  // looks for a fight again, even once its cooldown has cleared. Cutting
+  // legs short the moment the cooldown expired (the old behavior) is what
+  // quietly herded every match into the middle of the arena: a walk that
+  // stops a third of the way to a random point lands a third of the way
+  // from wherever you were toward the arena's average point — the center —
+  // and repeated every cycle by everyone, that contracts the whole roster
+  // onto it. A leg walked to its end lands on a genuinely random point
+  // instead (see pickWanderWaypoint in movement.ts for the pick itself), so
+  // the roster stays spread across the arena between exchanges, which also
+  // simply reads more naturally: it moves on after a scrap, *then* looks
+  // around. A paralyzed Pokémon can't walk its leg at all (stepMovement
+  // holds it in place — see engine.ts), so this never applies to it, or it
+  // would sit out the rest of the match waiting to arrive somewhere.
+  const legInProgress =
+    !noWander &&
+    self.status !== 'paralysis' &&
+    self.wanderWaypoint !== undefined &&
+    distance(selfPos, self.wanderWaypoint) >= WANDER_ARRIVAL_DISTANCE;
+  if (legInProgress) {
+    self.aiState = 'wander';
+    return;
+  }
+  // The leg is over (or there never was one): whatever comes next — a
+  // chase, an attack, or a fresh leg from stepMovement if nobody's around —
+  // starts from a clean slate, and arriving is itself a reason to take a
+  // fresh look around (see shouldRetarget below).
+  const legJustEnded = self.wanderWaypoint !== undefined;
+  self.wanderWaypoint = undefined;
+
   // From AGGRESSION_TRIGGER_MS (45s) on, every Pokémon hunts more
   // relentlessly — bigger notice radius, longer leash before disengaging,
   // faster re-evaluation of a better target — which is what actually pushes
@@ -124,15 +156,16 @@ export function updateTargeting(
 
   const current = self.targetInstanceId ? state.pokemon[self.targetInstanceId] : undefined;
   const currentAlive = !!current && state.livingOrder.includes(current.instanceId);
-  const selfPos = positions.get(self.instanceId) ?? self.position;
 
-  // justBecameAvailable is a one-shot fourth trigger alongside the existing
-  // three: without it, a fast Pokémon's cooldown (as low as 800ms) can expire
-  // well before the periodic retargetIntervalMs timer (2000ms/700ms) ever
-  // fires, so it would just keep re-attacking the same still-alive,
-  // still-in-leash target every cycle — quietly defeating the whole point of
-  // randomized targeting for exactly the Pokémon where it matters most.
-  let shouldRetarget = !currentAlive || justBecameAvailable;
+  // justBecameAvailable is a one-shot trigger alongside the periodic and
+  // distance ones: without it, a fast Pokémon's cooldown (as low as 800ms)
+  // can expire well before the periodic retargetIntervalMs timer
+  // (2000ms/700ms) ever fires, so it would just keep re-attacking the same
+  // still-alive, still-in-leash target every cycle — quietly defeating the
+  // whole point of randomized targeting for exactly the Pokémon where it
+  // matters most. legJustEnded is its sibling for the wander leg that now
+  // usually outlasts the cooldown (see legInProgress above).
+  let shouldRetarget = !currentAlive || justBecameAvailable || legJustEnded;
   if (currentAlive && current) {
     const d = distance(selfPos, positions.get(current.instanceId) ?? current.position);
     if (d > aggroRadius * leashMultiplier) shouldRetarget = true;

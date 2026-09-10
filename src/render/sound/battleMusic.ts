@@ -1,4 +1,6 @@
 import Phaser from 'phaser';
+import { normalizedVolume } from './loudness';
+import { MUSIC_FALLBACK_VOLUME, MUSIC_TARGET_DB } from './mix';
 
 // Picked server-side, not bundled — see sprite-server/server.ts's /soundtracks
 // routes. The mirror (sound-track/<pack>/*.mp3) is gitignored and can grow new
@@ -7,10 +9,11 @@ import Phaser from 'phaser';
 // hardcoding pack names or shipping a generated index. The server also
 // excludes anything under MIN_TRACK_DURATION_SECONDS (10s) from the random
 // pool, so every track this fetches is long enough for the loop-fade below
-// to have real room to work with.
+// to have real room to work with. Volume is per-track loudness-normalized to
+// MUSIC_TARGET_DB (tracks vary ~6 dB among themselves — see loudness.ts), so
+// every match's music bed sits at the same level under the cries and SFX.
 const RANDOM_TRACK_URL = '/soundtracks/random';
 const BATTLE_MUSIC_KEY = 'battle-music';
-const BATTLE_MUSIC_VOLUME = 0.35;
 // How long the volume fade takes on each side of a loop boundary — long
 // enough to smooth over the seam, short enough not to eat a big chunk out of
 // even the shortest track the server will hand back.
@@ -73,7 +76,8 @@ export function playBattleMusic(scene: Phaser.Scene): void {
 }
 
 function startLoopingWithFade(scene: Phaser.Scene): void {
-  const sound = scene.sound.add(BATTLE_MUSIC_KEY, { loop: true, volume: BATTLE_MUSIC_VOLUME }) as FadeableSound;
+  const trackVolume = normalizedVolume(scene, BATTLE_MUSIC_KEY, MUSIC_TARGET_DB, MUSIC_FALLBACK_VOLUME);
+  const sound = scene.sound.add(BATTLE_MUSIC_KEY, { loop: true, volume: trackVolume }) as FadeableSound;
 
   // Browsers block audio playback until a genuine user gesture unlocks the
   // page's AudioContext. PhaserGame.tsx tears down and recreates the whole
@@ -88,15 +92,18 @@ function startLoopingWithFade(scene: Phaser.Scene): void {
   // being lost forever if the timing was unlucky.
   if (scene.sound.locked) {
     scene.sound.once(Phaser.Sound.Events.UNLOCKED, () => {
-      if (scene.sys.isActive()) beginPlayback(scene, sound);
+      if (scene.sys.isActive()) beginPlayback(scene, sound, trackVolume);
     });
     return;
   }
 
-  beginPlayback(scene, sound);
+  beginPlayback(scene, sound, trackVolume);
 }
 
-function beginPlayback(scene: Phaser.Scene, sound: FadeableSound): void {
+/** `trackVolume` is this track's normalized level (see startLoopingWithFade)
+ * — the loop fade-in below has to come back up to exactly that, not to a
+ * flat constant. */
+function beginPlayback(scene: Phaser.Scene, sound: FadeableSound, trackVolume: number): void {
   sound.play();
 
   const fadeSec = LOOP_FADE_MS / 1000;
@@ -119,7 +126,7 @@ function beginPlayback(scene: Phaser.Scene, sound: FadeableSound): void {
   sound.on(Phaser.Sound.Events.LOOPED, () => {
     if (!sound.isPlaying) return;
     sound.setVolume(0);
-    scene.tweens.add({ targets: sound, volume: BATTLE_MUSIC_VOLUME, duration: LOOP_FADE_MS, ease: 'Linear' });
+    scene.tweens.add({ targets: sound, volume: trackVolume, duration: LOOP_FADE_MS, ease: 'Linear' });
     scheduleFadeOut(); // re-arm for the next loop
   });
 
