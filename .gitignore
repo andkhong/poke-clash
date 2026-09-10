@@ -37,8 +37,10 @@ data-pipeline/cache/
 
 # What actually gets uploaded to the production volume, built from the raw
 # mirrors above by the data-pipeline scripts (build-soundtrack.ts →
-# deploy-assets/sound-track/, re-encoded and loudness-normalized) — same
-# "not committed" reasoning, just a second local tree staged for upload.
+# deploy-assets/sound-track/, re-encoded and loudness-normalized;
+# optimize-pmd-sprites.ts → deploy-assets/pmd-sprite-mirror/, palette PNGs
+# without the unused Shadow sheets) — same "not committed" reasoning, just
+# a second local tree staged for upload.
 /deploy-assets/
 # Older hand-made equivalents of the same thing (cover-art-stripped copies of
 # /sound/ and /sound-track/); superseded by deploy-assets/, kept ignored so a

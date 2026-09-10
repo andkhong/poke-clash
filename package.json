@@ -16,6 +16,7 @@
     "data:fetch-pmd-shiny-sprites": "tsx data-pipeline/fetch-pmd-shiny-sprites.ts",
     "data:build-move-sounds": "tsx data-pipeline/build-move-sound-index.ts",
     "data:build-soundtrack": "tsx data-pipeline/build-soundtrack.ts",
+    "data:optimize-pmd-sprites": "tsx data-pipeline/optimize-pmd-sprites.ts",
     "sprite:serve": "tsx sprite-server/server.ts",
     "game-server:serve": "tsx game-server/server.ts",
     "dev:all": "concurrently -n vite,sprite,game -c blue,green,magenta \"npm:dev\" \"npm:sprite:serve\" \"npm:game-server:serve\""
