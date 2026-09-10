@@ -7,7 +7,11 @@ data-pipeline/cache
 pmd-sprite-mirror
 sound
 sound-track
+sound-optimized
+sound-track-optimized
 deploy-assets
+dist-server
+*.tar.gz
 examples
 *.tsbuildinfo
 *.log

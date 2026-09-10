@@ -14,10 +14,14 @@ for name in pmd-sprite-mirror sound-track; do
   ln -sfn "$DATA_DIR/$name" "/app/$name"
 done
 
-node_modules/.bin/tsx sprite-server/server.ts &
+# Both servers are single-file bundles (scripts/build-servers.mjs) — no
+# node_modules or TypeScript runner in this image. The sprite server finds
+# the mirrors at ../pmd-sprite-mirror and ../sound-track relative to its own
+# file, i.e. the /app/<mirror> symlinks made above.
+node dist-server/sprite-server.js &
 sprite_pid=$!
 
-node_modules/.bin/tsx game-server/server.ts &
+node dist-server/game-server.js &
 game_pid=$!
 
 caddy run --config ./Caddyfile --adapter caddyfile &
