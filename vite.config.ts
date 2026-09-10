@@ -6,6 +6,14 @@ const GAME_SERVER_PORT = process.env.GAME_SERVER_PORT ?? '4311';
 
 export default defineConfig({
   plugins: [react()],
+  build: {
+    rollupOptions: {
+      // Two pages: the game, and the move-VFX review tool at /review.html
+      // (src/review/) — a dev aid that ships with the build so a review can
+      // happen on the deployed site too.
+      input: { main: 'index.html', review: 'review.html' },
+    },
+  },
   server: {
     // Forwards to sprite-server/ (run separately via `npm run sprite:serve`
     // or `npm run dev:all`) so client code can fetch root-relative
