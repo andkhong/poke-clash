@@ -47,7 +47,7 @@
 		# bundle never gets picked up.
 		@hashed path /assets/* /pmd-sprite-index.json
 		header @hashed Cache-Control "public, max-age=31536000, immutable"
-		@media path /cries/* /move-sounds/* /move-assets/* /fallback-sprites/*
+		@media path /cries/* /move-sounds/* /move-anims/* /fallback-sprites/*
 		header @media Cache-Control "public, max-age=2592000"
 		@page path / /index.html
 		header @page Cache-Control "no-cache"

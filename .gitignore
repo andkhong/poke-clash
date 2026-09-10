@@ -22,6 +22,14 @@ data-pipeline/cache/
 # git entirely) the unrelated src/render/sound/ source directory.
 /pmd-sprite-mirror/
 
+# Move animation pack: the unzipped "Gen 9 Move Animation Project" (a
+# Pokémon Essentials pack, ~80 MB, mostly sound effects the game doesn't
+# use). Not committed — data-pipeline/build-move-animations.ts converts just
+# what the arena plays into public/move-anims/ (~8 MB, committed and shipped
+# with the build) and writes the small index
+# src/data/generated/moveAnimations.json. See public/move-anims/README.md.
+/Gen 9 Move Animation Project/
+
 # Move SFX mirror: ~1.1GB of per-generation move sound effects. Not
 # committed, and not served at runtime either — data-pipeline/
 # build-move-sound-index.ts transcodes just the ~460 clips the game

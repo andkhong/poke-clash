@@ -90,3 +90,29 @@ export interface MoveSoundIndexEntry {
 }
 
 export type MoveSoundIndex = Record<string, MoveSoundIndexEntry>;
+
+// Shape of src/data/generated/moveAnimations.json (see
+// data-pipeline/build-move-animations.ts). The bundled index of the
+// converted Gen 9 Move Animation Project animations: one entry per move id
+// with a file at public/move-anims/moves/<moveId>.json, plus the pack's
+// status-condition animations under `common`. Carries just enough for the
+// arena to fetch an animation's sheet in parallel with its JSON and pick
+// the attacker's pose; the animation data itself (src/data/moveAnimationFormat.ts)
+// is fetched on demand, never bundled.
+export interface MoveAnimationIndexEntry {
+  /** The pack's name for the animation, e.g. "Move:TACKLE" — provenance only. */
+  anim: string;
+  /** Sheet slug under public/move-anims/sheets/, null when the animation
+   * only moves/hides the battlers and draws nothing of its own. */
+  sheet: string | null;
+  frames: number;
+  /** True when the animation itself dashes the attacker into the target
+   * (Tackle, Body Slam, ...), so the attacker should play its melee-swing
+   * pose rather than the ranged one. */
+  melee: boolean;
+}
+
+export interface MoveAnimationIndex {
+  moves: Record<string, MoveAnimationIndexEntry>;
+  common: Record<string, MoveAnimationIndexEntry>;
+}

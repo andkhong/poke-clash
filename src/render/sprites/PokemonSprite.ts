@@ -10,10 +10,9 @@ import { POKEBALL_TEXTURE_KEY } from './pokeballAsset';
 import { playCry } from './cryAudio';
 import { pmdSheetUrl } from './pmdSheetUrl';
 import { playSparkleReveal } from '../vfx/sparkle';
-import { buildThunderParticleTexture } from '../vfx/moves/pixelTextures';
-import { POISON_GLOBULE_TEXTURE_KEY } from '../vfx/moves/poisonAttack';
-import { FLAME_TEXTURE_KEY } from '../vfx/moves/flameAttack';
-import { ICE_SHARD_TEXTURE_KEY } from '../vfx/moves/iceShardAttack';
+import { frameDurationMs, playAnimation, type AnimationHandle } from '../vfx/anim/AnimPlayer';
+import { getLoadedCommonAnimation } from '../vfx/anim/moveAnimLoader';
+import { ANIM_REFERENCE_BATTLER_SIZE, STATUS_COMMON_ANIMATIONS } from '../../data/moveAnimationFormat';
 import type { MoveDefinition } from '../../sim/types';
 import { ARENA_TOP_PADDING, BALL_DROP_DURATION_MS, BALL_DROP_STAGGER_MS, COLLISION_RADIUS_FACTOR } from '../../sim/constants';
 import { BOSS_CONFIG } from '../../sim/bossConfig';
@@ -50,13 +49,6 @@ const MOVE_LABEL_BORDER_COLOR = 0x1a1a1a;
  * relative to the move's base type color, for a glossy beveled-button look. */
 const MOVE_LABEL_SHADE_AMOUNT = 45;
 const HIT_FLASH_MS = 160;
-/** How far a lunge-family move (Fire Punch, Tackle, ...) dashes the attacker's
- * sprite toward its target, at most — see playLungeAttack(). Kept well under
- * typical inter-Pokémon spacing so a lunge reads as "closing the last bit of
- * distance to throw a punch," not a teleport across the arena. */
-const MAX_LUNGE_DISTANCE = 130;
-const LUNGE_OUT_MS = 120;
-const LUNGE_BACK_MS = 170;
 /** One-shot (play-once, non-looping) PMD actions — everything else registered
  * on a species (Idle/Walk/Sleep) loops. */
 const ONE_SHOT_PMD_ACTIONS = new Set(['Attack', 'Shoot', 'Shock', 'SpAttack', 'Hurt', 'Faint']);
@@ -122,28 +114,29 @@ const STATUS_COLORS: Record<StatusCondition, number> = {
   freeze: 0x60c8e0,
 };
 
-/** Ambient per-status VFX, spawned on a repeating timer for as long as the
- * status lasts (see updateStatusVfx) so a condition is visible on the body
- * itself, not just from the status box under it. Each borrows the real art
- * of the move family that inflicts it — poison's sludge globule, fire's
- * flame, ice's crystal, thunder's jagged bolt — rather than a bespoke
- * asset, the same "one base asset per concept" convention as
- * public/move-assets/README.md; sleep's "Z" is plain text in the labels'
- * own pixel font. Purely cosmetic: driven off pokemon.status each frame,
- * never fed back into the sim. */
-const STATUS_VFX_INTERVAL_MS: Record<StatusCondition, number> = {
-  paralysis: 220,
+/** Ambient per-status VFX, replayed for as long as the status lasts (see
+ * updateStatusVfx) so a condition is visible on the body itself, not just
+ * from the status box under it. Each plays the move-animation pack's own
+ * status animation (Common:Poison/Burn/Paralysis/Frozen — see
+ * STATUS_COMMON_ANIMATIONS) anchored on this sprite, with this much quiet
+ * between replays; sleep's "Z" is plain text in the labels' own pixel
+ * font. Purely cosmetic: driven off pokemon.status each frame, never fed
+ * back into the sim. */
+const STATUS_VFX_GAP_MS: Record<StatusCondition, number> = {
+  paralysis: 700,
   sleep: 700,
-  poison: 320,
-  burn: 150,
-  freeze: 420,
+  poison: 900,
+  burn: 600,
+  freeze: 1400,
 };
-const PARALYSIS_SPARK_LIFESPAN_MS = 220;
+/** Status animations run at this multiple of the pack's native 20 fps —
+ * slower than attacks (see ATTACK_PLAYBACK_SPEED), since nothing waits on
+ * them and a lazy ooze/smolder reads better than a frantic one. */
+const STATUS_ANIM_PLAYBACK_SPEED = 1.5;
+/** Retry cadence while a status animation's data is still downloading. */
+const STATUS_ANIM_RETRY_MS = 500;
 const SLEEP_Z_FONT_SIZE = 12;
 const SLEEP_Z_LIFESPAN_MS = 1500;
-const POISON_BUBBLE_LIFESPAN_MS = 1000;
-const BURN_FLAME_LIFESPAN_MS = 480;
-const FREEZE_GLINT_LIFESPAN_MS = 800;
 /** Body tint while frozen — pale ice-blue, light enough that the sprite's
  * own detail still reads through it (see applyBodyTint). */
 const FREEZE_BODY_TINT = 0xa8dcff;
@@ -277,19 +270,21 @@ export class PokemonSprite {
   private hasRevealed = false;
   private pokeball: Phaser.GameObjects.Image | null = null;
   private renderPos: Vec2;
-  /** Purely cosmetic, additive offset from renderPos — drives the lunge
-   * family's dash-toward-target-and-back motion (see playLungeAttack()).
-   * Never fed back into the sim; PokemonInstance.position stays the sole
-   * source of truth, per ArenaScene's "renderer never mutates simulation
-   * state" invariant. */
-  private readonly attackOffset: Vec2 = { x: 0, y: 0 };
-  private lungeTween: Phaser.Tweens.Tween | Phaser.Tweens.TweenChain | null = null;
+  /** Purely cosmetic, additive offset from renderPos — a move animation's
+   * own instructions for this battler's sprite (a Tackle's dash into the
+   * target, a Growl's recoil), see setAnimOffset(). Never fed back into
+   * the sim; PokemonInstance.position stays the sole source of truth, per
+   * ArenaScene's "renderer never mutates simulation state" invariant. */
+  private readonly animOffset: Vec2 = { x: 0, y: 0 };
+  /** The status animation currently playing on this sprite, if any — see
+   * playStatusAnimation(). */
+  private statusAnimation: AnimationHandle | null = null;
   /** When set, update() stops folding the sim's live position into renderPos
    * — see lockPosition(). Its own attack cooldown clears (and the sim starts
    * wandering it off again) almost immediately after a move fires, well
    * before the render's attack visual window (ArenaScene's
    * ATTACK_VISUAL_DURATION_MS) closes, so without this a ranged attacker
-   * visibly drifts away mid-pose. Purely cosmetic, like attackOffset — never
+   * visibly drifts away mid-pose. Purely cosmetic, like animOffset — never
    * fed back into the sim. */
   private positionLockToken: symbol | null = null;
 
@@ -667,8 +662,8 @@ export class PokemonSprite {
       this.renderPos.x += stepX;
       this.renderPos.y += stepY;
     }
-    this.container.setPosition(this.renderPos.x + this.attackOffset.x, this.renderPos.y + this.attackOffset.y);
-    this.container.setDepth(this.renderPos.y + this.attackOffset.y);
+    this.container.setPosition(this.renderPos.x + this.animOffset.x, this.renderPos.y + this.animOffset.y);
+    this.container.setDepth(this.renderPos.y + this.animOffset.y);
 
     this.updateFacing(pokemon, allPokemon);
     this.updateHpBar(pokemon);
@@ -848,38 +843,43 @@ export class PokemonSprite {
     };
   }
 
-  /** Lunge-family move VFX (see moveAnimations.ts) — dashes this sprite's
-   * container toward `targetPosition` and back via a purely additive,
-   * cosmetic offset (attackOffset), independent of playPmdAttack's sprite-
-   * frame swing which keeps playing exactly as it does for every other
-   * family. Distance is clamped so the attacker stops just short of the
-   * target's own footprint rather than overlapping it. Kills any lunge
-   * already in flight first so a fast attacker's consecutive hits retarget
-   * smoothly instead of stacking offsets. `onImpact` fires at the apex (the
-   * moment the dash reaches the target), for a caller-supplied contact VFX. */
-  playLungeAttack(selfPosition: Vec2, targetPosition: Vec2, targetCollisionRadius: number, onImpact?: () => void): void {
-    this.lungeTween?.stop();
+  /** Where this sprite is currently drawn (its smoothed render position,
+   * before any animation offset) — the live anchor a move animation tracks
+   * so a projectile follows a target that keeps walking (see
+   * AnimPlayer.ts). Returns a fresh object each call. */
+  getRenderPosition(): Vec2 {
+    return { x: this.renderPos.x, y: this.renderPos.y };
+  }
 
-    const dx = targetPosition.x - selfPosition.x;
-    const dy = targetPosition.y - selfPosition.y;
-    const distanceToTarget = Math.hypot(dx, dy);
-    const travel = Phaser.Math.Clamp(distanceToTarget - targetCollisionRadius, 0, MAX_LUNGE_DISTANCE);
-    const dirX = distanceToTarget > 0 ? dx / distanceToTarget : 0;
-    const dirY = distanceToTarget > 0 ? dy / distanceToTarget : 0;
+  /** This species' on-screen size (px, longest side) — what a move
+   * animation scales itself by relative to the battlers it was drawn
+   * around (see ANIM_REFERENCE_BATTLER_SIZE). */
+  getOnScreenSize(): number {
+    return this.targetOnScreenSize;
+  }
 
-    this.lungeTween = this.scene.tweens.chain({
-      targets: this.attackOffset,
-      tweens: [
-        {
-          x: dirX * travel,
-          y: dirY * travel,
-          duration: LUNGE_OUT_MS,
-          ease: 'Quad.easeOut',
-          onComplete: () => onImpact?.(),
-        },
-        { x: 0, y: 0, duration: LUNGE_BACK_MS, ease: 'Quad.easeIn' },
-      ],
-    });
+  /** True once destroy() has run (fainted and faded out) — a move animation
+   * that outlives its target keeps drawing at the target's last position
+   * rather than reading a dead sprite. */
+  isDestroyed(): boolean {
+    return this.container.scene === undefined;
+  }
+
+  /** A move animation's per-frame displacement for this battler's sprite
+   * (see AnimPlayer.ts's AnimBattler) — purely additive and cosmetic, see
+   * animOffset. Reset to (0, 0) by the animation when it ends or is cut off. */
+  setAnimOffset(x: number, y: number): void {
+    if (this.isDestroyed()) return;
+    this.animOffset.x = x;
+    this.animOffset.y = y;
+  }
+
+  /** A move animation hiding or fading this battler's body (Fly's ascent,
+   * Explosion's self-KO, a Double Team flicker). Only the body: the HP bar
+   * and labels stay put. Reset to 1 by the animation when it ends. */
+  setAnimAlpha(alpha: number): void {
+    if (this.isDestroyed() || !this.body) return;
+    this.body.setAlpha(alpha);
   }
 
   /** Direction from the defender toward whoever last hit it — i.e. the
@@ -984,58 +984,64 @@ export class PokemonSprite {
     }
   }
 
-  /** Starts/stops the ambient VFX spawner as pokemon.status changes — one
-   * timer for whichever status is current, each with its own cadence and
-   * particle (see STATUS_VFX_INTERVAL_MS and spawnStatusVfx). */
+  /** Starts/stops the ambient VFX loop as pokemon.status changes — one
+   * chained timer for whichever status is current, replaying that
+   * status's animation with STATUS_VFX_GAP_MS of quiet after each run
+   * (see spawnStatusVfx). */
   private updateStatusVfx(pokemon: PokemonInstance): void {
     if (pokemon.status === this.statusVfxFor) return;
     this.statusVfxTimer?.remove();
     this.statusVfxTimer = null;
+    this.statusAnimation?.stop();
+    this.statusAnimation = null;
     this.statusVfxFor = pokemon.status;
     const status = pokemon.status;
     if (!status) return;
-    this.spawnStatusVfx(status); // one immediately, don't wait a full interval to first appear
-    this.statusVfxTimer = this.scene.time.addEvent({
-      delay: STATUS_VFX_INTERVAL_MS[status],
-      loop: true,
-      callback: () => this.spawnStatusVfx(status),
-    });
+    this.spawnStatusVfx(status); // one immediately, don't wait a full gap to first appear
   }
 
   private spawnStatusVfx(status: StatusCondition): void {
     if (this.container.scene === undefined) return; // destroyed mid-timer
-    switch (status) {
-      case 'paralysis':
-        this.spawnParalysisSpark();
-        break;
-      case 'sleep':
-        this.spawnSleepZ();
-        break;
-      case 'poison':
-        this.spawnPoisonBubble();
-        break;
-      case 'burn':
-        this.spawnBurnFlame();
-        break;
-      case 'freeze':
-        this.spawnFreezeGlint();
-        break;
+    if (this.statusVfxFor !== status) return; // status changed while this was pending
+    let nextDelayMs = STATUS_VFX_GAP_MS[status];
+    if (status === 'sleep') {
+      this.spawnSleepZ();
+    } else {
+      const playedMs = this.playStatusAnimation(status);
+      nextDelayMs = playedMs === null ? STATUS_ANIM_RETRY_MS : nextDelayMs + playedMs;
     }
+    this.statusVfxTimer = this.scene.time.delayedCall(nextDelayMs, () => this.spawnStatusVfx(status));
+  }
+
+  /** Plays the pack's animation for a status condition (Common:Poison,
+   * Common:Burn, ...) on this sprite: both of the animation's anchors are
+   * this Pokémon, so a target-focused flame licks up its own body and a
+   * screen-focused poison cloud centers on it (see geometry.ts). Returns
+   * the run's duration in ms, or null if the animation's data hasn't
+   * loaded yet (the status box still shows; the loop retries shortly). */
+  private playStatusAnimation(status: Exclude<StatusCondition, 'sleep'>): number | null {
+    const loaded = getLoadedCommonAnimation(this.scene, STATUS_COMMON_ANIMATIONS[status]);
+    if (!loaded) return null;
+    const anchor = (): Vec2 => ({ x: this.container.x, y: this.container.y });
+    this.statusAnimation = playAnimation({
+      scene: this.scene,
+      data: loaded.data,
+      sheetKey: loaded.sheetKey,
+      getAttacker: anchor,
+      getTarget: anchor,
+      scale: this.targetOnScreenSize / ANIM_REFERENCE_BATTLER_SIZE,
+      msPerFrame: frameDurationMs(loaded.data.frames.length, Number.POSITIVE_INFINITY, STATUS_ANIM_PLAYBACK_SPEED),
+      onComplete: () => {
+        this.statusAnimation = null;
+      },
+    });
+    return this.statusAnimation.durationMs;
   }
 
   /** Half the body's current on-screen width — the horizontal band the
-   * ambient status particles scatter across. */
+   * sleep "Z"s drift up from. */
   private bodyHalfWidth(): number {
     return (this.body ? this.body.displayWidth : PLACEHOLDER_RADIUS * 2) * 0.45;
-  }
-
-  /** Guard for the status particles that borrow a move family's preloaded
-   * real art: false (skip this spawn — the status box still shows) if the
-   * asset never loaded, otherwise makes sure it's drawn as crisp pixel art. */
-  private statusAssetReady(key: string): boolean {
-    if (!this.scene.textures.exists(key)) return false;
-    this.scene.textures.get(key).setFilter(Phaser.Textures.FilterMode.NEAREST);
-    return true;
   }
 
   /** One "Z" drifting up and away from the sleeping Pokémon's head — the
@@ -1073,131 +1079,6 @@ export class PokemonSprite {
       alpha: 0,
       delay: SLEEP_Z_LIFESPAN_MS * 0.55,
       duration: SLEEP_Z_LIFESPAN_MS * 0.45,
-    });
-  }
-
-  /** One sludge globule — the poison family's real hand-drawn asset
-   * (public/move-assets/poison/globule.png, see poisonAttack.ts) — welling
-   * up from a random point on the lower body and drifting upward as it
-   * shrinks away, so a poisoned Pokémon reads as steadily oozing toxic
-   * bubbles. Normal blending, same as the attack it's borrowed from: opaque
-   * matter, not light. */
-  private spawnPoisonBubble(): void {
-    if (!this.statusAssetReady(POISON_GLOBULE_TEXTURE_KEY)) return;
-    const halfWidth = this.bodyHalfWidth();
-    const top = this.topOfBodyY();
-    const bottom = this.bottomOfBodyY();
-    const bubble = this.scene.add
-      .image(
-        Phaser.Math.Between(-halfWidth, halfWidth),
-        Phaser.Math.FloatBetween(top + (bottom - top) * 0.45, bottom),
-        POISON_GLOBULE_TEXTURE_KEY
-      )
-      .setScale(0.5 + Math.random() * 0.5)
-      .setAngle(Phaser.Math.Between(0, 359))
-      .setAlpha(0.9);
-    this.container.add(bubble);
-    this.scene.tweens.add({
-      targets: bubble,
-      y: bubble.y - 30 - Math.random() * 16,
-      x: bubble.x + Phaser.Math.Between(-8, 8),
-      angle: bubble.angle + Phaser.Math.Between(-90, 90),
-      alpha: 0,
-      scaleX: bubble.scaleX * 0.4,
-      scaleY: bubble.scaleY * 0.4,
-      duration: POISON_BUBBLE_LIFESPAN_MS,
-      ease: 'Sine.easeOut',
-      onComplete: () => bubble.destroy(),
-    });
-  }
-
-  /** One small flame — the fire family's real asset
-   * (public/move-assets/flame/burst.png, see flameAttack.ts) — licking up
-   * from the lower body and burning out, additive like the attack it's
-   * borrowed from, so a burned Pokémon visibly smolders. */
-  private spawnBurnFlame(): void {
-    if (!this.statusAssetReady(FLAME_TEXTURE_KEY)) return;
-    const halfWidth = this.bodyHalfWidth();
-    const top = this.topOfBodyY();
-    const bottom = this.bottomOfBodyY();
-    const flame = this.scene.add
-      .image(
-        Phaser.Math.Between(-halfWidth * 0.8, halfWidth * 0.8),
-        Phaser.Math.FloatBetween(top + (bottom - top) * 0.5, bottom - 4),
-        FLAME_TEXTURE_KEY
-      )
-      .setScale(0.45 + Math.random() * 0.4)
-      .setAngle(Phaser.Math.Between(-15, 15))
-      .setFlipX(Math.random() < 0.5)
-      .setAlpha(0.9)
-      .setBlendMode(Phaser.BlendModes.ADD);
-    this.container.add(flame);
-    this.scene.tweens.add({
-      targets: flame,
-      y: flame.y - 18 - Math.random() * 12,
-      alpha: 0,
-      scaleX: flame.scaleX * 0.5,
-      scaleY: flame.scaleY * 1.3,
-      duration: BURN_FLAME_LIFESPAN_MS,
-      ease: 'Sine.easeOut',
-      onComplete: () => flame.destroy(),
-    });
-  }
-
-  /** One ice crystal — the ice family's real asset
-   * (public/move-assets/iceShard/crystal.png, see iceShardAttack.ts) —
-   * glinting into view somewhere on the body and fading again, additive
-   * like the attack it's borrowed from. Together with the ice-blue body tint
-   * (applyBodyTint) and the held animation (applyFrozenPause), it's what
-   * sells "encased in ice" rather than merely "standing still". */
-  private spawnFreezeGlint(): void {
-    if (!this.statusAssetReady(ICE_SHARD_TEXTURE_KEY)) return;
-    const halfWidth = this.bodyHalfWidth();
-    const crystal = this.scene.add
-      .image(
-        Phaser.Math.Between(-halfWidth, halfWidth),
-        Phaser.Math.FloatBetween(this.topOfBodyY(), this.bottomOfBodyY()),
-        ICE_SHARD_TEXTURE_KEY
-      )
-      .setScale(0.3)
-      .setAngle(Phaser.Math.Between(0, 359))
-      .setAlpha(0)
-      .setBlendMode(Phaser.BlendModes.ADD);
-    this.container.add(crystal);
-    this.scene.tweens.add({
-      targets: crystal,
-      alpha: 0.95,
-      scale: 0.7 + Math.random() * 0.4,
-      duration: FREEZE_GLINT_LIFESPAN_MS * 0.4,
-      ease: 'Sine.easeOut',
-      yoyo: true,
-      hold: FREEZE_GLINT_LIFESPAN_MS * 0.2,
-      onComplete: () => crystal.destroy(),
-    });
-  }
-
-  /** One small electric spark at a random point around the body's current
-   * bounding box, using thunderAttack.ts's own jagged-bolt particle texture
-   * (see pixelTextures.ts) tinted electric-yellow, so a paralyzed Pokémon
-   * reads as crackling with the same static an actual Thunder-family move
-   * shows mid-swing. */
-  private spawnParalysisSpark(): void {
-    const key = buildThunderParticleTexture(this.scene, getMoveTypeColor('electric'));
-    const halfWidth = this.bodyHalfWidth();
-    const spark = this.scene.add
-      .image(Phaser.Math.Between(-halfWidth, halfWidth), Phaser.Math.FloatBetween(this.topOfBodyY(), this.bottomOfBodyY()), key)
-      .setScale(1 + Math.random() * 0.8)
-      .setAngle(Phaser.Math.Between(0, 359))
-      .setAlpha(0.95)
-      .setBlendMode(Phaser.BlendModes.ADD);
-    this.container.add(spark);
-    this.scene.tweens.add({
-      targets: spark,
-      alpha: 0,
-      scaleX: spark.scaleX * 1.3,
-      scaleY: spark.scaleY * 1.3,
-      duration: PARALYSIS_SPARK_LIFESPAN_MS,
-      onComplete: () => spark.destroy(),
     });
   }
 
@@ -1331,6 +1212,8 @@ export class PokemonSprite {
     this.idleTween?.stop();
     this.statusVfxTimer?.remove();
     this.statusVfxTimer = null;
+    this.statusAnimation?.stop();
+    this.statusAnimation = null;
     this.container.destroy();
   }
 }

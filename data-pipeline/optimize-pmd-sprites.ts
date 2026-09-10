@@ -1,7 +1,7 @@
 import { mkdir, readdir, stat, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
-import sharp, { type PngOptions } from 'sharp';
 import { mapWithConcurrency } from './pokeapi';
+import { optimizePng } from './pngOptimize';
 
 // Turns the PMDCollab sprite mirror (pmd-sprite-mirror/<dir>/*.png, gitignored,
 // ~224 MB — see fetch-pmd-sprites.ts) into the tree that gets uploaded to
@@ -12,14 +12,11 @@ import { mapWithConcurrency } from './pokeapi';
 // - only the *-Anim.png sheets are kept. The client never requests the
 //   *-Shadow.png companions (PokemonSprite.ts draws its own shadow), and
 //   they're half the files in the mirror.
-// - each sheet is re-encoded as a palette PNG. The mirror stores every sheet
-//   as 8-bit RGBA even though a PMD sprite uses a dozen or so colors, so an
-//   indexed encoding is ~45% of the size. Quantization is nominally lossy,
-//   so every output is decoded and compared with its source on all visible
-//   pixels; any sheet that doesn't come back exact (one with more than 256
-//   colors, say) is written losslessly instead, at max deflate effort, and
-//   counted. Fully transparent pixels are allowed to lose their (invisible)
-//   RGB — that's the only thing quantization changes on these sheets.
+// - each sheet is re-encoded as a palette PNG (see pngOptimize.ts, shared
+//   with build-move-animations.ts). The mirror stores every sheet as 8-bit
+//   RGBA even though a PMD sprite uses a dozen or so colors, so an indexed
+//   encoding is ~45% of the size; sheets the quantizer can't reproduce
+//   exactly are written losslessly instead and counted.
 //
 // Re-running only re-encodes sheets whose source is newer than the existing
 // output (or all of them with --force).
@@ -30,26 +27,12 @@ const SHEET_RE = /^[A-Za-z]+-Anim\.png$/;
  * concurrent sheets already saturates the machine. */
 const CONCURRENCY = 4;
 
-const PALETTE_PNG: PngOptions = { palette: true, quality: 100, effort: 10, dither: 0, compressionLevel: 9 };
-const LOSSLESS_PNG: PngOptions = { palette: false, effort: 10, compressionLevel: 9 };
-
 async function mtimeMs(path: string): Promise<number | null> {
   try {
     return (await stat(path)).mtimeMs;
   } catch {
     return null;
   }
-}
-
-/** True when every pixel with any opacity matches exactly (RGBA); the RGB
- * of fully transparent pixels is ignored. */
-function visiblePixelsIdentical(a: Buffer, b: Buffer): boolean {
-  if (a.length !== b.length) return false;
-  for (let i = 0; i < a.length; i += 4) {
-    if (a[i + 3] === 0 && b[i + 3] === 0) continue;
-    if (a[i] !== b[i] || a[i + 1] !== b[i + 1] || a[i + 2] !== b[i + 2] || a[i + 3] !== b[i + 3]) return false;
-  }
-  return true;
 }
 
 interface Job {
@@ -71,14 +54,6 @@ async function listJobs(): Promise<Job[]> {
     for (const file of files) jobs.push({ dir, file });
   }
   return jobs;
-}
-
-async function optimize(source: string): Promise<{ png: Buffer; lossless: boolean }> {
-  const original = await sharp(source).ensureAlpha().raw().toBuffer();
-  const palette = await sharp(source).png(PALETTE_PNG).toBuffer();
-  const roundTrip = await sharp(palette).ensureAlpha().raw().toBuffer();
-  if (visiblePixelsIdentical(original, roundTrip)) return { png: palette, lossless: false };
-  return { png: await sharp(source).png(LOSSLESS_PNG).toBuffer(), lossless: true };
 }
 
 async function main(): Promise<void> {
@@ -104,7 +79,7 @@ async function main(): Promise<void> {
         skipped += 1;
       } else {
         try {
-          const { png, lossless } = await optimize(source);
+          const { png, lossless } = await optimizePng(source);
           await mkdir(join(OUTPUT_ROOT, dir), { recursive: true });
           await writeFile(output, png);
           encoded += 1;

@@ -7,21 +7,10 @@ import { STRUGGLE_MOVE, STRUGGLE_MOVE_ID } from '../../sim/struggle';
 import { PokemonSprite } from '../sprites/PokemonSprite';
 import { preloadArenaTileset, createArenaBackground } from '../tileset/arenaBackground';
 import { preloadPokeballAsset } from '../sprites/pokeballAsset';
-import { playMoveImpact } from '../vfx/moveEffects';
-import { resolveMoveAnimation } from '../vfx/moveAnimations';
-import { playBeamAttack, preloadBeamVfxAssets } from '../vfx/moves/beamAttack';
-import { playFlameAttack, preloadFlameVfxAssets } from '../vfx/moves/flameAttack';
-import { playThunderAttack, preloadThunderVfxAssets } from '../vfx/moves/thunderAttack';
-import { playLeafAttack, preloadLeafVfxAssets } from '../vfx/moves/leafAttack';
-import { playBubbleAttack, preloadBubbleVfxAssets } from '../vfx/moves/bubbleAttack';
-import { playWaveAttack } from '../vfx/moves/waveAttack';
-import { playIceShardAttack, preloadIceShardVfxAssets } from '../vfx/moves/iceShardAttack';
-import { playVortexAttack, preloadVortexVfxAssets } from '../vfx/moves/vortexAttack';
-import { playRockBurstAttack, preloadRockBurstVfxAssets } from '../vfx/moves/rockBurstAttack';
-import { playPoisonAttack, preloadPoisonVfxAssets } from '../vfx/moves/poisonAttack';
-import { playHydroPumpAttack, preloadHydroPumpVfxAssets } from '../vfx/moves/hydroPumpAttack';
-import { playImpactBurst } from '../vfx/moves/impactBurst';
-import { playLungePunchFlash, preloadLungeVfxAssets } from '../vfx/moves/lungeImpact';
+import { frameDurationMs, playAnimation, type AnimationHandle } from '../vfx/anim/AnimPlayer';
+import { getLoadedMoveAnimation, getMoveAnimationEntry, queueAnimationLoads, requestMoveAnimation } from '../vfx/anim/moveAnimLoader';
+import { playFallbackFlash } from '../vfx/anim/fallbackFlash';
+import { ANIM_REFERENCE_BATTLER_SIZE, STATUS_COMMON_ANIMATIONS } from '../../data/moveAnimationFormat';
 import { playMoveSound, type MoveSoundHandle } from '../sound/moveSound';
 import { playBattleMusic } from '../sound/battleMusic';
 import { installMasterLimiter } from '../sound/masterBus';
@@ -188,17 +177,18 @@ export class ArenaScene extends Phaser.Scene {
     this.load.json(PMD_SPRITE_INDEX_KEY, pmdSpriteIndexUrl());
     preloadArenaTileset(this);
     preloadPokeballAsset(this);
-    preloadPoisonVfxAssets(this);
-    preloadHydroPumpVfxAssets(this);
-    preloadThunderVfxAssets(this);
-    preloadIceShardVfxAssets(this);
-    preloadBubbleVfxAssets(this);
-    preloadLeafVfxAssets(this);
-    preloadRockBurstVfxAssets(this);
-    preloadVortexVfxAssets(this);
-    preloadBeamVfxAssets(this);
-    preloadFlameVfxAssets(this);
-    preloadLungeVfxAssets(this);
+    // Every move this roster can actually use is known up front (each
+    // Pokémon's four slots are fixed at match setup), so their animations
+    // and sheets download with the rest of the arena's assets instead of on
+    // first use — see moveAnimLoader.ts. Struggle is always possible.
+    if (this.engine) {
+      const state = this.engine.getState();
+      const moveIds = new Set<number>([STRUGGLE_MOVE_ID]);
+      for (const id of state.livingOrder) {
+        for (const slot of state.pokemon[id]?.moves ?? []) moveIds.add(slot.moveId);
+      }
+      queueAnimationLoads(this, moveIds, Object.values(STATUS_COMMON_ANIMATIONS));
+    }
   }
 
   create(): void {
@@ -335,9 +325,11 @@ export class ArenaScene extends Phaser.Scene {
       const attackEffects = this.handleMoveUsed(attack);
       this.time.delayedCall(ATTACK_VISUAL_DURATION_MS, () => {
         // The attack's on-screen animation is done by now (this timer is
-        // also what frees up the concurrency slot below) — don't let its
-        // sound effect, move-name callout, or position lock linger past
-        // that point.
+        // also what frees up the concurrency slot below; the animation
+        // itself is paced to fit inside it — see frameDurationMs) — don't
+        // let its sound effect, move-name callout, or position lock linger
+        // past that point.
+        attackEffects?.animation?.stop();
         attackEffects?.soundHandle?.stop();
         attackEffects?.hideMoveLabel();
         attackEffects?.unlockPosition();
@@ -360,9 +352,7 @@ export class ArenaScene extends Phaser.Scene {
     this.activeAttackSlots -= 1;
   }
 
-  private handleMoveUsed(
-    attack: QueuedAttack
-  ): { soundHandle: MoveSoundHandle | undefined; hideMoveLabel: () => void; unlockPosition: () => void } | undefined {
+  private handleMoveUsed(attack: QueuedAttack): AttackEffects | undefined {
     const { event, attackerPosition, engagedTarget, hitTargets } = attack;
     const attackerSprite = this.sprites.get(event.attackerId);
     const move = event.moveId === STRUGGLE_MOVE_ID ? STRUGGLE_MOVE : getMoveDefinition(event.moveId);
@@ -370,75 +360,88 @@ export class ArenaScene extends Phaser.Scene {
 
     const hideMoveLabel = attackerSprite.showMoveLabel(move);
     const soundHandle = playMoveSound(this, move);
-    const { family } = resolveMoveAnimation(move);
-    const ranged = family !== 'lunge';
+    // Melee-swing pose for a physical move or any animation that dashes the
+    // attacker into its target (the pack marks those — see the index's
+    // `melee`); every other move holds ground and fires from range, so
+    // prefer the species' dedicated ranged-attack pose there.
+    const entry = getMoveAnimationEntry(move.id);
+    const ranged = !(entry?.melee || move.category === 'physical');
     // The sim's own action-cooldown/wander transition kicks in almost
     // immediately after this move fires — well before this attack's on-screen
     // visual window (ATTACK_VISUAL_DURATION_MS, released below) closes — so
-    // without this the attacker visibly drifts off mid-pose. Locked for lunge
-    // attacks too, not just ranged ones: playLungeAttack's dash-and-return
-    // (LUNGE_OUT_MS + LUNGE_BACK_MS, well under 300ms) finishes long before
-    // this window does, and it moves the sprite via its own additive
-    // attackOffset — entirely independent of renderPos (see attackOffset's
-    // own doc comment) — so locking renderPos here doesn't fight that dash at
-    // all, it just stops the *base* position drifting for the remainder of
-    // the window once the dash itself is done.
+    // without this the attacker visibly drifts off mid-pose. The animation
+    // moves the sprite via its own additive animOffset — entirely
+    // independent of renderPos (see PokemonSprite.setAnimOffset) — so
+    // locking renderPos here doesn't fight a dash at all, it just stops the
+    // *base* position drifting for the remainder of the window.
     const unlockPosition = attackerSprite.lockPosition();
     // Face toward whoever the attacker was actually engaged with when this
     // fired (not necessarily event.targetIds[0] — a spread move's target
     // list isn't ordered by "primary"), so the swing always points the right
     // way even though the 'attack' AI state itself never turns to face its
-    // target. Every family but lunge holds ground (see movement.ts's
-    // 'attack' AI state) and fires from range, so prefer the species'
-    // dedicated ranged-attack pose over the generic melee-swing Attack frame
-    // there.
+    // target.
     attackerSprite.playPmdAttack(attackerPosition, engagedTarget?.position, ranged);
 
-    // One attack, one target, one VFX — never a beam/jet/dash to more than
-    // one Pokémon. The sim itself now only ever lands a move on the single
-    // engaged target (see engine.ts's resolveTargets), so hitTargets holds
-    // at most one entry; this still deliberately picks exactly one (the
-    // engaged target if it was hit, else the first hit) rather than looping,
-    // so a multi-target event from an older game server in a multiplayer
-    // room can't draw the fan of simultaneous effects this used to produce.
+    // One attack, one target, one animation — never a beam/jet/dash to more
+    // than one Pokémon. The sim itself now only ever lands a move on the
+    // single engaged target (see engine.ts's resolveTargets), so hitTargets
+    // holds at most one entry; this still deliberately picks exactly one
+    // (the engaged target if it was hit, else the first hit) rather than
+    // looping, so a multi-target event from an older game server in a
+    // multiplayer room can't draw the fan of simultaneous effects this used
+    // to produce. A self-targeting move (Swords Dance, ...) has no target at
+    // all: its animation plays on the attacker, which the sim never counts
+    // as a hit (see engine.ts's early return for `targeting === 'self'`).
     const target = pickVfxTarget(engagedTarget, hitTargets);
-    if (!target) return { soundHandle, hideMoveLabel, unlockPosition }; // a clean miss: pose/label/sound only
+    const selfTargeting = move.targeting === 'self';
+    if (!target && !selfTargeting) return { soundHandle, hideMoveLabel, unlockPosition }; // a clean miss: pose/label/sound only
 
-    const { x: fromX, y: fromY } = attackerPosition;
-    const { x: toX, y: toY } = target.position;
-    if (family === 'lunge') {
-      attackerSprite.playLungeAttack(attackerPosition, target.position, target.collisionRadius, () => {
-        playImpactBurst(this, toX, toY, move.type);
-        playLungePunchFlash(this, toX, toY);
-      });
-    } else if (family === 'beam') {
-      playBeamAttack(this, fromX, fromY, toX, toY, move.type);
-    } else if (family === 'flame') {
-      playFlameAttack(this, fromX, fromY, toX, toY, move.type);
-    } else if (family === 'thunder') {
-      playThunderAttack(this, fromX, fromY, toX, toY, move.type);
-    } else if (family === 'leaf') {
-      playLeafAttack(this, fromX, fromY, toX, toY, move.type);
-    } else if (family === 'bubble') {
-      playBubbleAttack(this, fromX, fromY, toX, toY, move.type);
-    } else if (family === 'wave') {
-      playWaveAttack(this, fromX, fromY, toX, toY, move.type);
-    } else if (family === 'iceShard') {
-      playIceShardAttack(this, fromX, fromY, toX, toY, move.type);
-    } else if (family === 'vortex') {
-      playVortexAttack(this, fromX, fromY, toX, toY, move.type);
-    } else if (family === 'rockBurst') {
-      playRockBurstAttack(this, fromX, fromY, toX, toY, move.type);
-    } else if (family === 'poison') {
-      playPoisonAttack(this, fromX, fromY, toX, toY, move.type);
-    } else if (family === 'hydroPump') {
-      playHydroPumpAttack(this, fromX, fromY, toX, toY, move.type);
-    } else {
-      playMoveImpact(this, fromX, fromY, toX, toY, move.type);
+    // Anchors are read live every frame so the animation follows a target
+    // that keeps walking during the attack, falling back to the positions
+    // snapshotted when the move fired once a sprite is gone (fainted).
+    const targetSprite = target ? this.sprites.get(target.instanceId) : undefined;
+    const getAttacker = (): Vec2 => (attackerSprite.isDestroyed() ? attackerPosition : attackerSprite.getRenderPosition());
+    const getTarget = (): Vec2 => {
+      if (!target) return getAttacker();
+      return targetSprite && !targetSprite.isDestroyed() ? targetSprite.getRenderPosition() : target.position;
+    };
+    const impact = target ? target.position : attackerPosition;
+
+    const loaded = getLoadedMoveAnimation(this, move.id);
+    if (!loaded) {
+      // Not downloaded yet (a move outside the roster's preloaded slots, or
+      // a failed fetch): show something at the point of impact now and
+      // fetch it for the next use.
+      playFallbackFlash(this, impact.x, impact.y, move.type);
+      requestMoveAnimation(this, move.id);
+      return { soundHandle, hideMoveLabel, unlockPosition };
     }
+    // A handful of the pack's animations only move or tint the battlers
+    // and draw nothing themselves (Psychic, Confusion, Struggle, ...) —
+    // layer the flash under those so a hit is never invisible.
+    if (!loaded.sheetKey) playFallbackFlash(this, impact.x, impact.y, move.type);
 
-    return { soundHandle, hideMoveLabel, unlockPosition };
+    const animation = playAnimation({
+      scene: this,
+      data: loaded.data,
+      sheetKey: loaded.sheetKey,
+      getAttacker,
+      getTarget,
+      scale: attackerSprite.getOnScreenSize() / ANIM_REFERENCE_BATTLER_SIZE,
+      msPerFrame: frameDurationMs(loaded.data.frames.length, ATTACK_VISUAL_DURATION_MS),
+      attacker: attackerSprite,
+      target: target && targetSprite !== attackerSprite ? targetSprite : undefined,
+    });
+
+    return { soundHandle, hideMoveLabel, unlockPosition, animation };
   }
+}
+
+interface AttackEffects {
+  soundHandle: MoveSoundHandle | undefined;
+  hideMoveLabel: () => void;
+  unlockPosition: () => void;
+  animation?: AnimationHandle;
 }
 
 /** The single Pokémon an attack's VFX flies at: the one the attacker was

@@ -17,6 +17,7 @@
     "data:fetch-pmd-sprites": "tsx data-pipeline/fetch-pmd-sprites.ts",
     "data:fetch-pmd-shiny-sprites": "tsx data-pipeline/fetch-pmd-shiny-sprites.ts",
     "data:build-move-sounds": "tsx data-pipeline/build-move-sound-index.ts",
+    "data:build-move-animations": "tsx data-pipeline/build-move-animations.ts",
     "data:build-soundtrack": "tsx data-pipeline/build-soundtrack.ts",
     "data:optimize-pmd-sprites": "tsx data-pipeline/optimize-pmd-sprites.ts",
     "sprite:serve": "tsx sprite-server/server.ts",
