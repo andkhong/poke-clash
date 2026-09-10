@@ -46,9 +46,13 @@ npm run data:build-move-sounds   # only if sound/ or the move dataset changed
 fly deploy
 ```
 
-`fly deploy` builds the image: `npm run build` (Vite) and
-`npm run build:servers` (esbuild bundles of both servers). To test the
-image locally with the prepared assets standing in for the volume:
+`fly deploy` builds the image: `npm run build` (Vite, then
+`scripts/precompress-dist.mjs` writes `.br`/`.gz` siblings Caddy serves
+directly) and `npm run build:servers` (esbuild bundles of both servers).
+The arena's frame-metadata index (`public/pmd-sprite-index.json`, ~1.4 MB)
+is fetched when a match starts rather than bundled, under the same `?v=`
+tag as the sheets. To test the image locally with the prepared assets
+standing in for the volume:
 
 ```sh
 docker build -t poke-clash .

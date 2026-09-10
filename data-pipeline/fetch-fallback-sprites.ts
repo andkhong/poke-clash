@@ -21,7 +21,7 @@ import { mapWithConcurrency } from './pokeapi';
 // Re-running only fetches species whose files are missing (or all of them
 // with --force).
 const POKEMON_JSON_PATH = new URL('../src/data/generated/pokemon.json', import.meta.url).pathname;
-const PMD_INDEX_PATH = new URL('../src/data/generated/pmdSpriteIndex.json', import.meta.url).pathname;
+const PMD_INDEX_PATH = new URL('../public/pmd-sprite-index.json', import.meta.url).pathname;
 const SPRITE_INDEX_PATH = new URL('../src/data/generated/spriteIndex.json', import.meta.url).pathname;
 const OUTPUT_DIR = new URL('../public/fallback-sprites/', import.meta.url).pathname;
 const PUBLIC_PREFIX = '/fallback-sprites/';

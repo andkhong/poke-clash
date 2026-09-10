@@ -17,3 +17,11 @@ export const PMD_SHEET_VERSION = 2;
 export function pmdSheetUrl(dir: string, action: string): string {
   return `/pmd-sprites/${dir}/${action}-Anim.png?v=${PMD_SHEET_VERSION}`;
 }
+
+/** The per-species frame metadata for those sheets (public/pmd-sprite-index.json,
+ * fetched by ArenaScene's preload rather than bundled — see
+ * data-pipeline/pmdSpriteIndexFiles.ts). Carries the same tag as the sheets
+ * it describes, since the two are only ever valid together. */
+export function pmdSpriteIndexUrl(): string {
+  return `/pmd-sprite-index.json?v=${PMD_SHEET_VERSION}`;
+}

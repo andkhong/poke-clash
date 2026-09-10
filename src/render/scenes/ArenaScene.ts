@@ -29,7 +29,7 @@ import { getMoveDefinition } from '../../data/loader';
 import { teamColorHex } from '../../ui/teamColors';
 import type { PmdSpriteIndex, SpriteIndex } from '../../data/types';
 import spriteIndexData from '../../data/generated/spriteIndex.json';
-import pmdSpriteIndexData from '../../data/generated/pmdSpriteIndex.json';
+import { pmdSpriteIndexUrl } from '../sprites/pmdSheetUrl';
 
 export interface ArenaSceneData {
   engine: EngineLike;
@@ -38,7 +38,10 @@ export interface ArenaSceneData {
 }
 
 const spriteIndex = spriteIndexData as SpriteIndex;
-const pmdSpriteIndex = pmdSpriteIndexData as PmdSpriteIndex;
+// The PMD frame-metadata index is ~1.4 MB and only needed here, so it's a
+// static file fetched in preload() (see pmdSpriteIndexUrl) rather than part
+// of the bundle every visitor downloads for the menus.
+const PMD_SPRITE_INDEX_KEY = 'pmd-sprite-index';
 
 type MoveUsedEvent = Extract<import('../../sim/types').SimEvent, { type: 'moveUsed' }>;
 
@@ -182,6 +185,7 @@ export class ArenaScene extends Phaser.Scene {
   }
 
   preload(): void {
+    this.load.json(PMD_SPRITE_INDEX_KEY, pmdSpriteIndexUrl());
     preloadArenaTileset(this);
     preloadPokeballAsset(this);
     preloadPoisonVfxAssets(this);
@@ -201,6 +205,11 @@ export class ArenaScene extends Phaser.Scene {
     if (!this.engine) return; // init() was skipped (no data) — see init()
     const state = this.engine.getState();
     createArenaBackground(this, state.arena.width, state.arena.height);
+
+    // Missing only if the fetch in preload() failed; every sprite then goes
+    // through its hotlink/fallback tiers instead of drawing nothing.
+    const pmdSpriteIndex = (this.cache.json.get(PMD_SPRITE_INDEX_KEY) as PmdSpriteIndex | undefined) ?? null;
+    if (!pmdSpriteIndex) console.warn('[ArenaScene] PMD sprite index failed to load; falling back to hotlinked/static art');
 
     // livingOrder is allInstanceIds' spawn order minus anyone already
     // fainted, which circlePosition() (matchSetup.ts) lays out clockwise

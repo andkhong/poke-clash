@@ -1,6 +1,7 @@
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { mapWithConcurrency } from './pokeapi';
 import { extractCoreActions, fetchZipWithRetry } from './pmdSpriteZip';
+import { PMD_SPRITE_INDEX_PATH, writePmdSpriteIndex } from './pmdSpriteIndexFiles';
 import type { PmdSpriteIndex } from '../src/data/types';
 
 // Downloads animated battle sprites from PMDCollab/SpriteCollab (the sprite
@@ -11,7 +12,7 @@ import type { PmdSpriteIndex } from '../src/data/types';
 // while a small parsed-metadata index is committed to src/data/generated/ so
 // the client never fetches or parses AnimData.xml at runtime.
 const POKEMON_JSON_PATH = new URL('../src/data/generated/pokemon.json', import.meta.url).pathname;
-const OUTPUT_INDEX_PATH = new URL('../src/data/generated/pmdSpriteIndex.json', import.meta.url).pathname;
+const OUTPUT_INDEX_PATH = PMD_SPRITE_INDEX_PATH;
 const STATUS_CACHE_PATH = new URL('./cache/pmdSpriteFetch.json', import.meta.url).pathname;
 const RAW_ZIP_CACHE_DIR = new URL('./cache/pmd-sprites-raw/', import.meta.url).pathname;
 const MIRROR_ROOT = new URL('../pmd-sprite-mirror/', import.meta.url).pathname;
@@ -109,7 +110,7 @@ async function processSpecies(id: number, index: PmdSpriteIndex, statusCache: St
 
 async function persist(index: PmdSpriteIndex, statusCache: StatusCache): Promise<void> {
   await mkdir(new URL('../src/data/generated/', import.meta.url).pathname, { recursive: true });
-  await writeFile(OUTPUT_INDEX_PATH, JSON.stringify(index), 'utf-8');
+  await writePmdSpriteIndex(index);
   await mkdir(new URL('./cache/', import.meta.url).pathname, { recursive: true });
   await writeFile(STATUS_CACHE_PATH, JSON.stringify(statusCache), 'utf-8');
 }

@@ -38,7 +38,9 @@ export interface SpriteIndexEntry {
 
 export type SpriteIndex = Record<string, SpriteIndexEntry>;
 
-// Shape of src/data/generated/pmdSpriteIndex.json (see data-pipeline/fetch-pmd-sprites.ts).
+// Shape of public/pmd-sprite-index.json (see data-pipeline/fetch-pmd-sprites.ts
+// and pmdSpriteIndexFiles.ts — fetched by the arena at match start, not
+// bundled; src/data/generated/pmdSpriteIds.json is its list of keys).
 // One entry per species with usable PMDCollab/SpriteCollab coverage (at least
 // Idle+Walk) — species without an entry fall back to the hotlink tier above.
 // The raw PNGs live outside git in pmd-sprite-mirror/, served locally by
