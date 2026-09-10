@@ -24,6 +24,7 @@ import { playImpactBurst } from '../vfx/moves/impactBurst';
 import { playLungePunchFlash, preloadLungeVfxAssets } from '../vfx/moves/lungeImpact';
 import { playMoveSound, type MoveSoundHandle } from '../sound/moveSound';
 import { playBattleMusic } from '../sound/battleMusic';
+import { installMasterLimiter } from '../sound/mix';
 import { getMoveDefinition } from '../../data/loader';
 import { teamColorHex } from '../../ui/teamColors';
 import type { PmdSpriteIndex, SpriteIndex } from '../../data/types';
@@ -217,6 +218,10 @@ export class ArenaScene extends Phaser.Scene {
     });
 
     this.cameras.main.setBackgroundColor('#1a1a1a');
+    // Before any sound plays: the Pokéball-pop cries the sprites above are
+    // about to fire overlap heavily, and everything is loudness-normalized
+    // to targets hot enough to need this — see mix.ts.
+    installMasterLimiter(this);
     playBattleMusic(this);
   }
 
