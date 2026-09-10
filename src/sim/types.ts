@@ -229,7 +229,7 @@ export type SimEvent =
     }
   | { seq: number; atMs: number; type: 'statusApplied'; instanceId: string; status: StatusCondition }
   | { seq: number; atMs: number; type: 'statusTick'; instanceId: string; status: StatusCondition; amount: number }
-  | { seq: number; atMs: number; type: 'statCleared'; instanceId: string; status: StatusCondition }
+  | { seq: number; atMs: number; type: 'statusCleared'; instanceId: string; status: StatusCondition }
   | { seq: number; atMs: number; type: 'fainted'; instanceId: string; byInstanceId: string | null }
   | { seq: number; atMs: number; type: 'milestone'; kind: 'matchStart' | 'finalTwo' | 'matchEnd' };
 

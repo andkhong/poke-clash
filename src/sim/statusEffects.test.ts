@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
-import { applyStatus, canApplyStatus, gateAction, tickStatusDamage } from './statusEffects';
+import { applyStatus, canApplyStatus, gateAction, maybeThawOnFireHit, tickStatusDamage } from './statusEffects';
 import { createNeutralStages } from './statCalc';
+import { FREEZE_MAX_TURNS } from './constants';
 import type { PokemonInstance } from './types';
 
 function fakeRng(sequence: number[]): () => number {
@@ -51,6 +52,35 @@ describe('status application', () => {
     expect(p.status).toBe('sleep');
     expect(p.statusTurnsRemaining).toBeGreaterThanOrEqual(1);
     expect(p.statusTurnsRemaining).toBeLessThanOrEqual(3);
+  });
+
+  it('freeze always thaws by its FREEZE_MAX_TURNS ceiling even if every thaw roll fails', () => {
+    const p = makeInstance();
+    applyStatus(p, 'freeze', fakeRng([0.999]));
+    expect(p.status).toBe('freeze');
+    expect(p.statusTurnsRemaining).toBe(FREEZE_MAX_TURNS);
+
+    const neverThaws = fakeRng([0.999]); // always above FREEZE_THAW_CHANCE
+    let turns = 0;
+    while (p.status === 'freeze' && turns < FREEZE_MAX_TURNS + 5) {
+      const result = gateAction(p, neverThaws);
+      turns++;
+      if (p.status === 'freeze') expect(result).toEqual({ canAct: false });
+      else expect(result).toEqual({ canAct: true, clearedStatus: 'freeze' });
+    }
+    expect(p.status).toBeNull();
+    expect(p.statusTurnsRemaining).toBeUndefined();
+    expect(turns).toBe(FREEZE_MAX_TURNS);
+  });
+
+  it('a Fire-type hit thaws a frozen Pokémon outright and clears its turn counter', () => {
+    const p = makeInstance();
+    applyStatus(p, 'freeze', fakeRng([0.999]));
+    expect(maybeThawOnFireHit(p, false)).toBe(false);
+    expect(p.status).toBe('freeze');
+    expect(maybeThawOnFireHit(p, true)).toBe(true);
+    expect(p.status).toBeNull();
+    expect(p.statusTurnsRemaining).toBeUndefined();
   });
 });
 

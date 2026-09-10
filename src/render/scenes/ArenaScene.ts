@@ -54,11 +54,17 @@ type MoveUsedEvent = Extract<import('../../sim/types').SimEvent, { type: 'moveUs
  * connects with nothing. Snapshotting once at enqueue time and never
  * touching live state again in handleMoveUsed fixes that regardless of how
  * long the event then waits in the queue. */
+interface AttackTargetSnapshot {
+  instanceId: string;
+  position: Vec2;
+  collisionRadius: number;
+}
+
 interface QueuedAttack {
   event: MoveUsedEvent;
   attackerPosition: Vec2;
-  engagedTarget?: { position: Vec2; collisionRadius: number };
-  hitTargets: { position: Vec2; collisionRadius: number }[];
+  engagedTarget?: AttackTargetSnapshot;
+  hitTargets: AttackTargetSnapshot[];
 }
 
 /** Logs every moveUsed event as it's drained — unconditionally, before the
@@ -271,20 +277,20 @@ export class ArenaScene extends Phaser.Scene {
     const engagedTargetId = event.primaryTargetId;
     const engagedPosition = engagedTargetId ? event.targetPositions[engagedTargetId] : undefined;
     const engagedSource = engagedTargetId ? state.pokemon[engagedTargetId] : undefined;
-    const hitTargets: { position: Vec2; collisionRadius: number }[] = [];
+    const hitTargets: AttackTargetSnapshot[] = [];
     for (const targetId of event.targetIds) {
       if (!event.hit[targetId]) continue;
       const target = state.pokemon[targetId];
       const position = event.targetPositions[targetId];
-      if (target && position) hitTargets.push({ position, collisionRadius: target.collisionRadius });
+      if (target && position) hitTargets.push({ instanceId: targetId, position, collisionRadius: target.collisionRadius });
     }
 
     this.attackQueue.push({
       event,
       attackerPosition: event.attackerPosition,
       engagedTarget:
-        engagedSource && engagedPosition
-          ? { position: engagedPosition, collisionRadius: engagedSource.collisionRadius }
+        engagedTargetId && engagedSource && engagedPosition
+          ? { instanceId: engagedTargetId, position: engagedPosition, collisionRadius: engagedSource.collisionRadius }
           : undefined,
       hitTargets,
     });
@@ -375,70 +381,60 @@ export class ArenaScene extends Phaser.Scene {
     // there.
     attackerSprite.playPmdAttack(attackerPosition, engagedTarget?.position, ranged);
 
+    // One attack, one target, one VFX — never a beam/jet/dash to more than
+    // one Pokémon. The sim itself now only ever lands a move on the single
+    // engaged target (see engine.ts's resolveTargets), so hitTargets holds
+    // at most one entry; this still deliberately picks exactly one (the
+    // engaged target if it was hit, else the first hit) rather than looping,
+    // so a multi-target event from an older game server in a multiplayer
+    // room can't draw the fan of simultaneous effects this used to produce.
+    const target = pickVfxTarget(engagedTarget, hitTargets);
+    if (!target) return { soundHandle, hideMoveLabel, unlockPosition }; // a clean miss: pose/label/sound only
+
+    const { x: fromX, y: fromY } = attackerPosition;
+    const { x: toX, y: toY } = target.position;
     if (family === 'lunge') {
-      // A lunge repositions the attacker itself, so it only makes sense to
-      // dash toward one point even for a (rare) multi-hit physical move —
-      // the engaged target if there is one, else whichever hit target the
-      // sim picked first. The impact flash still plays at every hit target.
-      const lungeTarget = engagedTarget ?? hitTargets[0];
-      if (lungeTarget) {
-        attackerSprite.playLungeAttack(attackerPosition, lungeTarget.position, lungeTarget.collisionRadius, () => {
-          for (const target of hitTargets) {
-            playImpactBurst(this, target.position.x, target.position.y, move.type);
-            playLungePunchFlash(this, target.position.x, target.position.y);
-          }
-        });
-      }
+      attackerSprite.playLungeAttack(attackerPosition, target.position, target.collisionRadius, () => {
+        playImpactBurst(this, toX, toY, move.type);
+        playLungePunchFlash(this, toX, toY);
+      });
     } else if (family === 'beam') {
-      for (const target of hitTargets) {
-        playBeamAttack(this, attackerPosition.x, attackerPosition.y, target.position.x, target.position.y, move.type);
-      }
+      playBeamAttack(this, fromX, fromY, toX, toY, move.type);
     } else if (family === 'flame') {
-      for (const target of hitTargets) {
-        playFlameAttack(this, attackerPosition.x, attackerPosition.y, target.position.x, target.position.y, move.type);
-      }
+      playFlameAttack(this, fromX, fromY, toX, toY, move.type);
     } else if (family === 'thunder') {
-      for (const target of hitTargets) {
-        playThunderAttack(this, attackerPosition.x, attackerPosition.y, target.position.x, target.position.y, move.type);
-      }
+      playThunderAttack(this, fromX, fromY, toX, toY, move.type);
     } else if (family === 'leaf') {
-      for (const target of hitTargets) {
-        playLeafAttack(this, attackerPosition.x, attackerPosition.y, target.position.x, target.position.y, move.type);
-      }
+      playLeafAttack(this, fromX, fromY, toX, toY, move.type);
     } else if (family === 'bubble') {
-      for (const target of hitTargets) {
-        playBubbleAttack(this, attackerPosition.x, attackerPosition.y, target.position.x, target.position.y, move.type);
-      }
+      playBubbleAttack(this, fromX, fromY, toX, toY, move.type);
     } else if (family === 'wave') {
-      for (const target of hitTargets) {
-        playWaveAttack(this, attackerPosition.x, attackerPosition.y, target.position.x, target.position.y, move.type);
-      }
+      playWaveAttack(this, fromX, fromY, toX, toY, move.type);
     } else if (family === 'iceShard') {
-      for (const target of hitTargets) {
-        playIceShardAttack(this, attackerPosition.x, attackerPosition.y, target.position.x, target.position.y, move.type);
-      }
+      playIceShardAttack(this, fromX, fromY, toX, toY, move.type);
     } else if (family === 'vortex') {
-      for (const target of hitTargets) {
-        playVortexAttack(this, attackerPosition.x, attackerPosition.y, target.position.x, target.position.y, move.type);
-      }
+      playVortexAttack(this, fromX, fromY, toX, toY, move.type);
     } else if (family === 'rockBurst') {
-      for (const target of hitTargets) {
-        playRockBurstAttack(this, attackerPosition.x, attackerPosition.y, target.position.x, target.position.y, move.type);
-      }
+      playRockBurstAttack(this, fromX, fromY, toX, toY, move.type);
     } else if (family === 'poison') {
-      for (const target of hitTargets) {
-        playPoisonAttack(this, attackerPosition.x, attackerPosition.y, target.position.x, target.position.y, move.type);
-      }
+      playPoisonAttack(this, fromX, fromY, toX, toY, move.type);
     } else if (family === 'hydroPump') {
-      for (const target of hitTargets) {
-        playHydroPumpAttack(this, attackerPosition.x, attackerPosition.y, target.position.x, target.position.y, move.type);
-      }
+      playHydroPumpAttack(this, fromX, fromY, toX, toY, move.type);
     } else {
-      for (const target of hitTargets) {
-        playMoveImpact(this, attackerPosition.x, attackerPosition.y, target.position.x, target.position.y, move.type);
-      }
+      playMoveImpact(this, fromX, fromY, toX, toY, move.type);
     }
 
     return { soundHandle, hideMoveLabel, unlockPosition };
   }
+}
+
+/** The single Pokémon an attack's VFX flies at: the one the attacker was
+ * engaged with, provided the move actually connected with it, else whichever
+ * hit the sim listed first; undefined when nothing was hit at all. */
+function pickVfxTarget(
+  engagedTarget: AttackTargetSnapshot | undefined,
+  hitTargets: readonly AttackTargetSnapshot[]
+): AttackTargetSnapshot | undefined {
+  if (engagedTarget && hitTargets.some((t) => t.instanceId === engagedTarget.instanceId)) return engagedTarget;
+  return hitTargets[0];
 }

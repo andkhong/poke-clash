@@ -3,6 +3,7 @@ import type { Rng } from './rng';
 import { rngChance, rngIntInclusive } from './rng';
 import {
   BURN_CHIP_FRACTION,
+  FREEZE_MAX_TURNS,
   FREEZE_THAW_CHANCE,
   PARALYSIS_FULL_PARA_CHANCE,
   POISON_CHIP_FRACTION,
@@ -16,6 +17,12 @@ export function canApplyStatus(target: PokemonInstance): boolean {
   return target.status === null;
 }
 
+/** Sleep and freeze both take the Pokémon out of the fight entirely (see
+ * ai.ts's 'incapacitated' state) — the only two statuses that do. */
+export function isIncapacitatingStatus(status: StatusCondition | null): boolean {
+  return status === 'sleep' || status === 'freeze';
+}
+
 export function applyStatus(
   target: PokemonInstance,
   status: StatusCondition,
@@ -26,7 +33,9 @@ export function applyStatus(
   if (status === 'sleep') {
     target.statusTurnsRemaining = rngIntInclusive(rng, SLEEP_MIN_TURNS, SLEEP_MAX_TURNS);
   } else if (status === 'freeze') {
-    target.statusTurnsRemaining = undefined; // freeze clears via thaw-chance roll, not a countdown
+    // Freeze normally clears via its per-turn thaw roll (see gateAction) —
+    // this is only the hard ceiling on how long a bad streak can last.
+    target.statusTurnsRemaining = FREEZE_MAX_TURNS;
   }
 }
 
@@ -38,8 +47,11 @@ export interface ActionGateResult {
 }
 
 /**
- * Called once per action-cooldown cadence (not the fast movement tick) for a
- * status-afflicted Pokémon, immediately before it would otherwise act.
+ * Called once per "turn" (not the fast movement tick) for a status-afflicted
+ * Pokémon: for a paralyzed one, immediately before it would otherwise act
+ * (engine.ts's executeMove); for a sleeping/frozen one — which never reaches
+ * that path, since it can't act at all — on the fixed
+ * STATUS_TURN_INTERVAL_MS cadence engine.ts's tickIncapacitated gives it.
  */
 export function gateAction(target: PokemonInstance, rng: Rng): ActionGateResult {
   if (target.status === 'sleep') {
@@ -54,10 +66,13 @@ export function gateAction(target: PokemonInstance, rng: Rng): ActionGateResult 
   }
 
   if (target.status === 'freeze') {
-    if (rngChance(rng, FREEZE_THAW_CHANCE)) {
+    const remaining = (target.statusTurnsRemaining ?? FREEZE_MAX_TURNS) - 1;
+    if (remaining <= 0 || rngChance(rng, FREEZE_THAW_CHANCE)) {
       target.status = null;
+      target.statusTurnsRemaining = undefined;
       return { canAct: true, clearedStatus: 'freeze' };
     }
+    target.statusTurnsRemaining = remaining;
     return { canAct: false };
   }
 
@@ -75,6 +90,7 @@ export function gateAction(target: PokemonInstance, rng: Rng): ActionGateResult 
 export function maybeThawOnFireHit(target: PokemonInstance, moveTypeIsFire: boolean): boolean {
   if (target.status === 'freeze' && moveTypeIsFire) {
     target.status = null;
+    target.statusTurnsRemaining = undefined;
     return true;
   }
   return false;

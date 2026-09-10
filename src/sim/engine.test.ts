@@ -2,7 +2,20 @@ import { describe, expect, it } from 'vitest';
 import { SimulationEngine } from './engine';
 import type { SpeciesData } from './matchSetup';
 import type { MoveDefinition } from './types';
-import { ARENA_HEIGHT, ARENA_WIDTH, COMBAT_START_DELAY_MS, TICK_MS } from './constants';
+import {
+  ARENA_HEIGHT,
+  ARENA_WIDTH,
+  BURN_CHIP_FRACTION,
+  COMBAT_START_DELAY_MS,
+  FREEZE_MAX_TURNS,
+  MAX_ACTION_COOLDOWN_MS,
+  POISON_CHIP_FRACTION,
+  SLEEP_MAX_TURNS,
+  STATUS_TICK_INTERVAL_MS,
+  STATUS_TURN_INTERVAL_MS,
+  TICK_MS,
+} from './constants';
+import type { StatusCondition } from './types';
 import { distance } from './movement';
 
 const FIXTURE_MOVES: MoveDefinition[] = [
@@ -14,6 +27,14 @@ const FIXTURE_MOVES: MoveDefinition[] = [
   { id: 6, name: 'Fixture Thunder Wave-ish', type: 'electric', category: 'status', power: null, accuracy: 90, pp: 20, priority: 0, targeting: 'enemy', effect: { kind: 'statusInflict', target: 'enemy', status: 'paralysis', chance: 100 } },
   { id: 7, name: 'Fixture Vine Whip', type: 'grass', category: 'physical', power: 45, accuracy: 100, pp: 25, priority: 0, targeting: 'enemy' },
   { id: 8, name: 'Fixture Quake', type: 'ground', category: 'physical', power: 60, accuracy: 100, pp: 10, priority: 0, targeting: 'all-enemies-in-radius' },
+  // Pure status-inflicting moves (no damage), one per condition — used by the
+  // status-lifecycle tests below via species 7-10, each of which knows only
+  // its one move. Kept off species 1-6's pools so the seed-sensitive tests
+  // above keep drawing exactly the movesets they always have.
+  { id: 9, name: 'Fixture Spore', type: 'grass', category: 'status', power: null, accuracy: 100, pp: 15, priority: 0, targeting: 'enemy', effect: { kind: 'statusInflict', target: 'enemy', status: 'sleep', chance: 100 } },
+  { id: 10, name: 'Fixture Freeze Ray', type: 'ice', category: 'status', power: null, accuracy: 100, pp: 15, priority: 0, targeting: 'enemy', effect: { kind: 'statusInflict', target: 'enemy', status: 'freeze', chance: 100 } },
+  { id: 11, name: 'Fixture Toxic-ish', type: 'poison', category: 'status', power: null, accuracy: 100, pp: 10, priority: 0, targeting: 'enemy', effect: { kind: 'statusInflict', target: 'enemy', status: 'poison', chance: 100 } },
+  { id: 12, name: 'Fixture Will-O-Wisp-ish', type: 'fire', category: 'status', power: null, accuracy: 100, pp: 15, priority: 0, targeting: 'enemy', effect: { kind: 'statusInflict', target: 'enemy', status: 'burn', chance: 100 } },
 ];
 
 const movesById = new Map(FIXTURE_MOVES.map((m) => [m.id, m]));
@@ -26,6 +47,12 @@ const FIXTURE_SPECIES: Record<number, SpeciesData> = {
   4: { id: 4, name: 'Fixachu', types: ['electric'], baseStats: { hp: 40, atk: 55, def: 40, spa: 55, spd: 45, spe: 95 }, movePool: [1, 6, 5, 3], collisionRadius: 40 },
   5: { id: 5, name: 'Fixolax', types: ['normal'], baseStats: { hp: 130, atk: 65, def: 65, spa: 65, spd: 100, spe: 30 }, movePool: [1, 4, 8, 5], collisionRadius: 40 },
   6: { id: 6, name: 'Fixiron', types: ['ground'], baseStats: { hp: 100, atk: 90, def: 130, spa: 55, spd: 65, spe: 30 }, movePool: [8, 1, 4, 5], collisionRadius: 40 },
+  // Sturdy single-move status specialists (see FIXTURE_MOVES 9-12) — bulky
+  // enough to keep casting for a whole duel without being knocked out first.
+  7: { id: 7, name: 'Fixspore', types: ['grass'], baseStats: { hp: 150, atk: 50, def: 150, spa: 50, spd: 150, spe: 80 }, movePool: [9], collisionRadius: 40 },
+  8: { id: 8, name: 'Fixfrost', types: ['ice'], baseStats: { hp: 150, atk: 50, def: 150, spa: 50, spd: 150, spe: 80 }, movePool: [10], collisionRadius: 40 },
+  9: { id: 9, name: 'Fixtoxin', types: ['poison'], baseStats: { hp: 150, atk: 50, def: 150, spa: 50, spd: 150, spe: 80 }, movePool: [11], collisionRadius: 40 },
+  10: { id: 10, name: 'Fixember', types: ['fire'], baseStats: { hp: 150, atk: 50, def: 150, spa: 50, spd: 150, spe: 80 }, movePool: [12], collisionRadius: 40 },
 };
 
 function runFullMatch(seed: number, speciesIds: number[]): SimulationEngine {
@@ -89,9 +116,9 @@ describe('SimulationEngine full match', () => {
 
   it('emits a finalTwo milestone exactly when a larger match passes through a roster of 2', () => {
     // Whether the roster ever actually *sits* at exactly 2 is seed-dependent:
-    // a spread move (or two faints landing on the same tick) can take it
-    // straight from 3 to 1, and then there's no final-two moment to announce
-    // at all. So derive the expectation from each match's own faint timeline
+    // two faints landing on the same tick (a KO alongside a burn/poison chip
+    // tick, say) take it straight from 3 to 1, and then there's no final-two
+    // moment to announce at all. So derive the expectation from each match's own faint timeline
     // rather than pinning one seed, whose outcome shifts with any change to
     // the order the sim draws from its RNG.
     let sawFinalTwo = false;
@@ -530,6 +557,148 @@ describe('SimulationEngine full match', () => {
     expect(fixmanderMoves.length).toBeGreaterThan(0); // sanity: it actually attacked at least once
     for (const e of fixmanderMoves) {
       expect(e.type === 'moveUsed' && e.moveId).toBe(1);
+    }
+  });
+});
+
+describe('status condition lifecycle', () => {
+  /** Fixolax (species 5) — the bulkiest non-specialist, so it survives long
+   * enough to be afflicted, ride the status out, and rejoin the fight. */
+  const VICTIM_SPECIES = 5;
+  const VICTIM_ID = `p1-${VICTIM_SPECIES}`;
+
+  /** A 1v1 in a small arena with wandering disabled, so the two lock on and
+   * start trading moves within seconds, and the specialist only ever casts
+   * its one status move. */
+  function startStatusDuel(specialistSpeciesId: number, specialistMoveId: number, seed: number): SimulationEngine {
+    return new SimulationEngine(
+      {
+        level: 100,
+        speciesIds: [specialistSpeciesId, VICTIM_SPECIES],
+        arena: { width: 500, height: 1000 },
+        shiny: false,
+        disableWander: true,
+        forcedMoveId: { [specialistSpeciesId]: specialistMoveId },
+      },
+      FIXTURE_SPECIES,
+      moveLookup,
+      seed
+    );
+  }
+
+  /** Ticks until `predicate` holds or `maxMs` of match time has passed;
+   * returns whether it held. */
+  function tickUntil(engine: SimulationEngine, predicate: () => boolean, maxMs: number): boolean {
+    const deadline = engine.getState().elapsedMs + maxMs;
+    while (engine.getState().elapsedMs < deadline && engine.getState().phase !== 'complete') {
+      if (predicate()) return true;
+      engine.tick(TICK_MS);
+    }
+    return predicate();
+  }
+
+  function wasAfflicted(engine: SimulationEngine, status: StatusCondition): boolean {
+    return engine
+      .getEventsSince(0)
+      .some((e) => e.type === 'statusApplied' && e.status === status && e.instanceId === VICTIM_ID);
+  }
+
+  /** Sleep and freeze both take the victim out of the fight entirely; they
+   * used to be permanent — nothing ever counted sleep down or rolled a thaw
+   * for a Pokémon that can't attack (see tickIncapacitated in engine.ts). */
+  it.each([
+    ['sleep', 7, 9, SLEEP_MAX_TURNS],
+    ['freeze', 8, 10, FREEZE_MAX_TURNS],
+  ] as const)(
+    'a %s Pokémon sits out for at least one status turn, then recovers within its turn ceiling and rejoins the fight',
+    (status, specialistSpecies, specialistMove, maxTurns) => {
+      const engine = startStatusDuel(specialistSpecies, specialistMove, 21);
+      expect(tickUntil(engine, () => wasAfflicted(engine, status), 30_000)).toBe(true);
+      const afflictedAtMs = engine.getState().elapsedMs;
+      const victim = engine.getState().pokemon[VICTIM_ID];
+
+      // Out cold, motionless, for at least one full status turn.
+      for (let i = 0; i < Math.floor(STATUS_TURN_INTERVAL_MS / TICK_MS) - 1; i++) {
+        engine.tick(TICK_MS);
+        expect(victim.status).toBe(status);
+        expect(victim.aiState).toBe('incapacitated');
+        expect(victim.velocity).toEqual({ x: 0, y: 0 });
+      }
+
+      // Its first status turn can wait out an attack cooldown already in
+      // progress (up to MAX_ACTION_COOLDOWN_MS), then it's one turn per
+      // STATUS_TURN_INTERVAL_MS up to the ceiling.
+      const maxDurationMs = MAX_ACTION_COOLDOWN_MS + maxTurns * STATUS_TURN_INTERVAL_MS + TICK_MS;
+      expect(tickUntil(engine, () => victim.status !== status, maxDurationMs)).toBe(true);
+      expect(victim.currentHp).toBeGreaterThan(0); // recovered, not knocked out
+      const recoveredAtMs = engine.getState().elapsedMs;
+      expect(recoveredAtMs - afflictedAtMs).toBeGreaterThanOrEqual(STATUS_TURN_INTERVAL_MS);
+      expect(
+        engine.getEventsSince(0).some((e) => e.type === 'statusCleared' && e.status === status && e.instanceId === VICTIM_ID)
+      ).toBe(true);
+
+      // Back in the fight on the very next tick, not stuck in limbo.
+      engine.tick(TICK_MS);
+      expect(victim.aiState).not.toBe('incapacitated');
+    }
+  );
+
+  it.each([
+    ['poison', 9, 11, POISON_CHIP_FRACTION],
+    ['burn', 10, 12, BURN_CHIP_FRACTION],
+  ] as const)('a %s Pokémon keeps fighting but takes chip damage on the status-tick cadence', (status, specialistSpecies, specialistMove, fraction) => {
+    const engine = startStatusDuel(specialistSpecies, specialistMove, 5);
+    expect(tickUntil(engine, () => wasAfflicted(engine, status), 30_000)).toBe(true);
+    const victim = engine.getState().pokemon[VICTIM_ID];
+    const hpWhenAfflicted = victim.currentHp;
+
+    // Two full chip intervals: it's still an active combatant throughout...
+    const ticks = Math.ceil((2 * STATUS_TICK_INTERVAL_MS) / TICK_MS) + 1;
+    for (let i = 0; i < ticks; i++) {
+      engine.tick(TICK_MS);
+      expect(victim.aiState).not.toBe('incapacitated');
+    }
+    // ...but has bled exactly the per-interval chip amount each interval.
+    const chipEvents = engine
+      .getEventsSince(0)
+      .filter((e) => e.type === 'statusTick' && e.instanceId === VICTIM_ID);
+    expect(chipEvents.length).toBe(2);
+    const expectedChip = Math.max(1, Math.floor(victim.maxHp * fraction));
+    for (const e of chipEvents) expect(e).toMatchObject({ status, amount: expectedChip });
+    expect(victim.currentHp).toBeLessThanOrEqual(hpWhenAfflicted - 2 * expectedChip);
+    expect(victim.status).toBe(status); // no cure — it lasts until faint
+  });
+});
+
+describe('single-target attacks', () => {
+  it("lands an 'all-enemies-in-radius' move on exactly one Pokémon even with several enemies packed within reach", () => {
+    // Fixiron pinned to Fixture Quake (targeting 'all-enemies-in-radius'), in
+    // a tiny arena with wandering off so all three stay bunched together —
+    // the exact setup that used to splash every nearby enemy at once.
+    const engine = new SimulationEngine(
+      {
+        level: 100,
+        speciesIds: [6, 1, 2],
+        arena: { width: 400, height: 700 },
+        shiny: false,
+        disableWander: true,
+        forcedMoveId: { 6: 8 },
+      },
+      FIXTURE_SPECIES,
+      moveLookup,
+      3
+    );
+    for (let i = 0; i < Math.ceil(95_000 / TICK_MS); i++) {
+      if (engine.getState().phase === 'complete') break;
+      engine.tick(TICK_MS);
+    }
+    const fixiron = Object.values(engine.getState().pokemon).find((p) => p.speciesId === 6)!;
+    const quakes = engine
+      .getEventsSince(0)
+      .filter((e) => e.type === 'moveUsed' && e.attackerId === fixiron.instanceId && e.moveId === 8);
+    expect(quakes.length).toBeGreaterThan(0); // sanity: it actually fired the spread move
+    for (const e of quakes) {
+      expect(e.type === 'moveUsed' && e.targetIds).toEqual([e.type === 'moveUsed' && e.primaryTargetId]);
     }
   });
 });

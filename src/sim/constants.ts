@@ -186,12 +186,31 @@ export const PARALYSIS_FULL_PARA_CHANCE = 0.25;
 /** Paralysis: multiplicative Speed penalty (applied in statCalc, not as a stage). */
 export const PARALYSIS_SPEED_MULT = 0.5;
 
-/** Freeze: chance to thaw on a given action attempt. */
+/** Freeze: chance to thaw on each of the frozen Pokémon's turns (see
+ * STATUS_TURN_INTERVAL_MS). A Fire-type hit thaws it outright regardless. */
 export const FREEZE_THAW_CHANCE = 0.2;
+/** Freeze always ends by this many turns even if every thaw roll fails — the
+ * mainline games let freeze run indefinitely, but a 90s match can't afford a
+ * Pokémon sitting out a quarter of it on a bad streak. With
+ * STATUS_TURN_INTERVAL_MS below, that's a 2-8s freeze. */
+export const FREEZE_MAX_TURNS = 4;
 
-/** Sleep/Freeze duration range, in "actions" (decremented on the action-cooldown cadence). */
+/** Sleep duration range, in turns (see STATUS_TURN_INTERVAL_MS). */
 export const SLEEP_MIN_TURNS = 1;
 export const SLEEP_MAX_TURNS = 3;
+
+/**
+ * How often (ms) a sleeping/frozen Pokémon gets a "turn" — the cadence its
+ * sleep counter ticks down / its thaw chance is rolled on. Such a Pokémon
+ * never attacks, so the normal attack path (which is where a paralyzed
+ * Pokémon rolls its own full-para chance) never runs for it — engine.ts's
+ * tickIncapacitated gives it this fixed cadence instead, on the same
+ * actionCooldownMs timer everyone else paces their attacks on. Sized to the
+ * middle of the normal attack-cooldown range (BASE_ACTION_COOLDOWN_MS to
+ * MAX_ACTION_COOLDOWN_MS) so a "turn" asleep is about as long as a turn
+ * fighting: a 1-3 turn sleep is 2-6s, a freeze at most FREEZE_MAX_TURNS × this.
+ */
+export const STATUS_TURN_INTERVAL_MS = 2000;
 
 /** Movement */
 export const WANDER_SPEED = 180; // px/s (3x)
@@ -281,6 +300,3 @@ export const COLLISION_RADIUS_FACTOR = 0.35;
  * of Pokémon visibly bumping into an invisible wall. */
 export const SEPARATION_INFLUENCE_MULTIPLIER = 1.15;
 export const SEPARATION_STRENGTH = 35;
-
-/** Spread-move splash radius around the primary target. */
-export const SPREAD_MOVE_RADIUS = 180;

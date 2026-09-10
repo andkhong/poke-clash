@@ -5,6 +5,7 @@ import type {
   SimEvent,
   SimState,
   StageKey,
+  StatusCondition,
   Vec2,
 } from './types';
 import type { MoveLookup, SpeciesData } from './matchSetup';
@@ -29,6 +30,7 @@ import {
   applyStatus,
   canApplyStatus,
   gateAction,
+  isIncapacitatingStatus,
   maybeThawOnFireHit,
   tickStatusDamage,
 } from './statusEffects';
@@ -45,7 +47,7 @@ import {
   MIN_ACTION_COOLDOWN_MS_AGGRESSIVE,
   POST_ATTACK_HOLD_MS,
   PRIORITY_COOLDOWN_DISCOUNT,
-  SPREAD_MOVE_RADIUS,
+  STATUS_TURN_INTERVAL_MS,
   TICK_MS,
 } from './constants';
 
@@ -214,7 +216,10 @@ export class SimulationEngine implements EngineLike {
   }
 
   private maybeAct(self: PokemonInstance, nowMs: number): void {
-    if (self.aiState === 'incapacitated') return;
+    if (self.aiState === 'incapacitated') {
+      this.tickIncapacitated(self, nowMs);
+      return;
+    }
 
     if (self.aiState === 'attack') {
       if (self.actionCooldownMs > 0) return;
@@ -241,6 +246,30 @@ export class SimulationEngine implements EngineLike {
         this.executeMove(self, buffMove, buffMove.id, null, nowMs);
       }
     }
+  }
+
+  /** A sleeping/frozen Pokémon's "turns". It can't attack, so it never goes
+   * through executeMove — where a paralyzed Pokémon rolls its own gate — and
+   * without this nothing would ever count its sleep down or roll its thaw:
+   * it would simply stay out of the fight until it fainted. Reuses
+   * actionCooldownMs (which updateTargeting keeps ticking down regardless of
+   * status) as the turn timer: each time it expires, take one gateAction
+   * turn, and if that didn't clear the status, arm the next turn. A cleared
+   * status leaves the cooldown at 0, so it can rejoin the fight on its very
+   * next tick — updateTargeting stops reporting 'incapacitated' the moment
+   * status is null. */
+  private tickIncapacitated(self: PokemonInstance, nowMs: number): void {
+    if (!isIncapacitatingStatus(self.status) || self.actionCooldownMs > 0) return;
+    const gate = gateAction(self, this.rng);
+    if (gate.clearedStatus) {
+      this.pushStatusClearedEvent(self, gate.clearedStatus, nowMs);
+      return;
+    }
+    self.actionCooldownMs = STATUS_TURN_INTERVAL_MS;
+  }
+
+  private pushStatusClearedEvent(self: PokemonInstance, status: StatusCondition, nowMs: number): void {
+    this.events.push({ seq: this.nextSeq(), atMs: nowMs, type: 'statusCleared', instanceId: self.instanceId, status });
   }
 
   private resetCooldown(attacker: PokemonInstance, move: MoveDefinition): void {
@@ -294,7 +323,7 @@ export class SimulationEngine implements EngineLike {
 
     if (!primaryTarget || primaryTarget.currentHp <= 0) return;
 
-    const targets = this.resolveTargets(attacker, primaryTarget, move);
+    const targets = this.resolveTargets(primaryTarget);
     const hit: Record<string, boolean> = {};
     const crit: Record<string, boolean> = {};
     const effectiveness: Record<string, number> = {};
@@ -324,7 +353,9 @@ export class SimulationEngine implements EngineLike {
         target.lastHitAtMs = nowMs;
         target.lastDamagedByInstanceId = attacker.instanceId;
       }
-      maybeThawOnFireHit(target, move.type === 'fire' && !move.typeless);
+      if (maybeThawOnFireHit(target, move.type === 'fire' && !move.typeless)) {
+        this.pushStatusClearedEvent(target, 'freeze', nowMs);
+      }
       this.applyMoveEffect(move, attacker, target);
     }
 
@@ -348,20 +379,18 @@ export class SimulationEngine implements EngineLike {
     );
   }
 
-  private resolveTargets(
-    attacker: PokemonInstance,
-    primary: PokemonInstance,
-    move: MoveDefinition
-  ): PokemonInstance[] {
-    if (move.targeting !== 'all-enemies-in-radius') return [primary];
-    const result: PokemonInstance[] = [];
-    for (const id of this.state.livingOrder) {
-      if (id === attacker.instanceId) continue;
-      const p = this.state.pokemon[id];
-      if (p.team === attacker.team) continue; // never splash allies (Boss Mode's party)
-      if (distance(p.position, primary.position) <= SPREAD_MOVE_RADIUS) result.push(p);
-    }
-    return result.length > 0 ? result : [primary];
+  /** Every attack lands on exactly one Pokémon — the one the attacker is
+   * engaged with — including moves the dataset marks 'all-enemies-in-radius'
+   * (Earthquake, Heat Wave, Blizzard, Surf, ...). Those used to splash every
+   * enemy within SPREAD_MOVE_RADIUS of the primary, which in a packed
+   * 16-Pokémon brawl meant one Blizzard could hit (and the renderer would
+   * draw a separate jet to) three or four Pokémon at once — a single attack
+   * has to read as one Pokémon hitting one other. The targeting flag is left
+   * on the move data itself untouched; it's simply not splash here.
+   * Returned as a list so the moveUsed event's per-target maps keep their
+   * shape. */
+  private resolveTargets(primary: PokemonInstance): PokemonInstance[] {
+    return [primary];
   }
 
   private applyMoveEffect(move: MoveDefinition, attacker: PokemonInstance, target: PokemonInstance): void {
@@ -375,6 +404,15 @@ export class SimulationEngine implements EngineLike {
     if (effect.kind === 'statusInflict' && effect.status) {
       if (canApplyStatus(recipient)) {
         applyStatus(recipient, effect.status, this.rng);
+        // A Pokémon put to sleep/frozen while its cooldown happens to be at 0
+        // (say, mid-wander) would otherwise take its first status turn on the
+        // very next tick — a 1-turn sleep over in 50ms. Its first turn has to
+        // be a full turn away, same as every one after it (see
+        // tickIncapacitated); a longer in-progress attack cooldown is left
+        // alone, since that just means its first turn comes a little later.
+        if (isIncapacitatingStatus(effect.status)) {
+          recipient.actionCooldownMs = Math.max(recipient.actionCooldownMs, STATUS_TURN_INTERVAL_MS);
+        }
         this.events.push({
           seq: this.nextSeq(),
           atMs: this.state.elapsedMs,
