@@ -897,6 +897,23 @@ export class PokemonSprite {
     return { x: this.renderPos.x, y: this.renderPos.y };
   }
 
+  /** How far above renderPos the body's visual center sits (px). The body's
+   * origin is at 0.75 of its height (feet near renderPos), so the center is
+   * a quarter of the body up; 0 before the body exists. */
+  bodyCenterLift(): number {
+    return this.body ? this.body.displayHeight * (this.body.originY - 0.5) : 0;
+  }
+
+  /** Where a move animation's battler spot lands on this sprite: the body's
+   * visual center. The pack draws its battlers centered on the user/target
+   * spots (Bite's cells sit exactly on the target spot — see
+   * moveAnimationFormat.ts), while renderPos is near the feet, so anchoring
+   * on renderPos put every impact a quarter of a body too low. Depth-sort
+   * against getRenderPosition().y, not this (see geometry.ts's AnimDepths). */
+  getAnimAnchor(): Vec2 {
+    return { x: this.renderPos.x, y: this.renderPos.y - this.bodyCenterLift() };
+  }
+
   /** This species' on-screen size (px, longest side) — what a move
    * animation scales itself by relative to the battlers it was drawn
    * around (see ANIM_REFERENCE_BATTLER_SIZE). */

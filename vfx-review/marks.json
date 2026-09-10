@@ -1,0 +1,328 @@
+{
+  "version": 1,
+  "exportedAt": "2026-09-10T18:25:16.400Z",
+  "marks": {
+    "44": {
+      "change": true,
+      "note": "Target pokemon should be centered in the attack sprite",
+      "updatedAt": "2026-09-10T17:21:21.345Z",
+      "verdict": "approved",
+      "verdictAt": "2026-09-10T17:21:21.345Z"
+    },
+    "45": {
+      "change": false,
+      "note": "",
+      "updatedAt": "2026-09-10T18:24:23.056Z",
+      "prefer": "pack"
+    },
+    "59": {
+      "change": true,
+      "note": "Align the attack sprite so the attacker and target are centered. Sprite is a little wide. Shrink it by 10%",
+      "updatedAt": "2026-09-10T18:05:01.362Z",
+      "verdict": "approved",
+      "verdictAt": "2026-09-10T18:05:01.362Z"
+    },
+    "62": {
+      "change": true,
+      "note": "Beam could be bigger\n",
+      "updatedAt": "2026-09-10T17:20:22.595Z",
+      "verdict": "approved",
+      "verdictAt": "2026-09-10T17:20:22.595Z"
+    },
+    "85": {
+      "change": true,
+      "note": "Reuse the previous thunder VFX for this move",
+      "updatedAt": "2026-09-10T18:23:21.857Z",
+      "verdict": "approved",
+      "verdictAt": "2026-09-10T17:20:18.678Z",
+      "prefer": "pack"
+    },
+    "89": {
+      "change": true,
+      "note": "Use assets",
+      "updatedAt": "2026-09-10T18:19:28.558Z",
+      "verdict": "approved",
+      "verdictAt": "2026-09-10T18:19:28.558Z",
+      "prefer": "pack"
+    },
+    "91": {
+      "change": true,
+      "note": "There is an extra dig sprite that is to the left of the target. It needs to be removed",
+      "updatedAt": "2026-09-10T18:05:54.545Z",
+      "verdict": "approved",
+      "verdictAt": "2026-09-10T18:05:54.545Z"
+    },
+    "93": {
+      "change": true,
+      "note": "Use assets",
+      "updatedAt": "2026-09-10T18:22:24.440Z",
+      "verdict": "approved",
+      "verdictAt": "2026-09-10T18:22:24.440Z",
+      "prefer": "pack"
+    },
+    "94": {
+      "change": false,
+      "note": "",
+      "updatedAt": "2026-09-10T18:23:40.273Z",
+      "prefer": "pack"
+    },
+    "112": {
+      "change": false,
+      "note": "Pokemon sprite should be centered of the barrier sprite",
+      "updatedAt": "2026-09-10T18:05:03.712Z",
+      "verdict": "approved",
+      "verdictAt": "2026-09-10T18:05:03.712Z",
+      "feedback": "Pokemon body is still not centered in barrier sprite. Pokemon seems to be top left"
+    },
+    "148": {
+      "change": false,
+      "note": "",
+      "updatedAt": "2026-09-10T18:25:16.092Z",
+      "prefer": "pack",
+      "verdict": "approved",
+      "verdictAt": "2026-09-10T18:25:16.092Z"
+    },
+    "211": {
+      "change": true,
+      "note": "Attack animation seems to be lower than the target sprite",
+      "updatedAt": "2026-09-10T18:21:01.024Z",
+      "verdict": "approved",
+      "verdictAt": "2026-09-10T18:21:01.024Z",
+      "feedback": "Use assets",
+      "prefer": "pack"
+    },
+    "230": {
+      "change": true,
+      "note": "Use assets",
+      "updatedAt": "2026-09-10T18:20:54.507Z",
+      "verdict": "approved",
+      "verdictAt": "2026-09-10T18:20:54.507Z",
+      "prefer": "pack"
+    },
+    "248": {
+      "change": false,
+      "note": "",
+      "updatedAt": "2026-09-10T18:22:22.175Z",
+      "verdict": "approved",
+      "verdictAt": "2026-09-10T18:22:22.175Z",
+      "prefer": "pack"
+    },
+    "257": {
+      "change": false,
+      "note": "",
+      "updatedAt": "2026-09-10T18:25:09.324Z",
+      "verdict": "approved",
+      "verdictAt": "2026-09-10T18:25:09.324Z",
+      "feedback": "Use arena affect"
+    },
+    "295": {
+      "change": false,
+      "note": "",
+      "updatedAt": "2026-09-10T18:22:17.641Z",
+      "verdict": "approved",
+      "verdictAt": "2026-09-10T18:22:17.641Z",
+      "prefer": "pack"
+    },
+    "299": {
+      "change": true,
+      "note": "Target pokemon should be centered in the attack sprite",
+      "updatedAt": "2026-09-10T17:21:30.196Z",
+      "verdict": "approved",
+      "verdictAt": "2026-09-10T17:21:30.196Z"
+    },
+    "307": {
+      "change": true,
+      "note": "Attack sprite needs to be moved a little higher up.",
+      "updatedAt": "2026-09-10T17:20:12.045Z",
+      "verdict": "approved",
+      "verdictAt": "2026-09-10T17:20:12.045Z"
+    },
+    "349": {
+      "change": true,
+      "note": "Sprite seems too low",
+      "updatedAt": "2026-09-10T18:06:17.345Z",
+      "verdict": "approved",
+      "verdictAt": "2026-09-10T18:06:17.345Z"
+    },
+    "351": {
+      "change": true,
+      "note": "Use asets",
+      "updatedAt": "2026-09-10T18:20:46.641Z",
+      "verdict": "approved",
+      "verdictAt": "2026-09-10T18:20:46.641Z",
+      "prefer": "pack"
+    },
+    "434": {
+      "change": true,
+      "note": "Target sprite needs to be centered with attack animation ",
+      "updatedAt": "2026-09-10T18:06:03.778Z",
+      "verdict": "approved",
+      "verdictAt": "2026-09-10T18:06:03.778Z"
+    },
+    "437": {
+      "change": true,
+      "note": "Attack sprite doesnt seem centered for both attacker and target",
+      "updatedAt": "2026-09-10T18:06:32.295Z",
+      "verdict": "approved",
+      "verdictAt": "2026-09-10T18:06:32.295Z"
+    },
+    "466": {
+      "change": false,
+      "note": "",
+      "updatedAt": "2026-09-10T18:24:01.324Z",
+      "prefer": "arena"
+    },
+    "519": {
+      "change": true,
+      "note": "Use assets and center the target pokemon",
+      "updatedAt": "2026-09-10T18:19:34.242Z",
+      "verdict": "approved",
+      "verdictAt": "2026-09-10T18:19:34.242Z",
+      "prefer": "pack"
+    },
+    "536": {
+      "change": true,
+      "note": "attack sprite on the target is a little low",
+      "updatedAt": "2026-09-10T18:06:35.645Z",
+      "verdict": "approved",
+      "verdictAt": "2026-09-10T18:06:35.645Z"
+    },
+    "547": {
+      "change": true,
+      "note": "Use assets",
+      "updatedAt": "2026-09-10T18:20:33.742Z",
+      "verdict": "approved",
+      "verdictAt": "2026-09-10T18:20:33.742Z",
+      "prefer": "pack"
+    },
+    "572": {
+      "change": true,
+      "note": "Need to use better VFX",
+      "updatedAt": "2026-09-10T18:07:21.179Z",
+      "verdict": "approved",
+      "verdictAt": "2026-09-10T18:07:21.179Z",
+      "prefer": "pack"
+    },
+    "618": {
+      "change": false,
+      "note": "",
+      "updatedAt": "2026-09-10T18:23:45.258Z",
+      "prefer": "pack"
+    },
+    "690": {
+      "change": true,
+      "note": "Pokemon should be centered in the attack sprite. ",
+      "updatedAt": "2026-09-10T17:21:25.177Z",
+      "verdict": "approved",
+      "verdictAt": "2026-09-10T17:21:25.177Z"
+    },
+    "693": {
+      "change": false,
+      "note": "Target sprite needs to be centered in attack sprite",
+      "updatedAt": "2026-09-10T18:19:11.709Z",
+      "verdict": "approved",
+      "verdictAt": "2026-09-10T18:19:11.709Z",
+      "feedback": "Use the given assets. Target pokemon isn't centered with attack asset",
+      "prefer": "pack"
+    },
+    "704": {
+      "change": true,
+      "note": "Use assets",
+      "updatedAt": "2026-09-10T18:20:38.191Z",
+      "verdict": "approved",
+      "verdictAt": "2026-09-10T18:20:38.191Z",
+      "prefer": "pack"
+    },
+    "713": {
+      "change": true,
+      "note": "Attack sprite seems uncentered",
+      "updatedAt": "2026-09-10T18:07:58.861Z",
+      "verdict": "approved",
+      "verdictAt": "2026-09-10T18:07:58.861Z"
+    },
+    "720": {
+      "change": true,
+      "note": "Use assets",
+      "updatedAt": "2026-09-10T18:20:23.591Z",
+      "verdict": "approved",
+      "verdictAt": "2026-09-10T18:20:23.591Z",
+      "prefer": "pack"
+    },
+    "831": {
+      "change": true,
+      "note": "Use assets",
+      "updatedAt": "2026-09-10T18:20:51.808Z",
+      "verdict": "approved",
+      "verdictAt": "2026-09-10T18:20:51.808Z",
+      "prefer": "pack"
+    },
+    "846": {
+      "change": true,
+      "note": "Attack sprite should be a little higher up.",
+      "updatedAt": "2026-09-10T18:21:29.592Z",
+      "verdict": "approved",
+      "verdictAt": "2026-09-10T18:21:29.592Z",
+      "feedback": "Use assets"
+    },
+    "847": {
+      "change": false,
+      "note": "",
+      "updatedAt": "2026-09-10T18:20:58.875Z",
+      "verdict": "approved",
+      "verdictAt": "2026-09-10T18:20:58.875Z",
+      "prefer": "pack"
+    },
+    "848": {
+      "change": true,
+      "note": "Use assets",
+      "updatedAt": "2026-09-10T18:21:03.474Z",
+      "verdict": "approved",
+      "verdictAt": "2026-09-10T18:21:03.474Z",
+      "prefer": "pack"
+    },
+    "855": {
+      "change": true,
+      "note": "There is an extra attack sprite behind the attacker. Remove it",
+      "updatedAt": "2026-09-10T18:06:42.098Z",
+      "verdict": "approved",
+      "verdictAt": "2026-09-10T18:06:42.098Z"
+    },
+    "866": {
+      "change": true,
+      "note": "Attacker sprite should be positioned a little higher",
+      "updatedAt": "2026-09-10T18:07:14.545Z",
+      "verdict": "approved",
+      "verdictAt": "2026-09-10T18:07:14.545Z"
+    },
+    "891": {
+      "change": true,
+      "note": "Attack sprite needs to be a little higher on attacker and target",
+      "updatedAt": "2026-09-10T17:21:35.679Z",
+      "verdict": "approved",
+      "verdictAt": "2026-09-10T17:21:35.679Z"
+    },
+    "902": {
+      "change": true,
+      "note": "Use assets",
+      "updatedAt": "2026-09-10T18:20:12.425Z",
+      "verdict": "approved",
+      "verdictAt": "2026-09-10T18:20:12.425Z",
+      "prefer": "pack"
+    },
+    "905": {
+      "change": true,
+      "note": "Attack sprite looks uncentered from attacker. ",
+      "updatedAt": "2026-09-10T18:06:29.028Z",
+      "verdict": "approved",
+      "verdictAt": "2026-09-10T18:06:29.028Z"
+    },
+    "919": {
+      "change": true,
+      "note": "Move chain sprite up by a few pixels. Centered positioning is correct",
+      "updatedAt": "2026-09-10T18:20:01.425Z",
+      "verdict": "approved",
+      "verdictAt": "2026-09-10T18:20:01.425Z",
+      "feedback": "Lift it up a few more pixels"
+    }
+  }
+}

@@ -25,6 +25,17 @@ import { playLungePunchFlash, preloadLungeVfxAssets } from './lungeImpact';
 // arena, so those moves get the wave/quake/etc. built for the arena
 // instead; everything else plays the pack's animation (src/render/vfx/anim/).
 
+/** Families drawn at the fighters' feet — a dash that moves the sprite
+ * itself, or a ground/field effect erupting under the target — rather than
+ * between their body centers like a beam, jet or bolt (see
+ * PokemonSprite.getAnimAnchor; review note on Bleakwind Storm: "attack
+ * sprite should be a little higher up"). */
+const GROUND_FAMILIES: ReadonlySet<MoveAnimationFamily> = new Set<MoveAnimationFamily>(['lunge', 'wave', 'vortex', 'rockBurst']);
+
+export function familyAnchorsAtBodyCenter(family: MoveAnimationFamily): boolean {
+  return !GROUND_FAMILIES.has(family);
+}
+
 export function preloadFamilyVfxAssets(scene: Phaser.Scene): void {
   preloadPoisonVfxAssets(scene);
   preloadHydroPumpVfxAssets(scene);
@@ -47,7 +58,10 @@ export interface FamilyVfxAttacker {
 
 /** Plays one family's effect from the attacker toward the single target.
  * Every family but lunge is fire-and-forget from `from` to `to`; lunge
- * dashes the attacker's sprite and lands its impact at the apex. */
+ * dashes the attacker's sprite and lands its impact at the apex — at
+ * `contact` (the target's body center) while `to` stays the feet the dash
+ * steers by (review note on Steel Wing: "animation seems lower than the
+ * target sprite"). */
 export function playFamilyVfx(
   scene: Phaser.Scene,
   family: MoveAnimationFamily,
@@ -55,15 +69,16 @@ export function playFamilyVfx(
   to: Vec2,
   targetCollisionRadius: number,
   type: PokemonTypeName,
-  attacker: FamilyVfxAttacker
+  attacker: FamilyVfxAttacker,
+  contact: Vec2 = to
 ): void {
   const { x: fromX, y: fromY } = from;
   const { x: toX, y: toY } = to;
   switch (family) {
     case 'lunge':
       attacker.playLungeAttack(from, to, targetCollisionRadius, () => {
-        playImpactBurst(scene, toX, toY, type);
-        playLungePunchFlash(scene, toX, toY);
+        playImpactBurst(scene, contact.x, contact.y, type);
+        playLungePunchFlash(scene, contact.x, contact.y);
       });
       break;
     case 'beam':

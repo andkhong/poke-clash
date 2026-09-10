@@ -7,7 +7,16 @@ import {
   type MoveAnimationBattlerCell,
   type MoveAnimationData,
 } from '../../../data/moveAnimationFormat';
-import { buildAnimTransform, mapBattlerOffset, mapCellAngle, mapCellDepth, mapCellPosition, type AnimTransform } from './geometry';
+import {
+  buildAnimTransform,
+  isCellOffscreen,
+  mapBattlerOffset,
+  mapCellAngle,
+  mapCellDepth,
+  mapCellPosition,
+  type AnimTransform,
+  type ScreenAnchor,
+} from './geometry';
 
 // Plays one converted Essentials animation (src/data/moveAnimationFormat.ts)
 // in the arena: a pool of Images, one per cell slot, re-posed every render
@@ -48,9 +57,24 @@ export interface PlayAnimationOptions {
    * return the attacker's position from both. */
   getAttacker: () => Vec2;
   getTarget: () => Vec2;
+  /** The y each battler's sprite is depth-sorted by, when that isn't the
+   * anchor's own y — the arena anchors on a body's center, above the feet
+   * its sprite sorts by (see geometry.ts's AnimDepths). Default: the anchor's y. */
+  getAttackerDepth?: () => number;
+  getTargetDepth?: () => number;
   /** Sprite-size scale for the cells (see ANIM_REFERENCE_BATTLER_SIZE). */
   scale: number;
   msPerFrame: number;
+  /** Nudge added to every cell's authored position (canonical px, before
+   * mapping; negative y lifts) — per-move review tuning, see
+   * moveVfxAdjustments.ts. */
+  cellOffset?: { x?: number; y?: number };
+  /** Cells to leave out, matched by their authored canonical position —
+   * for a pack quirk like Dig's second mound (see moveVfxAdjustments.ts). */
+  dropCells?: readonly { x: number; y: number }[];
+  /** Pins the animation's screen-focused cells on one battler (see
+   * geometry.ts's ScreenAnchor) instead of spreading them along the line. */
+  screenAnchor?: ScreenAnchor;
   attacker?: AnimBattler;
   target?: AnimBattler;
   onComplete?: () => void;
@@ -99,6 +123,9 @@ export function playAnimation(options: PlayAnimationOptions): AnimationHandle {
   const pool: Phaser.GameObjects.Image[] = [];
   const texture = sheetKey ? scene.textures.get(sheetKey) : null;
   const startedAt = scene.time.now;
+  const offsetX = options.cellOffset?.x ?? 0;
+  const offsetY = options.cellOffset?.y ?? 0;
+  const dropCells = options.dropCells ?? [];
   let lastFrame = -1;
   let finished = false;
 
@@ -111,18 +138,27 @@ export function playAnimation(options: PlayAnimationOptions): AnimationHandle {
   };
 
   const render = (frameIndex: number): void => {
-    const t = buildAnimTransform(options.getAttacker(), options.getTarget(), options.scale);
+    const t = buildAnimTransform(options.getAttacker(), options.getTarget(), options.scale, {
+      attackerY: options.getAttackerDepth?.(),
+      targetY: options.getTargetDepth?.(),
+    });
     const frame = frames[frameIndex];
     const cells = texture ? frame.c : [];
     for (let i = 0; i < cells.length; i++) {
       const cell = cells[i];
       const image = imageAt(i);
       const frameName = String(cell[Cell.PATTERN]);
-      if (!texture!.has(frameName)) {
-        image.setVisible(false); // a pattern past the sheet's grid draws nothing, as in the pack's own editor
+      const cellX = cell[Cell.X];
+      const cellY = cell[Cell.Y];
+      if (
+        !texture!.has(frameName) || // a pattern past the sheet's grid draws nothing, as in the pack's own editor
+        isCellOffscreen(cellX, cellY, cell[Cell.ZOOM_X], cell[Cell.ZOOM_Y]) ||
+        dropCells.some((drop) => drop.x === cellX && drop.y === cellY)
+      ) {
+        image.setVisible(false);
         continue;
       }
-      const position = mapCellPosition(t, cell[Cell.X], cell[Cell.Y], cell[Cell.FOCUS]);
+      const position = mapCellPosition(t, cellX + offsetX, cellY + offsetY, cell[Cell.FOCUS], options.screenAnchor);
       image
         .setVisible(true)
         .setFrame(frameName)

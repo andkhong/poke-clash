@@ -1,16 +1,29 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ChangeEvent } from 'react';
 import { buildMoveCatalog, type ReviewMove } from './moveCatalog';
 import {
+  buildReviewExport,
   countMarked,
   isMarked,
   loadMarks,
+  markStatus,
   marksToMarkdown,
+  normalizeChanges,
+  normalizeMarks,
   parseMarks,
+  reviewFileMarkdown,
   saveMarks,
   serializeMarks,
   setMark,
+  statusCounts,
+  type AssetPreference,
+  type MarkStatus,
+  type MarkVerdict,
+  type MoveMark,
+  type ReviewChange,
+  type ReviewChanges,
   type ReviewMarks,
 } from './reviewStore';
+import { fetchReviewFile, saveReviewFile } from './reviewSync';
 import { ReviewStage } from './ReviewStage';
 import type { PlaybackSpeed, ReviewLayout, ReviewPlaybackOptions, ReviewScene, ReviewStageStatus } from './ReviewScene';
 import { hasPmdSprite, listAllSpecies, type SpeciesSummary } from '../data/loader';
@@ -40,9 +53,26 @@ const PREFS_STORAGE_KEY = 'poke-clash.vfx-review.prefs.v1';
 const TOAST_MS = 2500;
 const LOOP_GAP_MS = 350;
 const PREFETCH_AHEAD = 6;
+/** How long after the last mark edit the repo file is written. */
+const SAVE_DEBOUNCE_MS = 300;
+
+/** Where the marks are, beyond this browser: in the repo through the dev
+ * server's review-file endpoint (see reviewSync.ts), or nowhere. */
+type SyncState =
+  | { kind: 'checking' }
+  | { kind: 'browser-only' }
+  | { kind: 'saving' }
+  | { kind: 'saved'; path: string; at: Date | null }
+  | { kind: 'error'; message: string };
 
 type SourceFilter = 'all' | 'pack' | 'family';
-type MarkFilter = 'all' | 'marked' | 'unmarked';
+type MarkFilter = 'all' | 'marked' | 'unmarked' | MarkStatus;
+/** 'unused': only the moves with a pack animation the arena doesn't play by
+ * default (screen-wide, or set aside by the review) — see ReviewMove.alternative. */
+type ListMode = 'all' | 'unused';
+type PlaySource = 'pack' | 'arena';
+
+const STATUS_GLYPH: Record<MarkStatus, string> = { open: '✎', proposed: '⇄', approved: '✔', 'changes-requested': '↩' };
 
 interface Filters {
   query: string;
@@ -55,7 +85,8 @@ interface Filters {
 interface ReviewPrefs {
   attackerSpeciesId: number;
   targetSpeciesId: number;
-  options: ReviewPlaybackOptions & { loop: boolean; autoplay: boolean };
+  /** `adjustments` is chosen per play (Before/After), never remembered. */
+  options: Omit<ReviewPlaybackOptions, 'adjustments'> & { loop: boolean; autoplay: boolean };
   layout: ReviewLayout;
 }
 
@@ -109,14 +140,21 @@ function typeHex(type: PokemonTypeName): string {
   return `#${getMoveTypeColor(type).toString(16).padStart(6, '0')}`;
 }
 
-function matchesFilters(entry: ReviewMove, filters: Filters, marks: ReviewMarks, query: string): boolean {
+function matchesFilters(entry: ReviewMove, filters: Filters, marks: ReviewMarks, changes: ReviewChanges, query: string): boolean {
   const { move, source } = entry;
   if (filters.type !== 'all' && move.type !== filters.type) return false;
   if (filters.category !== 'all' && move.category !== filters.category) return false;
   if (filters.source !== 'all' && source.kind !== filters.source) return false;
   if (filters.mark !== 'all') {
-    const marked = isMarked(marks[String(move.id)]);
-    if (filters.mark === 'marked' ? !marked : marked) return false;
+    const mark = marks[String(move.id)];
+    const marked = isMarked(mark);
+    if (filters.mark === 'marked') {
+      if (!marked) return false;
+    } else if (filters.mark === 'unmarked') {
+      if (marked) return false;
+    } else if (!marked || markStatus(mark, changes[String(move.id)]) !== filters.mark) {
+      return false;
+    }
   }
   if (query && !move.name.toLowerCase().includes(query) && String(move.id) !== query) return false;
   return true;
@@ -132,12 +170,22 @@ export function ReviewApp() {
 
   const [prefs, setPrefs] = useState<ReviewPrefs>(() => loadPrefs(species));
   const [marks, setMarks] = useState<ReviewMarks>(() => loadMarks(safeStorage()));
+  /** What was done about marked moves (vfx-review/changes.json); read-only here. */
+  const [changes, setChanges] = useState<ReviewChanges>({});
   const [filters, setFilters] = useState<Filters>({ query: '', type: 'all', category: 'all', source: 'all', mark: 'all' });
+  const [listMode, setListMode] = useState<ListMode>('all');
   const [selectedId, setSelectedId] = useState<number>(() => catalog[0]?.move.id ?? 0);
   const [scene, setScene] = useState<ReviewScene | null>(null);
   const [status, setStatus] = useState<ReviewStageStatus>({ kind: 'booting' });
   const [toast, setToast] = useState<string | null>(null);
   const [confirmClear, setConfirmClear] = useState(false);
+  const [sync, setSync] = useState<SyncState>({ kind: 'checking' });
+  /** True once the dev server's review file has been checked and can be
+   * written; the autosave effect below stays off until then. */
+  const [syncEnabled, setSyncEnabled] = useState(false);
+  /** The marks (serialized) as last loaded from or saved to the repo file,
+   * so a change is only written when it differs from what's on disk. */
+  const syncedRef = useRef<string | null>(null);
 
   const noteRef = useRef<HTMLTextAreaElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -151,19 +199,80 @@ export function ReviewApp() {
   useEffect(() => saveMarks(safeStorage(), marks), [marks]);
   useEffect(() => savePrefs(prefs), [prefs]);
 
+  // The repo file, when the dev server is there, is the source of truth:
+  // load it once on open. If it doesn't exist yet, whatever this browser
+  // already holds becomes it (the autosave below writes it).
+  const marksRef = useRef(marks);
+  marksRef.current = marks;
+  useEffect(() => {
+    let cancelled = false;
+    void fetchReviewFile()
+      .then((file) => {
+        if (cancelled) return;
+        if (!file) {
+          setSync({ kind: 'browser-only' });
+          return;
+        }
+        if (file.changes !== null && file.changes !== undefined) {
+          try {
+            setChanges(normalizeChanges(file.changes));
+          } catch (error) {
+            setToast(`Could not read ${file.changesPath}: ${(error as Error).message}`);
+          }
+        }
+        if (file.exists) {
+          const fileMarks = normalizeMarks(file.export);
+          syncedRef.current = JSON.stringify(fileMarks);
+          setMarks(fileMarks);
+        } else {
+          syncedRef.current = countMarked(marksRef.current) === 0 ? JSON.stringify(marksRef.current) : null;
+        }
+        setSync({ kind: 'saved', path: file.path, at: null });
+        setSyncEnabled(true);
+      })
+      .catch((error: Error) => {
+        if (!cancelled) setSync({ kind: 'error', message: `could not read the review file: ${error.message}` });
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!syncEnabled) return;
+    const snapshot = JSON.stringify(marks);
+    if (snapshot === syncedRef.current) return;
+    setSync({ kind: 'saving' });
+    const timer = window.setTimeout(() => {
+      void saveReviewFile({ export: buildReviewExport(marks), markdown: reviewFileMarkdown(marks, catalog, { changes }) })
+        .then((result) => {
+          syncedRef.current = snapshot;
+          setSync({ kind: 'saved', path: result.path, at: new Date(result.savedAt) });
+        })
+        .catch((error: Error) => setSync({ kind: 'error', message: `save failed: ${error.message}` }));
+    }, SAVE_DEBOUNCE_MS);
+    return () => window.clearTimeout(timer);
+  }, [syncEnabled, marks, catalog, changes]);
+
   // Stage wiring: status feed, fighters, layout.
   useEffect(() => scene?.subscribe(setStatus), [scene]);
   useEffect(() => scene?.setSpecies(prefs.attackerSpeciesId, prefs.targetSpeciesId), [scene, prefs.attackerSpeciesId, prefs.targetSpeciesId]);
   useEffect(() => scene?.setLayout(prefs.layout), [scene, prefs.layout]);
 
   const query = filters.query.trim().toLowerCase();
+  const unusedCount = useMemo(() => catalog.filter((entry) => entry.alternative !== null).length, [catalog]);
   const filtered = useMemo(
-    () => catalog.filter((entry) => matchesFilters(entry, filters, marks, query)),
-    [catalog, filters, marks, query]
+    () =>
+      catalog.filter(
+        (entry) => (listMode === 'all' || entry.alternative !== null) && matchesFilters(entry, filters, marks, changes, query)
+      ),
+    [catalog, listMode, filters, marks, changes, query]
   );
   const selected = byId.get(selectedId) ?? null;
   const selectedMark = marks[String(selectedId)];
+  const selectedChange = changes[String(selectedId)];
   const markedCount = useMemo(() => countMarked(marks), [marks]);
+  const counts = useMemo(() => statusCounts(marks, changes), [marks, changes]);
 
   // Refs so the keyboard handler and stage callbacks never go stale.
   const sceneRef = useRef(scene);
@@ -175,11 +284,17 @@ export function ReviewApp() {
   const optionsRef = useRef(prefs.options);
   optionsRef.current = prefs.options;
 
-  const play = useCallback((moveId: number) => {
+  /** `adjustments` false plays the move as it was before the review's
+   * changes; `source` forces the pack animation or the arena's effect (see
+   * ReviewPlaybackOptions). */
+  const play = useCallback((moveId: number, adjustments = true, source?: PlaySource) => {
     const { speed, sound, miss } = optionsRef.current;
-    void sceneRef.current?.playMove(moveId, { speed, sound, miss });
+    void sceneRef.current?.playMove(moveId, { speed, sound, miss, adjustments, source });
   }, []);
   const replay = useCallback(() => play(selectedIdRef.current), [play]);
+  const playBefore = useCallback(() => play(selectedIdRef.current, false), [play]);
+  const playWithAssets = useCallback(() => play(selectedIdRef.current, true, 'pack'), [play]);
+  const playArenaEffect = useCallback(() => play(selectedIdRef.current, true, 'arena'), [play]);
 
   // Autoplay whenever the selection changes (and once, when the stage is up).
   const stageReady = status.kind !== 'booting';
@@ -232,6 +347,15 @@ export function ReviewApp() {
   const setNote = useCallback((note: string) => {
     setMarks((current) => setMark(current, selectedIdRef.current, { note }));
   }, []);
+  const setVerdict = useCallback((verdict: MarkVerdict | undefined) => {
+    setMarks((current) => setMark(current, selectedIdRef.current, { verdict }));
+  }, []);
+  const setFeedback = useCallback((feedback: string) => {
+    setMarks((current) => setMark(current, selectedIdRef.current, { feedback }));
+  }, []);
+  const setPrefer = useCallback((prefer: AssetPreference | undefined) => {
+    setMarks((current) => setMark(current, selectedIdRef.current, { prefer }));
+  }, []);
 
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent): void => {
@@ -253,7 +377,11 @@ export function ReviewApp() {
           break;
         case ' ':
         case 'Enter':
+        case 'a':
           replay();
+          break;
+        case 'b':
+          playBefore();
           break;
         case 'm':
         case 'M':
@@ -270,7 +398,7 @@ export function ReviewApp() {
     };
     window.addEventListener('keydown', onKeyDown);
     return () => window.removeEventListener('keydown', onKeyDown);
-  }, [step, replay, toggleChange]);
+  }, [step, replay, playBefore, toggleChange]);
 
   const updateOptions = (patch: Partial<ReviewPrefs['options']>): void =>
     setPrefs((current) => ({ ...current, options: { ...current.options, ...patch } }));
@@ -278,7 +406,7 @@ export function ReviewApp() {
     setPrefs((current) => ({ ...current, layout: { ...current.layout, ...patch } }));
 
   const copyMarkdown = async (): Promise<void> => {
-    const markdown = marksToMarkdown(marks, catalog);
+    const markdown = marksToMarkdown(marks, catalog, { changes });
     try {
       await navigator.clipboard.writeText(markdown);
       setToast(`Copied ${markedCount} marked move${markedCount === 1 ? '' : 's'} as Markdown`);
@@ -327,7 +455,20 @@ export function ReviewApp() {
       <header className="header">
         <h1>Move VFX Review</h1>
         <span className="count">
-          <strong>{markedCount}</strong> marked · {catalog.length} moves
+          <strong>{markedCount}</strong> marked
+          {counts.proposed > 0 && (
+            <>
+              {' · '}
+              <span className="to-review">{counts.proposed} to review</span>
+            </>
+          )}
+          {counts.approved > 0 && ` · ${counts.approved} approved`}
+          {counts['changes-requested'] > 0 && ` · ${counts['changes-requested']} changes requested`}
+          {' · '}
+          {catalog.length} moves
+        </span>
+        <span className={`sync${sync.kind === 'error' ? ' error' : ''}`} title={describeSyncDetail(sync)}>
+          {describeSync(sync)}
         </span>
         <span className="spacer" />
         {toast && <span className="toast">{toast}</span>}
@@ -348,6 +489,18 @@ export function ReviewApp() {
 
       <div className="body">
         <aside className="list-panel">
+          <div className="modes">
+            <button className={`btn mode${listMode === 'all' ? ' active' : ''}`} onClick={() => setListMode('all')}>
+              All moves
+            </button>
+            <button
+              className={`btn mode${listMode === 'unused' ? ' active' : ''}`}
+              onClick={() => setListMode('unused')}
+              title="Moves the arena draws with its own effect although the pack ships an animation for them (or the other way round, where the review chose the pack) — compare both and pick"
+            >
+              Unused assets ({unusedCount})
+            </button>
+          </div>
           <div className="filters">
             <input
               type="search"
@@ -381,6 +534,10 @@ export function ReviewApp() {
                 <option value="all">Marked or not</option>
                 <option value="marked">Marked only</option>
                 <option value="unmarked">Unmarked only</option>
+                <option value="open">Open (nothing changed yet)</option>
+                <option value="proposed">To review (change made)</option>
+                <option value="approved">Approved</option>
+                <option value="changes-requested">Changes requested</option>
               </select>
             </div>
             <span className="hint" style={{ color: 'var(--muted)', fontSize: 11 }}>
@@ -391,7 +548,9 @@ export function ReviewApp() {
             {filtered.length === 0 && <div className="empty">No moves match these filters.</div>}
             {filtered.map((entry) => {
               const { move, source } = entry;
-              const marked = isMarked(marks[String(move.id)]);
+              const mark = marks[String(move.id)];
+              const marked = isMarked(mark);
+              const status = markStatus(mark, changes[String(move.id)]);
               return (
                 <button
                   key={move.id}
@@ -399,7 +558,7 @@ export function ReviewApp() {
                     if (el) rowRefs.current.set(move.id, el);
                     else rowRefs.current.delete(move.id);
                   }}
-                  className={`move-row${move.id === selectedId ? ' selected' : ''}${marked ? ' marked' : ''}`}
+                  className={`move-row${move.id === selectedId ? ' selected' : ''}${marked ? ` marked ${status}` : ''}`}
                   onClick={() => setSelectedId(move.id)}
                 >
                   <span className="chip type" style={{ background: typeHex(move.type) }}>
@@ -408,7 +567,7 @@ export function ReviewApp() {
                   <span className="name">{move.name}</span>
                   <span className="meta">{CATEGORY_SHORT[move.category]}</span>
                   <span className={`chip ${source.kind}`}>{source.kind === 'pack' ? 'pack' : 'arena'}</span>
-                  <span className="flag">{marked ? '✎' : ''}</span>
+                  <span className={`flag ${status}`}>{marked ? STATUS_GLYPH[status] : ''}</span>
                 </button>
               );
             })}
@@ -512,8 +671,8 @@ export function ReviewApp() {
               </label>
             </div>
             <div className="hint">
-              <kbd>↑</kbd>/<kbd>↓</kbd> or <kbd>j</kbd>/<kbd>k</kbd> select · <kbd>Space</kbd> replay · <kbd>m</kbd> mark for change ·{' '}
-              <kbd>n</kbd> write a note · <kbd>Esc</kbd> leave a field. Pokémon art comes from the sprite server (
+              <kbd>↑</kbd>/<kbd>↓</kbd> or <kbd>j</kbd>/<kbd>k</kbd> select · <kbd>Space</kbd> replay · <kbd>b</kbd>/<kbd>a</kbd> play before/after a change ·{' '}
+              <kbd>m</kbd> mark for change · <kbd>n</kbd> write a note · <kbd>Esc</kbd> leave a field. Pokémon art comes from the sprite server (
               <code>npm run dev:all</code>); without it the fallback art is shown.
             </div>
           </div>
@@ -524,9 +683,18 @@ export function ReviewApp() {
             <DetailsPanel
               entry={selected}
               mark={selectedMark}
+              change={selectedChange}
+              stageReady={stageReady}
               noteRef={noteRef}
               onToggleChange={toggleChange}
               onNoteChange={setNote}
+              onPlayBefore={playBefore}
+              onPlayAfter={replay}
+              onPlayWithAssets={playWithAssets}
+              onPlayArenaEffect={playArenaEffect}
+              onVerdict={setVerdict}
+              onFeedbackChange={setFeedback}
+              onPrefer={setPrefer}
             />
           ) : (
             <p>Select a move.</p>
@@ -535,6 +703,34 @@ export function ReviewApp() {
       </div>
     </div>
   );
+}
+
+function describeSync(sync: SyncState): string {
+  switch (sync.kind) {
+    case 'checking':
+      return 'Checking for the dev server…';
+    case 'browser-only':
+      return 'Browser only';
+    case 'saving':
+      return 'Saving…';
+    case 'saved':
+      return sync.at ? `Saved to ${sync.path} · ${sync.at.toLocaleTimeString()}` : `Loaded from ${sync.path}`;
+    case 'error':
+      return `Not saved: ${sync.message}`;
+  }
+}
+
+function describeSyncDetail(sync: SyncState): string {
+  switch (sync.kind) {
+    case 'browser-only':
+      return 'No dev server behind this page, so marks stay in this browser’s storage. Run `npm run dev` and open the page there to have them written into the repo, or use Download JSON.';
+    case 'saved':
+      return 'Every change is written to the repo: vfx-review/marks.json (what this page reloads) and vfx-review/REVIEW.md (the readable version to hand to a coding agent).';
+    case 'error':
+      return 'Marks are still kept in this browser; fix the file or restart the dev server, then reload.';
+    default:
+      return '';
+  }
 }
 
 function describeStatus(status: ReviewStageStatus, byId: Map<number, ReviewMove>): string {
@@ -547,7 +743,7 @@ function describeStatus(status: ReviewStageStatus, byId: Map<number, ReviewMove>
     case 'loading':
       return `Downloading ${name(status.moveId)}’s animation…`;
     case 'playing':
-      return `Playing ${name(status.moveId)} · ${(status.durationMs / 1000).toFixed(1)}s`;
+      return `Playing ${name(status.moveId)}${status.variant === 'before' ? ' · before the change' : ''} · ${(status.durationMs / 1000).toFixed(1)}s`;
     case 'error':
       return `${name(status.moveId)}: ${status.message}`;
   }
@@ -555,16 +751,43 @@ function describeStatus(status: ReviewStageStatus, byId: Map<number, ReviewMove>
 
 interface DetailsPanelProps {
   entry: ReviewMove;
-  mark: ReviewMarks[string] | undefined;
+  mark: MoveMark | undefined;
+  change: ReviewChange | undefined;
+  stageReady: boolean;
   noteRef: React.RefObject<HTMLTextAreaElement>;
   onToggleChange: () => void;
   onNoteChange: (note: string) => void;
+  onPlayBefore: () => void;
+  onPlayAfter: () => void;
+  onPlayWithAssets: () => void;
+  onPlayArenaEffect: () => void;
+  onVerdict: (verdict: MarkVerdict | undefined) => void;
+  onFeedbackChange: (feedback: string) => void;
+  onPrefer: (prefer: AssetPreference | undefined) => void;
 }
 
-function DetailsPanel({ entry, mark, noteRef, onToggleChange, onNoteChange }: DetailsPanelProps) {
-  const { move, source, hasSound } = entry;
+function DetailsPanel({
+  entry,
+  mark,
+  change,
+  stageReady,
+  noteRef,
+  onToggleChange,
+  onNoteChange,
+  onPlayBefore,
+  onPlayAfter,
+  onPlayWithAssets,
+  onPlayArenaEffect,
+  onVerdict,
+  onFeedbackChange,
+  onPrefer,
+}: DetailsPanelProps) {
+  const { move, source, hasSound, alternative } = entry;
   const packEntry = source.kind === 'pack' ? source.entry : source.entry;
   const arenaFrameMs = packEntry ? frameDurationMs(packEntry.frames, POST_ATTACK_HOLD_MS) : 0;
+  const status = markStatus(mark, change);
+  const packAnim = source.kind === 'pack' ? source.entry.anim : source.entry?.anim;
+  const familyName = source.kind === 'family' ? source.family : alternative?.kind === 'family' ? alternative.family : null;
 
   return (
     <>
@@ -633,6 +856,88 @@ function DetailsPanel({ entry, mark, noteRef, onToggleChange, onNoteChange }: De
           </div>
         )}
       </section>
+
+      {alternative && (
+        <section className="unused">
+          <h3>Unused assets</h3>
+          <p>
+            {source.kind === 'family'
+              ? `The pack ships ${packAnim ?? 'an animation'} for this move, but the arena plays its own ${familyName} effect${
+                  source.reason === 'screen-wide' ? ' because the pack’s is a screen-wide effect' : source.reason === 'review-preference' ? ' because the review asked for it' : ''
+                }.`
+              : `The arena plays the pack’s ${packAnim} because the review asked for it; its own effect would be ${familyName}.`}{' '}
+            A screen-wide animation was drawn across a side-view battle screen, so it may or may not translate — compare both and pick.
+          </p>
+          <div className="ab">
+            <button className="btn" onClick={onPlayWithAssets} disabled={!stageReady} title="Play the pack’s animation">
+              ▶ With assets
+            </button>
+            <button className="btn" onClick={onPlayArenaEffect} disabled={!stageReady} title="Play the arena’s own effect">
+              ▶ Arena effect
+            </button>
+          </div>
+          <div className="ab">
+            <button
+              className={`btn toggle${mark?.prefer === 'pack' ? ' active' : ''}`}
+              onClick={() => onPrefer(mark?.prefer === 'pack' ? undefined : 'pack')}
+              title="Ask for the pack animation to be used in the arena"
+            >
+              {mark?.prefer === 'pack' ? '✔ Use the assets' : 'Use the assets'}
+            </button>
+            <button
+              className={`btn toggle${mark?.prefer === 'arena' ? ' active' : ''}`}
+              onClick={() => onPrefer(mark?.prefer === 'arena' ? undefined : 'arena')}
+              title="Keep (or go back to) the arena’s own effect"
+            >
+              {mark?.prefer === 'arena' ? '✔ Keep the arena effect' : 'Keep the arena effect'}
+            </button>
+          </div>
+          <p className="hint">Your pick is saved with the mark and shows in REVIEW.md’s Assets column; add details in the note below.</p>
+        </section>
+      )}
+
+      {change && (
+        <section className={`proposal ${status}`}>
+          <h3>Change made</h3>
+          <p className="summary">{change.summary}</p>
+          {change.changedAt && <div className="timestamp">Changed {new Date(change.changedAt).toLocaleString()}</div>}
+          <div className="ab">
+            <button className="btn" onClick={onPlayBefore} disabled={!stageReady} title="Play it the way it was before the change (b)">
+              ◀ Before
+            </button>
+            <button className="btn primary" onClick={onPlayAfter} disabled={!stageReady} title="Play it with the change (a / Space)">
+              After ▶
+            </button>
+          </div>
+          <div className={`verdict ${status}`}>
+            {status === 'approved' && `✔ Approved${mark?.verdictAt ? ` · ${new Date(mark.verdictAt).toLocaleString()}` : ''}`}
+            {status === 'changes-requested' && `↩ Changes requested${mark?.verdictAt ? ` · ${new Date(mark.verdictAt).toLocaleString()}` : ''}`}
+            {status === 'proposed' && (mark?.verdict ? '⇄ Changed again since your last verdict — please re-check' : '⇄ Awaiting your verdict')}
+          </div>
+          <div className="ab">
+            <button
+              className={`btn approve${status === 'approved' ? ' active' : ''}`}
+              onClick={() => onVerdict(status === 'approved' ? undefined : 'approved')}
+              title={status === 'approved' ? 'Withdraw the approval' : 'Accept the change as is'}
+            >
+              {status === 'approved' ? 'Approved ✔ (undo)' : 'Approve'}
+            </button>
+            <button
+              className={`btn toggle${status === 'changes-requested' ? ' active' : ''}`}
+              onClick={() => onVerdict(status === 'changes-requested' ? undefined : 'changes-requested')}
+              title={status === 'changes-requested' ? 'Withdraw the request' : 'Send it back with the notes below'}
+            >
+              {status === 'changes-requested' ? 'Requested ↩ (undo)' : 'Request changes'}
+            </button>
+          </div>
+          <textarea
+            className="feedback"
+            value={mark?.feedback ?? ''}
+            onChange={(e) => onFeedbackChange(e.target.value)}
+            placeholder="Additional notes for the next pass — what still isn’t right?"
+          />
+        </section>
+      )}
 
       <section>
         <h3>Review</h3>

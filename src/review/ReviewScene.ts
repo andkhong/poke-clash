@@ -17,8 +17,9 @@ import { frameDurationMs, playAnimation, type AnimationHandle } from '../render/
 import { animationScaleFor } from '../render/vfx/anim/geometry';
 import { playFallbackFlash } from '../render/vfx/anim/fallbackFlash';
 import { getLoadedMoveAnimation, getMoveAnimationEntry, queueAnimationLoads } from '../render/vfx/anim/moveAnimLoader';
-import { resolveMoveAnimation } from '../render/vfx/moveAnimations';
-import { playFamilyVfx, preloadFamilyVfxAssets } from '../render/vfx/moves/playFamilyVfx';
+import { familyAnchorsAtBodyCenter, playFamilyVfx, preloadFamilyVfxAssets } from '../render/vfx/moves/playFamilyVfx';
+import { getMoveVfxAdjustment } from '../render/vfx/moveVfxAdjustments';
+import { resolveMoveVfxSource } from '../render/vfx/moveVfxSource';
 import { playMoveSound } from '../render/sound/moveSound';
 import { installMasterLimiter } from '../render/sound/masterBus';
 
@@ -69,6 +70,16 @@ export interface ReviewPlaybackOptions {
   /** Play the miss version: the effect lands where the target stood and the
    * target sidesteps it (see PokemonSprite.playDodge). */
   miss: boolean;
+  /** False replays a move the way the arena drew it before the VFX review's
+   * changes — anchors at the sprites' feet, no per-move tuning
+   * (moveVfxAdjustments.ts) — so a proposed change can be compared with
+   * what it replaced. True is what a match shows today. */
+  adjustments: boolean;
+  /** Force where the effect comes from, regardless of the arena's decision:
+   * 'pack' plays the pack animation even where the arena wouldn't use it
+   * (a screen-wide one), 'arena' the arena's family effect — the "with /
+   * without the assets" comparison. Omit for the arena's own choice. */
+  source?: 'pack' | 'arena';
 }
 
 /** Where the two fighters stand: `distance` px apart, the target at
@@ -88,7 +99,7 @@ export type ReviewStageStatus =
   | { kind: 'booting' }
   | { kind: 'idle' }
   | { kind: 'loading'; moveId: number }
-  | { kind: 'playing'; moveId: number; durationMs: number }
+  | { kind: 'playing'; moveId: number; durationMs: number; variant: 'before' | 'after' }
   | { kind: 'error'; moveId: number; message: string };
 
 interface ActivePlayback {
@@ -220,7 +231,9 @@ export class ReviewScene extends Phaser.Scene {
     // the pack has none or it's screen-wide, in which case the arena's own
     // family VFX.
     const entry = getMoveAnimationEntry(move.id);
-    const family = !entry || entry.screen ? resolveMoveAnimation(move).family : null;
+    const adjustment = options.adjustments ? getMoveVfxAdjustment(move.id) : undefined;
+    const source = resolveMoveVfxSource(move, entry, adjustment, options.source);
+    const family = source.kind === 'family' ? source.family : null;
     if (!family && entry && !getLoadedMoveAnimation(this, move.id)) {
       this.setStatus({ kind: 'loading', moveId });
       await this.loadMoveAnimation(move.id);
@@ -259,26 +272,44 @@ export class ReviewScene extends Phaser.Scene {
     let animation: AnimationHandle | null = null;
     let durationMs = POST_ATTACK_HOLD_MS;
     let failure: string | null = null;
+    // With adjustments off everything anchors at the feet, as it did before
+    // the review; on, every pack animation and the arena's beams/jets/bolts
+    // run between the bodies' centers (see PokemonSprite.getAnimAnchor and
+    // familyAnchorsAtBodyCenter) while dashes and ground effects stay put.
+    const anchorOf = (sprite: PokemonSprite, lifted: boolean): Vec2 => (lifted ? sprite.getAnimAnchor() : sprite.getRenderPosition());
     if (family) {
       if (!selfTargeting) {
-        playFamilyVfx(this, family, attackerPosition, targetPosition, target.collisionRadius, move.type, attackerSprite);
+        const bodyCenter = adjustment?.familyAnchor ? adjustment.familyAnchor === 'center' : familyAnchorsAtBodyCenter(family);
+        const lifted = options.adjustments && bodyCenter;
+        // A lunge steers by the feet but (after the review) lands its hit on the body.
+        const contact = anchorOf(targetSprite, options.adjustments);
+        playFamilyVfx(this, family, anchorOf(attackerSprite, lifted), anchorOf(targetSprite, lifted), target.collisionRadius, move.type, attackerSprite, contact);
         if (options.miss) targetSprite.playDodge(attackerPosition, family === 'lunge' ? LUNGE_MISS_DELAY_MS : FAMILY_MISS_DELAY_MS);
       }
     } else {
       const loaded = getLoadedMoveAnimation(this, move.id);
-      const impact = selfTargeting ? attackerPosition : targetPosition;
+      const lifted = options.adjustments;
+      const attackerAnchor = anchorOf(attackerSprite, lifted);
+      const targetAnchor = anchorOf(targetSprite, lifted);
+      const impact = selfTargeting ? attackerAnchor : targetAnchor;
       if (!loaded) {
         playFallbackFlash(this, impact.x, impact.y, move.type);
         failure = 'The pack animation failed to download; showing the arena’s fallback flash instead.';
       } else {
         // The pack's battler-only animations draw nothing themselves.
         if (!loaded.sheetKey) playFallbackFlash(this, impact.x, impact.y, move.type);
-        const getAttacker = (): Vec2 => (attackerSprite.isDestroyed() ? attackerPosition : attackerSprite.getRenderPosition());
+        const getAttacker = (): Vec2 => (attackerSprite.isDestroyed() ? attackerAnchor : anchorOf(attackerSprite, lifted));
         const getTarget = (): Vec2 => {
           if (selfTargeting) return getAttacker();
           // A missed target isn't followed: the attack goes where it was.
-          if (options.miss || targetSprite.isDestroyed()) return targetPosition;
-          return targetSprite.getRenderPosition();
+          if (options.miss || targetSprite.isDestroyed()) return targetAnchor;
+          return anchorOf(targetSprite, lifted);
+        };
+        const getAttackerDepth = (): number => (attackerSprite.isDestroyed() ? attackerPosition.y : attackerSprite.getRenderPosition().y);
+        const getTargetDepth = (): number => {
+          if (selfTargeting) return getAttackerDepth();
+          if (options.miss || targetSprite.isDestroyed()) return targetPosition.y;
+          return targetSprite.getRenderPosition().y;
         };
         animation = playAnimation({
           scene: this,
@@ -286,7 +317,12 @@ export class ReviewScene extends Phaser.Scene {
           sheetKey: loaded.sheetKey,
           getAttacker,
           getTarget,
-          scale: animationScaleFor(attackerSprite.getOnScreenSize()),
+          getAttackerDepth,
+          getTargetDepth,
+          scale: animationScaleFor(attackerSprite.getOnScreenSize()) * (adjustment?.scale ?? 1),
+          cellOffset: adjustment?.offset,
+          dropCells: adjustment?.dropCells,
+          screenAnchor: adjustment?.screenAnchor,
           msPerFrame: msPerFrameFor(options.speed, loaded.data.frames.length),
           attacker: attackerSprite,
           target: hit ? targetSprite : undefined,
@@ -318,7 +354,7 @@ export class ReviewScene extends Phaser.Scene {
       playback.stop();
       this.setStatus(failure ? { kind: 'error', moveId, message: failure } : { kind: 'idle' });
     });
-    this.setStatus({ kind: 'playing', moveId, durationMs: windowMs });
+    this.setStatus({ kind: 'playing', moveId, durationMs: windowMs, variant: options.adjustments ? 'after' : 'before' });
   }
 
   private setStatus(status: ReviewStageStatus): void {

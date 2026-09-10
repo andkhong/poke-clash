@@ -1,6 +1,14 @@
 import { describe, expect, it } from 'vitest';
 import { ANIM_TARGET_X, ANIM_TARGET_Y, ANIM_USER_X, ANIM_USER_Y } from '../../../data/moveAnimationFormat';
-import { animationScaleFor, buildAnimTransform, mapBattlerOffset, mapCellAngle, mapCellDepth, mapCellPosition } from './geometry';
+import {
+  animationScaleFor,
+  buildAnimTransform,
+  isCellOffscreen,
+  mapBattlerOffset,
+  mapCellAngle,
+  mapCellDepth,
+  mapCellPosition,
+} from './geometry';
 
 const near = (v: number, expected: number): void => expect(v).toBeCloseTo(expected, 6);
 const AXIS_LENGTH = Math.hypot(ANIM_TARGET_X - ANIM_USER_X, ANIM_TARGET_Y - ANIM_USER_Y);
@@ -118,6 +126,47 @@ describe('mapBattlerOffset', () => {
   });
 });
 
+describe('mapCellPosition with a ScreenAnchor', () => {
+  it('pins screen-focused cells on the chosen battler, leaving other focuses alone', () => {
+    // Attacker->target in exactly the canonical direction, so rotation is zero.
+    const t = buildAnimTransform({ x: 0, y: 0 }, { x: ANIM_TARGET_X - ANIM_USER_X, y: ANIM_TARGET_Y - ANIM_USER_Y }, 1);
+    const anchor = { on: 'target' as const, center: { x: 256, y: 129 } };
+    // The animation's center lands on the target...
+    const c = mapCellPosition(t, 256, 129, 4, anchor);
+    near(c.x, t.target.x);
+    near(c.y, t.target.y);
+    // ...and an offset from it keeps its size.
+    const o = mapCellPosition(t, 256 + 30, 129, 4, anchor);
+    near(o.x, t.target.x + 30);
+    near(o.y, t.target.y);
+    // A user-focused cell still sits on the attacker, as without an anchor.
+    const u = mapCellPosition(t, ANIM_USER_X, ANIM_USER_Y, 2, anchor);
+    near(u.x, 0);
+    near(u.y, 0);
+    // Without the anchor the same screen cell spreads along the line instead.
+    const spread = mapCellPosition(t, 256, 129, 4);
+    expect(spread.x).toBeGreaterThan(0);
+    expect(spread.x).toBeLessThan(t.target.x);
+    // 'user' pins on the attacker.
+    const onUser = mapCellPosition(t, 256, 129, 4, { on: 'user', center: { x: 256, y: 129 } });
+    near(onUser.x, 0);
+    near(onUser.y, 0);
+  });
+});
+
+describe('isCellOffscreen', () => {
+  it('flags only cells wholly outside the 512x384 screen at their zoom', () => {
+    expect(isCellOffscreen(-128, 352, 100, 100)).toBe(true); // Lumina Crash's parked flash
+    expect(isCellOffscreen(-60, 200, 100, 100)).toBe(false); // pokes in from the left edge
+    expect(isCellOffscreen(-60, 200, 50, 50)).toBe(true); // ...but not at half size
+    expect(isCellOffscreen(600, 200, 100, 100)).toBe(false); // still 8px inside the right edge
+    expect(isCellOffscreen(620, 200, 100, 100)).toBe(true);
+    expect(isCellOffscreen(256, 480, 100, 100)).toBe(true);
+    expect(isCellOffscreen(256, 192, 100, 100)).toBe(false);
+    expect(isCellOffscreen(128, 282, 100, 100)).toBe(false); // Dig's second mound is on screen
+  });
+});
+
 describe('animationScaleFor', () => {
   it('scales with sprite size within bounds', () => {
     near(animationScaleFor(128), 1);
@@ -145,5 +194,17 @@ describe('mapCellAngle / mapCellDepth', () => {
     expect(mapCellDepth(t, 3, 1, 0)).toBeGreaterThan(300);
     // later cells in the same frame draw above earlier ones
     expect(mapCellDepth(t, 1, 3, 5)).toBeGreaterThan(mapCellDepth(t, 1, 3, 4));
+  });
+
+  it('ranks cells against the battlers’ own depth when the anchors are lifted to their body centers', () => {
+    // Anchors 30px above the sprites' ground positions (100 and 200).
+    const t = buildAnimTransform({ x: 0, y: 70 }, { x: 300, y: 170 }, 1, { attackerY: 100, targetY: 200 });
+    near(mapCellDepth(t, 3, 1, 0), 200.5); // in front of the target: just above the target sprite's depth
+    near(mapCellDepth(t, 2, 2, 0), 99.5); // behind the attacker
+    near(mapCellDepth(t, 0, 3, 0), 99); // behind both
+    near(mapCellDepth(t, 1, 3, 0), 201); // in front of everything
+    // Without depths the anchors' own y is used, as before.
+    const plain = buildAnimTransform({ x: 0, y: 70 }, { x: 300, y: 170 }, 1);
+    near(mapCellDepth(plain, 3, 1, 0), 170.5);
   });
 });

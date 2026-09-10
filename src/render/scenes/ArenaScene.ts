@@ -11,8 +11,9 @@ import { frameDurationMs, playAnimation, type AnimationHandle } from '../vfx/ani
 import { animationScaleFor } from '../vfx/anim/geometry';
 import { getLoadedMoveAnimation, getMoveAnimationEntry, queueAnimationLoads, requestMoveAnimation } from '../vfx/anim/moveAnimLoader';
 import { playFallbackFlash } from '../vfx/anim/fallbackFlash';
-import { resolveMoveAnimation } from '../vfx/moveAnimations';
-import { playFamilyVfx, preloadFamilyVfxAssets } from '../vfx/moves/playFamilyVfx';
+import { getMoveVfxAdjustment } from '../vfx/moveVfxAdjustments';
+import { resolveMoveVfxSource } from '../vfx/moveVfxSource';
+import { familyAnchorsAtBodyCenter, playFamilyVfx, preloadFamilyVfxAssets } from '../vfx/moves/playFamilyVfx';
 import { STATUS_COMMON_ANIMATIONS } from '../../data/moveAnimationFormat';
 import { playMoveSound, type MoveSoundHandle } from '../sound/moveSound';
 import { playBattleMusic } from '../sound/battleMusic';
@@ -364,11 +365,13 @@ export class ArenaScene extends Phaser.Scene {
 
     const hideMoveLabel = attackerSprite.showMoveLabel(move);
     const soundHandle = playMoveSound(this, move);
-    // A move whose pack animation is a screen-wide effect (or that has no
-    // pack animation at all) plays the arena's own family VFX instead —
-    // see MoveAnimationIndexEntry.screen and moves/playFamilyVfx.ts.
+    // The pack's animation, or the arena's own family VFX for a move whose
+    // pack animation is screen-wide (or missing) and for whatever the VFX
+    // review pinned either way — see moveVfxSource.ts and moves/playFamilyVfx.ts.
     const entry = getMoveAnimationEntry(move.id);
-    const family = !entry || entry.screen ? resolveMoveAnimation(move).family : null;
+    const adjustment = getMoveVfxAdjustment(move.id);
+    const source = resolveMoveVfxSource(move, entry, adjustment);
+    const family = source.kind === 'family' ? source.family : null;
     // Melee-swing pose for a physical move or any animation that dashes the
     // attacker into its target (the pack marks those — see the index's
     // `melee`; the family VFX's own lunge); every other move holds ground
@@ -411,25 +414,44 @@ export class ArenaScene extends Phaser.Scene {
     if (family) {
       // Family VFX are one-shot effects flown from the fire-time snapshot
       // to the single target; a self-targeting move shows pose/label/sound
-      // only, as it always has.
-      if (target) playFamilyVfx(this, family, attackerPosition, target.position, target.collisionRadius, move.type, attackerSprite);
+      // only, as it always has. A beam/jet/bolt runs between the fighters'
+      // body centers; a dash or ground effect stays at their feet (see
+      // familyAnchorsAtBodyCenter).
+      if (target) {
+        const bodyCenter = adjustment?.familyAnchor ? adjustment.familyAnchor === 'center' : familyAnchorsAtBodyCenter(family);
+        const targetLift = this.sprites.get(target.instanceId)?.bodyCenterLift() ?? 0;
+        const from = bodyCenter ? { x: attackerPosition.x, y: attackerPosition.y - attackerSprite.bodyCenterLift() } : attackerPosition;
+        const to = bodyCenter ? { x: target.position.x, y: target.position.y - targetLift } : target.position;
+        // A lunge steers by the feet but lands its hit on the body.
+        const contact = { x: target.position.x, y: target.position.y - targetLift };
+        playFamilyVfx(this, family, from, to, target.collisionRadius, move.type, attackerSprite, contact);
+      }
       if (missedTarget) this.playMissReaction(missedTarget, attackerPosition, family === 'lunge' ? LUNGE_MISS_DELAY_MS : FAMILY_MISS_DELAY_MS);
       return { soundHandle, hideMoveLabel, unlockPosition };
     }
     if (!target && !selfTargeting) return { soundHandle, hideMoveLabel, unlockPosition }; // nothing to aim at: pose/label/sound only
 
-    // Anchors are read live every frame so the animation follows a target
-    // that keeps walking during the attack, falling back to the positions
-    // snapshotted when the move fired once a sprite is gone (fainted). A
-    // missed target is deliberately NOT followed: the attack goes where it
-    // was, and it steps away from there.
+    // Anchors are the bodies' centers (see PokemonSprite.getAnimAnchor),
+    // read live every frame so the animation follows a target that keeps
+    // walking during the attack, falling back to the anchors snapshotted
+    // now once a sprite is gone (fainted). A missed target is deliberately
+    // NOT followed: the attack goes where it was, and it steps away from
+    // there. Depth is still the sprites' ground position.
     const targetSprite = hitTarget ? this.sprites.get(hitTarget.instanceId) : undefined;
-    const getAttacker = (): Vec2 => (attackerSprite.isDestroyed() ? attackerPosition : attackerSprite.getRenderPosition());
+    const attackerAnchor = attackerSprite.getAnimAnchor();
+    const targetSpriteNow = target ? this.sprites.get(target.instanceId) : undefined;
+    const targetAnchor: Vec2 = targetSpriteNow && !targetSpriteNow.isDestroyed() ? targetSpriteNow.getAnimAnchor() : (target?.position ?? attackerAnchor);
+    const getAttacker = (): Vec2 => (attackerSprite.isDestroyed() ? attackerAnchor : attackerSprite.getAnimAnchor());
     const getTarget = (): Vec2 => {
       if (!target) return getAttacker();
-      return targetSprite && !targetSprite.isDestroyed() ? targetSprite.getRenderPosition() : target.position;
+      return targetSprite && !targetSprite.isDestroyed() ? targetSprite.getAnimAnchor() : targetAnchor;
     };
-    const impact = target ? target.position : attackerPosition;
+    const getAttackerDepth = (): number => (attackerSprite.isDestroyed() ? attackerPosition.y : attackerSprite.getRenderPosition().y);
+    const getTargetDepth = (): number => {
+      if (!target) return getAttackerDepth();
+      return targetSprite && !targetSprite.isDestroyed() ? targetSprite.getRenderPosition().y : target.position.y;
+    };
+    const impact = getTarget();
 
     const loaded = getLoadedMoveAnimation(this, move.id);
     if (!loaded) {
@@ -452,7 +474,12 @@ export class ArenaScene extends Phaser.Scene {
       sheetKey: loaded.sheetKey,
       getAttacker,
       getTarget,
-      scale: animationScaleFor(attackerSprite.getOnScreenSize()),
+      getAttackerDepth,
+      getTargetDepth,
+      scale: animationScaleFor(attackerSprite.getOnScreenSize()) * (adjustment?.scale ?? 1),
+      cellOffset: adjustment?.offset,
+      dropCells: adjustment?.dropCells,
+      screenAnchor: adjustment?.screenAnchor,
       msPerFrame: frameDurationMs(loaded.data.frames.length, ATTACK_VISUAL_DURATION_MS),
       attacker: attackerSprite,
       target: hitTarget && targetSprite !== attackerSprite ? targetSprite : undefined,

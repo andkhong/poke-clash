@@ -1,0 +1,158 @@
+{
+  "44": {
+    "summary": "Pack animations now anchor on the Pokémon's body center instead of its feet (the pack draws its battlers centered on the user/target spots — Bite's cells sit exactly on that spot), so the bite closes on the target's body. Applies to every pack animation; see PokemonSprite.getAnimAnchor.",
+    "changedAt": "2026-09-10T17:20:00.000Z"
+  },
+  "59": {
+    "summary": "Blizzard plays at 0.9× size (src/render/vfx/moveVfxAdjustments.ts); its cells stream between the fighters' body centers like every pack animation now.",
+    "changedAt": "2026-09-10T18:05:00.000Z"
+  },
+  "62": {
+    "summary": "Aurora Beam plays at 1.35× size (src/render/vfx/moveVfxAdjustments.ts), and like every pack animation it now runs between the fighters' body centers rather than their feet.",
+    "changedAt": "2026-09-10T17:20:00.000Z"
+  },
+  "85": {
+    "summary": "Thunderbolt plays the arena's own jagged bolt (moves/thunderAttack.ts) instead of the pack's animation — pinned in src/render/vfx/moveVfxAdjustments.ts. The bolt now strikes between body centers, as the arena's beams and jets do after this review.",
+    "changedAt": "2026-09-10T17:20:00.000Z"
+  },
+  "89": {
+    "summary": "Earthquake now plays the pack's animation (rocks across the whole field) instead of the arena's rock burst — pinned with usePackAnimation per your Assets pick. Its screen-wide cells spread along the line between the fighters.",
+    "changedAt": "2026-09-10T18:15:00.000Z"
+  },
+  "91": {
+    "summary": "The second dirt mound is gone: the pack draws it at the user's screen spot but anchors it on the target, so the arena dragged it in beside the target. Dropped by its authored position in moveVfxAdjustments.ts (dropCells).",
+    "changedAt": "2026-09-10T18:05:00.000Z"
+  },
+  "93": {
+    "summary": "Confusion now plays the pack's animation per your Assets pick. Note the pack's Confusion draws nothing of its own — it only moves and tints the battlers — so what you see is the target's wobble plus the arena's fallback flash. 'Keep the arena effect' brings the beam back.",
+    "changedAt": "2026-09-10T18:15:00.000Z"
+  },
+  "112": {
+    "summary": "Second pass: the glass panel is authored 14px right of the user spot and the body's center sits above it, so it now gets a nudge of 14px left and 12px up (moveVfxAdjustments.ts offset) on top of the body-center anchor — the panel should sit squarely on the body.",
+    "changedAt": "2026-09-10T18:05:00.000Z"
+  },
+  "148": {
+    "summary": "Flash now plays the pack's animation per your Assets pick. Like Confusion, the pack's Flash draws nothing of its own (its full-screen white-out isn't shipped), so it's the battler motion plus the arena's fallback flash.",
+    "changedAt": "2026-09-10T18:15:00.000Z"
+  },
+  "211": {
+    "summary": "Steel Wing now plays the pack's slash per your feedback ('Use assets') instead of the arena's lunge. The slash is authored at the pack's target spot, so it lands on the target's body.",
+    "changedAt": "2026-09-10T18:15:00.000Z"
+  },
+  "230": {
+    "summary": "Sweet Scent now plays the pack's animation (hearts drifting across the field) per your Assets pick.",
+    "changedAt": "2026-09-10T18:15:00.000Z"
+  },
+  "248": {
+    "summary": "Future Sight now plays the pack's animation per your Assets pick. The pack's Future Sight draws nothing of its own (battler motion only), so it shows with the arena's fallback flash.",
+    "changedAt": "2026-09-10T18:15:00.000Z"
+  },
+  "257": {
+    "summary": "Back on the arena's flame jet per your feedback (\"Use arena effect\"): the pack's Heat Wave is only a full-screen overlay the conversion doesn't ship, so with the assets it showed nothing but battler motion. The usePackAnimation pin is removed.",
+    "changedAt": "2026-09-10T18:23:29.508Z"
+  },
+  "295": {
+    "summary": "Luster Purge now plays the pack's animation per your Assets pick: its charge sits on the user, its impact on the target, and its screen-wide cells spread between them.",
+    "changedAt": "2026-09-10T18:15:00.000Z"
+  },
+  "299": {
+    "summary": "Pack animations now anchor on the Pokémon's body center instead of its feet, so the kick and its flames land on the target's body. Same global anchor fix as Bite.",
+    "changedAt": "2026-09-10T17:20:00.000Z"
+  },
+  "307": {
+    "summary": "Pack animations now anchor on the Pokémon's body center instead of its feet, so the blast runs from the attacker's body to the target's instead of along the ground. Same global anchor fix as Bite.",
+    "changedAt": "2026-09-10T17:20:00.000Z"
+  },
+  "349": {
+    "summary": "The swirls are drawn 22px under and 8px left of the user spot, so they get a nudge of 8px right and 22px up (moveVfxAdjustments.ts offset) to circle the body.",
+    "changedAt": "2026-09-10T18:05:00.000Z"
+  },
+  "351": {
+    "summary": "Shock Wave now plays the pack's animation per your Assets pick: lightning across the top of the line, impact on the target.",
+    "changedAt": "2026-09-10T18:15:00.000Z"
+  },
+  "434": {
+    "summary": "The meteors' impact cells land 24px left of and 12px below the target spot; nudged 24px right and 12px up (moveVfxAdjustments.ts offset) so they hit the target's body.",
+    "changedAt": "2026-09-10T18:05:00.000Z"
+  },
+  "437": {
+    "summary": "The leaf spirals circle 20px under the user spot and 38px under the target spot; the whole animation is lifted 28px (moveVfxAdjustments.ts offset) so both spirals center on the bodies.",
+    "changedAt": "2026-09-10T18:05:00.000Z"
+  },
+  "519": {
+    "summary": "Fire Pledge now plays the pack's pillar of fire per your pick, and per 'center the target pokemon' the pillar is pinned on the target: its screen-wide cell is anchored so the pillar's center (authored 52px under the target spot) sits on the target's body (moveVfxAdjustments.ts screenAnchor).",
+    "changedAt": "2026-09-10T18:15:00.000Z"
+  },
+  "536": {
+    "summary": "The tornado's art centers 16px below the target spot; lifted 16px (moveVfxAdjustments.ts offset).",
+    "changedAt": "2026-09-10T18:05:00.000Z"
+  },
+  "547": {
+    "summary": "Relic Song now plays the pack's animation per your Assets pick: notes from the user, across the field, and on the target.",
+    "changedAt": "2026-09-10T18:15:00.000Z"
+  },
+  "572": {
+    "summary": "Petal Blizzard now plays the pack's own petal storm (pinned with usePackAnimation in moveVfxAdjustments.ts) instead of the arena's generic rock burst. Its animation is screen-wide, so judge it on the Unused assets list — With assets / Arena effect — and pick; 'keep the arena effect' sends it back.",
+    "changedAt": "2026-09-10T18:05:00.000Z"
+  },
+  "690": {
+    "summary": "Pack animations now anchor on the Pokémon's body center instead of its feet, so the blast lands on the target's body. Same global anchor fix as Bite.",
+    "changedAt": "2026-09-10T17:20:00.000Z"
+  },
+  "693": {
+    "summary": "Brutal Swing now plays the pack's swing per your feedback, and the swing's arc — a screen-wide cell centered mid-screen, which the arena spread along the line — is pinned so its center sits on the target's body (moveVfxAdjustments.ts screenAnchor). The wind-up stays on the attacker.",
+    "changedAt": "2026-09-10T18:15:00.000Z"
+  },
+  "704": {
+    "summary": "Shell Trap now plays the pack's animation per your Assets pick: the trap is authored at the target spot, so it fires on the target.",
+    "changedAt": "2026-09-10T18:15:00.000Z"
+  },
+  "713": {
+    "summary": "The burst lands 20px right of and 22px below the target spot (and the charge 13px under the user spot); nudged 18px left and 20px up (moveVfxAdjustments.ts offset).",
+    "changedAt": "2026-09-10T18:05:00.000Z"
+  },
+  "720": {
+    "summary": "Mind Blown now plays the pack's explosion per your Assets pick; it's authored mid-screen, so it lands between the fighters. Say so in Feedback if it should sit on the attacker or the target instead.",
+    "changedAt": "2026-09-10T18:15:00.000Z"
+  },
+  "831": {
+    "summary": "Springtide Storm now plays the pack's storm per your Assets pick; it's authored at the target spot, so it lands on the target.",
+    "changedAt": "2026-09-10T18:15:00.000Z"
+  },
+  "846": {
+    "summary": "Bleakwind Storm now plays the pack's twister per your feedback ('Use assets') instead of the arena's beam; it's authored at the target spot, so it lands on the target.",
+    "changedAt": "2026-09-10T18:15:00.000Z"
+  },
+  "847": {
+    "summary": "Wildbolt Storm now plays the pack's storm per your Assets pick; it's authored at the target spot, so it lands on the target.",
+    "changedAt": "2026-09-10T18:15:00.000Z"
+  },
+  "848": {
+    "summary": "Sandsear Storm now plays the pack's storm per your Assets pick; it's authored at the target spot, so it lands on the target.",
+    "changedAt": "2026-09-10T18:15:00.000Z"
+  },
+  "855": {
+    "summary": "The extra sprite was a full-size flash the pack parks off its own screen (x = −128) for the first half of the animation — invisible there, but the arena's mapping dragged it in beside the attacker. Cells parked wholly outside the pack's 512×384 screen are no longer drawn (AnimPlayer/geometry.ts isCellOffscreen). Applies to every pack animation.",
+    "changedAt": "2026-09-10T18:05:00.000Z"
+  },
+  "866": {
+    "summary": "The tornadoes circle 40px below the user spot; the animation is lifted 32px (moveVfxAdjustments.ts offset) so they spin around the attacker's body.",
+    "changedAt": "2026-09-10T18:05:00.000Z"
+  },
+  "891": {
+    "summary": "Pack animations now anchor on the Pokémon's body center instead of its feet, so the blade's slash and its fire sit higher on both attacker and target. Same global anchor fix as Bite.",
+    "changedAt": "2026-09-10T17:20:00.000Z"
+  },
+  "902": {
+    "summary": "Matcha Gotcha now plays the pack's animation per your Assets pick; its cells spread between the fighters toward the target.",
+    "changedAt": "2026-09-10T18:15:00.000Z"
+  },
+  "905": {
+    "summary": "The charge is authored 103px in front of the user — this is a side-view beam that leaves the screen and re-enters at the target's height — which the arena's diagonal mapping turns into 'below and ahead'. The charge now sits on the attacker (moveVfxAdjustments.ts offset); the beam's path is the pack's. If it still reads badly, the arena's own thunder bolt is the alternative (say so in Feedback).",
+    "changedAt": "2026-09-10T18:05:00.000Z"
+  },
+  "919": {
+    "summary": "Second pass per 'Lift it up a few more pixels': the lift is now 18px instead of 10 (moveVfxAdjustments.ts offset).",
+    "changedAt": "2026-09-10T18:15:00.000Z"
+  }
+}

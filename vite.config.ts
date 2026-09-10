@@ -1,11 +1,14 @@
 import { defineConfig } from 'vitest/config';
 import react from '@vitejs/plugin-react';
+import { vfxReviewFilePlugin } from './vite-plugins/vfxReviewFile';
 
 const PMD_SPRITE_SERVER_PORT = process.env.PMD_SPRITE_SERVER_PORT ?? '4310';
 const GAME_SERVER_PORT = process.env.GAME_SERVER_PORT ?? '4311';
 
 export default defineConfig({
-  plugins: [react()],
+  // vfxReviewFilePlugin: dev-only endpoint the review page (review.html)
+  // saves its marks through, into vfx-review/ in the repo.
+  plugins: [react(), vfxReviewFilePlugin()],
   build: {
     rollupOptions: {
       // Two pages: the game, and the move-VFX review tool at /review.html
@@ -29,6 +32,12 @@ export default defineConfig({
   },
   test: {
     environment: 'node',
-    include: ['src/**/*.test.ts', 'game-server/**/*.test.ts', 'sprite-server/**/*.test.ts', 'data-pipeline/**/*.test.ts'],
+    include: [
+      'src/**/*.test.ts',
+      'game-server/**/*.test.ts',
+      'sprite-server/**/*.test.ts',
+      'data-pipeline/**/*.test.ts',
+      'vite-plugins/**/*.test.ts',
+    ],
   },
 });

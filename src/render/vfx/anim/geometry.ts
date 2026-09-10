@@ -1,5 +1,6 @@
 import type { Vec2 } from '../../../sim/types';
 import {
+  ANIM_CELL_SIZE,
   ANIM_REFERENCE_BATTLER_SIZE,
   ANIM_SCREEN_HEIGHT,
   ANIM_SCREEN_WIDTH,
@@ -65,6 +66,12 @@ const MAX_SCALE = 1.4;
 export interface AnimTransform {
   attacker: Vec2;
   target: Vec2;
+  /** The y each battler's sprite is depth-sorted by (its ground position).
+   * The anchors above sit at the bodies' centers, higher up (see
+   * PokemonSprite.getAnimAnchor), so a cell meant to draw in front of a
+   * sprite has to be ranked against the sprite's own depth, not the anchor. */
+  attackerDepthY: number;
+  targetDepthY: number;
   /** Sprite-size scale applied to every cell and to across-axis offsets. */
   scale: number;
   /** Rotation from the canonical user->target direction to the arena's
@@ -83,6 +90,18 @@ export interface AnimTransform {
   distance: number;
 }
 
+/** True for a cell the pack's author parked outside the 512x384 screen —
+ * a habit of the pack's editor (Lumina Crash keeps a full-size flash at
+ * x = -128 for its whole first half): invisible there, but the arena's
+ * mapping would drag it in next to a battler as an "extra sprite". Judged
+ * by the cell's full 192px extent at its zoom, so a cell merely poking in
+ * from an edge still draws. */
+export function isCellOffscreen(x: number, y: number, zoomX: number, zoomY: number): boolean {
+  const halfWidth = (ANIM_CELL_SIZE / 2) * (zoomX / 100);
+  const halfHeight = (ANIM_CELL_SIZE / 2) * (zoomY / 100);
+  return x + halfWidth <= 0 || x - halfWidth >= ANIM_SCREEN_WIDTH || y + halfHeight <= 0 || y - halfHeight >= ANIM_SCREEN_HEIGHT;
+}
+
 /** The scale an animation plays at for an attacker of the given on-screen
  * size (px, longest side), relative to the battlers the pack was drawn
  * around. */
@@ -90,7 +109,16 @@ export function animationScaleFor(onScreenSize: number): number {
   return Math.min(MAX_SCALE, Math.max(MIN_SCALE, onScreenSize / ANIM_REFERENCE_BATTLER_SIZE));
 }
 
-export function buildAnimTransform(attacker: Vec2, target: Vec2, scale: number): AnimTransform {
+/** Depth y's for the two battlers when they differ from the anchors' own y
+ * (see AnimTransform.attackerDepthY); either defaults to its anchor's y. */
+export interface AnimDepths {
+  attackerY?: number;
+  targetY?: number;
+}
+
+export function buildAnimTransform(attacker: Vec2, target: Vec2, scale: number, depths: AnimDepths = {}): AnimTransform {
+  const attackerDepthY = depths.attackerY ?? attacker.y;
+  const targetDepthY = depths.targetY ?? target.y;
   const dx = target.x - attacker.x;
   const dy = target.y - attacker.y;
   const distance = Math.hypot(dx, dy);
@@ -98,6 +126,8 @@ export function buildAnimTransform(attacker: Vec2, target: Vec2, scale: number):
     return {
       attacker,
       target,
+      attackerDepthY,
+      targetDepthY,
       scale,
       rotation: 0,
       degenerate: true,
@@ -113,6 +143,8 @@ export function buildAnimTransform(attacker: Vec2, target: Vec2, scale: number):
   return {
     attacker,
     target,
+    attackerDepthY,
+    targetDepthY,
     scale,
     rotation: Math.atan2(dirY, dirX) - Math.atan2(CANONICAL_UNIT_Y, CANONICAL_UNIT_X),
     degenerate: false,
@@ -133,8 +165,26 @@ function rotateOffset(t: AnimTransform, offsetX: number, offsetY: number): Vec2 
   return { x: t.dirX * along + t.perpX * across, y: t.dirY * along + t.perpY * across };
 }
 
+/** Pins a screen-wide animation on one battler: its screen-focused cells
+ * (focus 4) are treated as anchored on that battler, with the canonical
+ * point `center` (where the animation's action is on the pack's screen —
+ * e.g. the middle of Brutal Swing's arc) landing on the battler's anchor.
+ * For a pack animation the arena plays only because the review chose it,
+ * whose action belongs on the target rather than spread along the line
+ * between the fighters (review note: "target isn't centered with the
+ * attack asset"). */
+export interface ScreenAnchor {
+  on: 'target' | 'user';
+  center: Vec2;
+}
+
 /** Where a cell drawn at canonical (x, y) with the given focus lands in the arena. */
-export function mapCellPosition(t: AnimTransform, x: number, y: number, focus: number): Vec2 {
+export function mapCellPosition(t: AnimTransform, x: number, y: number, focus: number, screenAnchor?: ScreenAnchor): Vec2 {
+  if (focus === 4 && screenAnchor) {
+    const o = rotateOffset(t, x - screenAnchor.center.x, y - screenAnchor.center.y);
+    const on = screenAnchor.on === 'target' ? t.target : t.attacker;
+    return { x: on.x + o.x, y: on.y + o.y };
+  }
   if (focus === 1) {
     const o = rotateOffset(t, x - ANIM_TARGET_X, y - ANIM_TARGET_Y);
     return { x: t.target.x + o.x, y: t.target.y + o.y };
@@ -208,8 +258,8 @@ export function mapCellAngle(t: AnimTransform, cellAngleDegrees: number): number
  * sorts sprites by their y, so "behind"/"in front" become y ± a hair, and
  * later cells in a frame draw over earlier ones like they do in the pack. */
 export function mapCellDepth(t: AnimTransform, priority: number, focus: number, cellIndex: number): number {
-  const attackerY = t.attacker.y;
-  const targetY = t.target.y;
+  const attackerY = t.attackerDepthY;
+  const targetY = t.targetDepthY;
   const focusY = focus === 1 ? targetY : focus === 2 ? attackerY : Math.max(attackerY, targetY);
   let base: number;
   switch (priority) {

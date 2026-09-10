@@ -22,6 +22,8 @@
         --accent-text: #1a1a1a;
         --danger: #d9534f;
         --mark: #ff8c42;
+        --proposed: #8fa8f5;
+        --approved: #6fcf6f;
       }
       * { box-sizing: border-box; }
       html, body, #root { height: 100%; margin: 0; }
@@ -44,6 +46,8 @@
       .header h1 { font-size: 15px; margin: 0; letter-spacing: 1px; text-transform: uppercase; }
       .header .count { color: var(--muted); }
       .header .count strong { color: var(--mark); }
+      .header .sync { color: var(--muted); font-size: 11px; cursor: help; }
+      .header .sync.error { color: var(--danger); }
       .header .spacer { flex: 1; }
       .toast { color: var(--accent); }
 
@@ -62,6 +66,9 @@
         .details { max-height: none; }
       }
 
+      .modes { display: flex; gap: 6px; padding: 10px 10px 0; }
+      .modes .btn.mode { flex: 1; font-size: 12px; }
+      .modes .btn.mode.active { background: rgba(224, 176, 48, 0.2); border-color: var(--accent); }
       .filters { display: flex; flex-direction: column; gap: 6px; padding: 10px; border-bottom: 1px solid var(--line); }
       .filters .row { display: flex; gap: 6px; }
       .filters input[type="search"], .filters select, .details select, .controls select {
@@ -83,6 +90,31 @@
       .move-row .name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; text-transform: uppercase; font-size: 12px; }
       .move-row .meta { font-size: 9px; color: var(--muted); }
       .move-row .flag { color: var(--mark); font-size: 12px; text-align: center; }
+      .move-row .flag.proposed, .header .to-review, .details .verdict.proposed { color: var(--proposed); }
+      .move-row .flag.approved, .details .verdict.approved { color: var(--approved); }
+      .move-row .flag.changes-requested, .details .verdict.changes-requested { color: var(--mark); }
+      .move-row.marked.proposed { border-left-color: var(--proposed); }
+      .move-row.marked.approved { border-left-color: var(--approved); }
+
+      .details .proposal {
+        border: 1px solid rgba(104, 144, 240, 0.5); background: rgba(104, 144, 240, 0.08); border-radius: 8px; padding: 10px 12px;
+      }
+      .details .proposal.approved { border-color: rgba(111, 207, 111, 0.5); background: rgba(111, 207, 111, 0.08); }
+      .details .proposal.changes-requested { border-color: rgba(255, 140, 66, 0.5); background: rgba(255, 140, 66, 0.08); }
+      .details .proposal .summary { color: var(--text); }
+      .details .unused {
+        border: 1px solid rgba(96, 160, 64, 0.5); background: rgba(96, 160, 64, 0.08); border-radius: 8px; padding: 10px 12px;
+      }
+      .details .unused .ab { display: flex; gap: 8px; margin-top: 10px; }
+      .details .unused .ab .btn { flex: 1; }
+      .details .unused .hint { margin-top: 8px; font-size: 11px; }
+      .details .proposal .ab { display: flex; gap: 8px; margin-top: 10px; }
+      .details .proposal .ab .btn { flex: 1; }
+      .details .verdict { margin-top: 10px; font-size: 12px; }
+      .details .feedback { margin-top: 8px; min-height: 72px; }
+      .btn.approve { border-color: rgba(111, 207, 111, 0.6); color: var(--approved); }
+      .btn.approve:hover:not(:disabled) { background: rgba(111, 207, 111, 0.2); }
+      .btn.approve.active { background: var(--approved); color: var(--accent-text); }
 
       .chip {
         display: inline-block; font-size: 9px; letter-spacing: 0.5px; text-transform: uppercase;
