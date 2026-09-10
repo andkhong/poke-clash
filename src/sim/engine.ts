@@ -516,6 +516,16 @@ export class SimulationEngine implements EngineLike {
 
       if (!result.hit) continue;
 
+      // A landed hit pins the target in place for the same window the
+      // attacker holds after firing (resetCooldown below sets the attacker's
+      // this same tick, so both release together): the one being hit
+      // shouldn't be walking off while the attack's visual plays out on it.
+      // Movement only — it may still fire back mid-hold, same as the
+      // attacker may. Its stale wander leg is dropped like the attacker's,
+      // so it picks a fresh one from where it stood once released.
+      target.postAttackHoldMs = POST_ATTACK_HOLD_MS;
+      target.wanderWaypoint = undefined;
+
       if (target.aiState === 'wander' || !target.targetInstanceId) {
         retaliate(target, attacker.instanceId, nowMs);
       }

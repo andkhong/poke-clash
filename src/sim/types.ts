@@ -139,9 +139,10 @@ export interface PokemonInstance {
   /** Milliseconds remaining before this Pokémon may act (attack) again. */
   actionCooldownMs: number;
   /** Milliseconds remaining in the "hold perfectly still" window after firing
-   * a move — see POST_ATTACK_HOLD_MS. Independent of actionCooldownMs, which
-   * governs only when it may act *again*, not how long it stays put after
-   * acting. */
+   * a move, or after being hit by one — see POST_ATTACK_HOLD_MS. Both sides
+   * of a landed hit get the same window the same tick, so attacker and
+   * target release together. Independent of actionCooldownMs, which
+   * governs only when it may act *again*, not how long it stays put. */
   postAttackHoldMs: number;
 
   /** When this Pokémon last fired a move (any executeMove, including a

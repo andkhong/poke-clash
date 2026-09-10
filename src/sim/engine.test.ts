@@ -440,6 +440,43 @@ describe('SimulationEngine full match', () => {
     }
   });
 
+  it('pins a hit target in place for the same hold window as its attacker, set the same tick so both release together', () => {
+    const engine = runFullMatch(13, [1, 2, 3, 4, 5, 6]);
+    const landed = engine
+      .getEventsSince(0)
+      .find((e): e is Extract<SimEvent, { type: 'moveUsed' }> => e.type === 'moveUsed' && e.targetIds.some((id) => e.hit[id]));
+    expect(landed).toBeDefined(); // sanity: this seed's match landed at least one hit
+    if (!landed) return;
+    const targetId = landed.targetIds.find((id) => landed.hit[id])!;
+
+    const replay = new SimulationEngine(
+      { level: 100, speciesIds: [1, 2, 3, 4, 5, 6], arena: { width: 960, height: 1600 }, shiny: false },
+      FIXTURE_SPECIES,
+      moveLookup,
+      13
+    );
+    while (replay.getState().elapsedMs < landed.atMs) replay.tick(TICK_MS);
+    const attacker = replay.getState().pokemon[landed.attackerId];
+    const target = replay.getState().pokemon[targetId];
+    expect(target.postAttackHoldMs).toBeGreaterThan(0);
+    expect(target.postAttackHoldMs).toBe(attacker.postAttackHoldMs);
+    expect(target.wanderWaypoint).toBeUndefined(); // dropped like the attacker's, so it repicks from where it stood
+    const positionAtLanding = { ...target.position };
+
+    // Same jitter allowance as the attacker-hold test above: separation
+    // from a crowding neighbor is the one force still allowed during a hold.
+    const MAX_HOLD_JITTER_PX = 50;
+    const MAX_HOLD_POLL_TICKS = 200;
+    for (let i = 0; i < MAX_HOLD_POLL_TICKS; i++) {
+      const state = replay.getState();
+      if (state.phase === 'complete') break;
+      const held = state.pokemon[targetId];
+      if (held.postAttackHoldMs <= 0) break; // released (its own counter-attack mid-hold merely refreshes it)
+      expect(distance(held.position, positionAtLanding)).toBeLessThan(MAX_HOLD_JITTER_PX);
+      replay.tick(TICK_MS);
+    }
+  });
+
   it('holds the intro circle formation without moving Pokémon before battle starts', () => {
     const engine = new SimulationEngine(
       { level: 100, speciesIds: [1, 2, 3], arena: { width: 960, height: 1600 }, shiny: false },
@@ -993,6 +1030,11 @@ describe('arena-wide attack gate', () => {
       if (engine.getState().phase === 'complete') break;
       engine.tick(TICK_MS);
       const state = engine.getState();
+      // The match can end on this very tick (a KO, or the time limit), after
+      // which nothing evolves any further — cooldowns stop ticking and no
+      // wander leg ever follows a deferral made moments before, so there's
+      // nothing left to verify.
+      if (state.phase === 'complete') break;
       const nowMs = state.elapsedMs;
       const firedNow = new Set(moveEvents(engine).filter((e) => e.atMs === nowMs).map((e) => e.attackerId));
       const deferredNow = new Set<string>();
@@ -1001,6 +1043,7 @@ describe('arena-wide attack gate', () => {
         if (!state.livingOrder.includes(id)) continue;
         const p = state.pokemon[id];
         if (isIncapacitatingStatus(p.status)) continue; // put to sleep/frozen since — a different hold entirely
+        if (p.postAttackHoldMs > 0) continue; // hit since — pinned in place for the attacker's hold window, no leg until released
         expect(p.aiState).toBe('wander');
         expect(p.wanderWaypoint).toBeDefined();
       }

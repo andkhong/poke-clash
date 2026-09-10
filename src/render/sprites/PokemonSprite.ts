@@ -15,7 +15,13 @@ import { animationScaleFor } from '../vfx/anim/geometry';
 import { getLoadedCommonAnimation } from '../vfx/anim/moveAnimLoader';
 import { STATUS_COMMON_ANIMATIONS } from '../../data/moveAnimationFormat';
 import type { MoveDefinition } from '../../sim/types';
-import { ARENA_TOP_PADDING, BALL_DROP_DURATION_MS, BALL_DROP_STAGGER_MS, COLLISION_RADIUS_FACTOR } from '../../sim/constants';
+import {
+  ARENA_TOP_PADDING,
+  BALL_DROP_DURATION_MS,
+  BALL_DROP_STAGGER_MS,
+  COLLISION_RADIUS_FACTOR,
+  POST_ATTACK_HOLD_MS,
+} from '../../sim/constants';
 import { BOSS_CONFIG } from '../../sim/bossConfig';
 
 /** Target on-screen size (px, longest side) — sprite sources range from ~30px
@@ -695,7 +701,7 @@ export class PokemonSprite {
     this.container.setPosition(this.renderPos.x + this.animOffset.x, this.renderPos.y + this.animOffset.y);
     this.container.setDepth(this.renderPos.y + this.animOffset.y);
 
-    this.updateFacing(pokemon, allPokemon);
+    this.updateFacing(pokemon, allPokemon, nowMs);
     this.updateHpBar(pokemon);
     this.updateStatusBox(pokemon);
     this.updateStatusVfx(pokemon);
@@ -743,19 +749,29 @@ export class PokemonSprite {
    * targetInstanceId stays pointed at whoever was just attacked for this
    * whole window (nothing reassigns it while actionCooldownMs > 0), so it's
    * safe to read once and trust for the duration. */
-  private desiredFacing(pokemon: PokemonInstance, allPokemon: Record<string, PokemonInstance>): FacingDirection {
+  private desiredFacing(pokemon: PokemonInstance, allPokemon: Record<string, PokemonInstance>, nowMs: number): FacingDirection {
     if (pokemon.aiState === 'attack' && pokemon.targetInstanceId) {
       const target = allPokemon[pokemon.targetInstanceId];
       if (target) this.heldAttackFacing = this.facingToward(pokemon.position, target.position);
     }
-    if (pokemon.postAttackHoldMs > 0 && this.heldAttackFacing) return this.heldAttackFacing;
+    if (pokemon.postAttackHoldMs > 0) {
+      // The same hold also pins a Pokémon that was just *hit* (see
+      // engine.ts's executeMove). One that was wandering when it got hit has
+      // no attack facing to hold, so it would stand there facing wherever
+      // it was walking — turn it toward whoever hit it instead, computed
+      // once for the same anti-jitter reason as above.
+      if (!this.heldAttackFacing && pokemon.lastHitAtMs !== undefined && nowMs - pokemon.lastHitAtMs <= POST_ATTACK_HOLD_MS) {
+        this.heldAttackFacing = this.computeHitFacing(pokemon, allPokemon);
+      }
+      if (this.heldAttackFacing) return this.heldAttackFacing;
+    }
     this.heldAttackFacing = null;
     return pokemon.facing;
   }
 
-  private updateFacing(pokemon: PokemonInstance, allPokemon: Record<string, PokemonInstance>): void {
+  private updateFacing(pokemon: PokemonInstance, allPokemon: Record<string, PokemonInstance>, nowMs: number): void {
     if (!this.body) return;
-    const facing = this.desiredFacing(pokemon, allPokemon);
+    const facing = this.desiredFacing(pokemon, allPokemon, nowMs);
     this.lastFacing = facing;
 
     if (this.isPmdTier) {
