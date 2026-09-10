@@ -8,6 +8,7 @@ import { acquireSpriteSlot, releaseSpriteSlot } from './fetchQueue';
 import { getMoveTypeColor } from '../vfx/typeColor';
 import { POKEBALL_TEXTURE_KEY } from './pokeballAsset';
 import { playCry } from './cryAudio';
+import { pmdSheetUrl } from './pmdSheetUrl';
 import { playSparkleReveal } from '../vfx/sparkle';
 import { buildThunderParticleTexture } from '../vfx/moves/pixelTextures';
 import { POISON_GLOBULE_TEXTURE_KEY } from '../vfx/moves/poisonAttack';
@@ -461,7 +462,7 @@ export class PokemonSprite {
     await Promise.all(
       Object.entries(sourceActions).map(async ([action, meta]) => {
         const key = this.pmdTextureKey(action);
-        const ok = await this.loadSpriteSheet(key, `/pmd-sprites/${dir}/${action}-Anim.png`, {
+        const ok = await this.loadSpriteSheet(key, pmdSheetUrl(dir, action), {
           frameWidth: meta.frameWidth,
           frameHeight: meta.frameHeight,
         });

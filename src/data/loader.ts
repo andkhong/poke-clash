@@ -1,7 +1,7 @@
 import pokemonData from './generated/pokemon.json';
 import movesData from './generated/moves.json';
-import pmdSpriteIndexData from './generated/pmdSpriteIndex.json';
-import type { GeneratedSpecies, PmdSpriteIndex } from './types';
+import pmdSpriteIds from './generated/pmdSpriteIds.json';
+import type { GeneratedSpecies } from './types';
 import type { MoveDefinition, PokemonTypeName } from '../sim/types';
 import type { MoveLookup, SpeciesData } from '../sim/matchSetup';
 import { COLLISION_RADIUS_FACTOR, computeOnScreenSizeFromHeight } from '../sim/constants';
@@ -10,7 +10,11 @@ const SPECIES_LIST = pokemonData as GeneratedSpecies[];
 const MOVES_BY_ID = new Map<number, MoveDefinition>(
   Object.entries(movesData as Record<string, MoveDefinition>).map(([id, def]) => [Number(id), def])
 );
-const PMD_SPRITE_INDEX = pmdSpriteIndexData as PmdSpriteIndex;
+// Just the ids, not the ~1.4 MB frame-metadata index (public/
+// pmd-sprite-index.json) — that's fetched by the arena when a match starts,
+// while this module is in the bundle every visitor loads for the menus. See
+// data-pipeline/pmdSpriteIndexFiles.ts, which writes both.
+const PMD_SPRITE_IDS = new Set<number>(pmdSpriteIds as number[]);
 const SPECIES_BY_ID = new Map<number, GeneratedSpecies>(SPECIES_LIST.map((s) => [s.id, s]));
 
 /** Only species with a real downloaded PMD sprite (see
@@ -19,7 +23,7 @@ const SPECIES_BY_ID = new Map<number, GeneratedSpecies>(SPECIES_LIST.map((s) => 
  * 500s for that id) are excluded from roster selection entirely, rather than
  * letting a match silently include the older hotlink-art fallback. */
 export function hasPmdSprite(speciesId: number): boolean {
-  return PMD_SPRITE_INDEX[String(speciesId)] !== undefined;
+  return PMD_SPRITE_IDS.has(speciesId);
 }
 
 /** Same on-screen-size math PokemonSprite.ts uses to scale the sprite,

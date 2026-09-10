@@ -1,5 +1,5 @@
 import Phaser from 'phaser';
-import { normalizedVolume } from '../sound/loudness';
+import { normalizedVolume } from '../sound/clipVolume';
 import { CRY_FALLBACK_VOLUME, CRY_TARGET_DB } from '../sound/mix';
 
 // Downloaded locally (data-pipeline/fetch-cries.ts -> public/cries/) rather

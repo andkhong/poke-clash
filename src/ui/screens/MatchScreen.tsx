@@ -1,5 +1,11 @@
-import { useState, type CSSProperties } from 'react';
-import { PhaserGame, type StageRect } from '../../render/PhaserGame';
+import { lazy, Suspense, useState, type CSSProperties } from 'react';
+import type { StageRect } from '../../render/PhaserGame';
+
+// Phaser (and everything under src/render/) is only ever needed once a match
+// starts, and it's most of the JavaScript — a dynamic import here keeps it
+// out of the bundle the landing and setup screens load. The type import
+// above is erased at build time, so it doesn't pull the module in.
+const PhaserGame = lazy(() => import('../../render/PhaserGame').then((m) => ({ default: m.PhaserGame })));
 import { RosterPanel } from '../hud/RosterPanel';
 import { BannerOverlay } from '../hud/BannerOverlay';
 import { useSimSnapshot } from '../hooks/useSimSnapshot';
@@ -43,11 +49,14 @@ export function MatchScreen({
   return (
     <div style={pageStyle}>
       <div style={isMobile ? mobileFrameStyle : desktopFrameStyle}>
-        <PhaserGame
-          engine={store.getEngine()}
-          highlightInstanceId={highlightInstanceId}
-          onStageRectChange={setStageRect}
-        />
+        {/* The frame is already black while the chunk loads — nothing to show. */}
+        <Suspense fallback={null}>
+          <PhaserGame
+            engine={store.getEngine()}
+            highlightInstanceId={highlightInstanceId}
+            onStageRectChange={setStageRect}
+          />
+        </Suspense>
 
         {stageRect && (
           // Sized/positioned to the canvas's real on-screen rect, not the

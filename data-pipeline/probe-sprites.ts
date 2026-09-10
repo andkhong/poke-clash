@@ -62,6 +62,19 @@ async function main(): Promise<void> {
     }
   });
 
+  // fetch-fallback-sprites.ts records locally mirrored files on these same
+  // entries; a re-probe must not throw that away (the tier it reports can
+  // be stale, the mirrored file is what actually plays).
+  let published: SpriteIndex = {};
+  try {
+    published = JSON.parse(await readFile(OUTPUT_PATH, 'utf-8')) as SpriteIndex;
+  } catch {
+    // first run — nothing to preserve
+  }
+  for (const [id, entry] of Object.entries(published)) {
+    if (entry.local && index[id]) index[id] = { ...index[id], tier: entry.tier, local: entry.local };
+  }
+
   await mkdir(new URL('../src/data/generated/', import.meta.url).pathname, { recursive: true });
   await writeFile(OUTPUT_PATH, JSON.stringify(index), 'utf-8');
 

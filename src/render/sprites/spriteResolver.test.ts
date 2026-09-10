@@ -34,6 +34,44 @@ describe('resolveSpriteUrls', () => {
     expect(resolveSpriteUrls(83, 'farfetchd', null).front).toContain('/farfetchd.gif');
   });
 
+  it('prefers a locally mirrored copy over the hotlinked original, keeping the mirrored tier', () => {
+    const hint = {
+      '15': {
+        slug: 'beedrill',
+        tier: 'animated' as const,
+        local: { front: '/fallback-sprites/15-front.gif', back: '/fallback-sprites/15-back.gif' },
+      },
+    };
+    const urls = resolveSpriteUrls(15, 'beedrill', hint);
+    expect(urls.tier).toBe('animated');
+    expect(urls.isAnimated).toBe(true);
+    expect(urls.front).toBe('/fallback-sprites/15-front.gif');
+    expect(urls.back).toBe('/fallback-sprites/15-back.gif');
+  });
+
+  it('marks a mirrored static tier as not animated', () => {
+    const hint = {
+      '266': {
+        slug: 'silcoon',
+        tier: 'static-gen5' as const,
+        local: { front: '/fallback-sprites/266-front.png', back: '/fallback-sprites/266-back.png' },
+      },
+    };
+    expect(resolveSpriteUrls(266, 'silcoon', hint).isAnimated).toBe(false);
+  });
+
+  it('goes back to the hotlinked chain on a tier override, since a failed local file has nothing local beneath it', () => {
+    const hint = {
+      '15': {
+        slug: 'beedrill',
+        tier: 'animated' as const,
+        local: { front: '/fallback-sprites/15-front.gif', back: '/fallback-sprites/15-back.gif' },
+      },
+    };
+    const urls = resolveSpriteUrls(15, 'beedrill', hint, 'static-gen5');
+    expect(urls.front).toBe('https://play.pokemonshowdown.com/sprites/gen5/beedrill.png');
+  });
+
   it('caches by species id unless a tier override is passed', () => {
     const first = resolveSpriteUrls(1, 'bulbasaur', null);
     const second = resolveSpriteUrls(1, 'bulbasaur', null);
