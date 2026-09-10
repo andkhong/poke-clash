@@ -4,6 +4,7 @@ import {
   ANIM_NATIVE_FPS,
   BattlerCell,
   Cell,
+  playableFrameCount,
   type MoveAnimationBattlerCell,
   type MoveAnimationData,
 } from '../../../data/moveAnimationFormat';
@@ -39,6 +40,18 @@ export const ATTACK_PLAYBACK_SPEED = 2;
 export function frameDurationMs(frames: number, maxDurationMs: number, speed = ATTACK_PLAYBACK_SPEED): number {
   const native = 1000 / ANIM_NATIVE_FPS / speed;
   return Math.min(native, maxDurationMs / Math.max(1, frames));
+}
+
+/** Replaces the sheet cell every drawn cell shows with one from
+ * `patterns`, stepped through as the animation plays: the step advances
+ * every `holdFrames` frames (default 1) and holds at the last entry, and
+ * each cell of a frame runs one step behind the one before it, so
+ * simultaneous cells are at different points of the sequence. For a pack
+ * animation that draws a single cell of a sheet holding a whole sequence
+ * (Explosion draws only its smoke cell, see moveVfxAdjustments.ts). */
+export interface PatternCycle {
+  patterns: readonly number[];
+  holdFrames?: number;
 }
 
 /** What the animation is allowed to do to a battler's sprite. Both
@@ -78,6 +91,13 @@ export interface PlayAnimationOptions {
   /** Pins the animation's screen-focused cells on one battler (see
    * geometry.ts's ScreenAnchor) instead of spreading them along the line. */
   screenAnchor?: ScreenAnchor;
+  /** Keeps the animation's authored orientation whatever direction the
+   * attacker faces (see geometry.ts's AnimTransform.upright). */
+  upright?: boolean;
+  /** Steps every drawn cell through a sequence of sheet cells instead of
+   * the one it was authored with (see PatternCycle). `dropPatterns` still
+   * judges the authored cell. */
+  patternCycle?: PatternCycle;
   attacker?: AnimBattler;
   target?: AnimBattler;
   onComplete?: () => void;
@@ -122,7 +142,10 @@ function applyBattler(hooks: AnimBattler | undefined, cell: MoveAnimationBattler
 export function playAnimation(options: PlayAnimationOptions): AnimationHandle {
   const { scene, data, sheetKey, msPerFrame } = options;
   const frames = data.frames;
-  const durationMs = frames.length * msPerFrame;
+  // The pack's idle tail (see playableFrameCount) is not played: the
+  // animation ends at its last frame that does something.
+  const frameCount = playableFrameCount(frames);
+  const durationMs = frameCount * msPerFrame;
   const pool: Phaser.GameObjects.Image[] = [];
   const texture = sheetKey ? scene.textures.get(sheetKey) : null;
   const startedAt = scene.time.now;
@@ -130,6 +153,8 @@ export function playAnimation(options: PlayAnimationOptions): AnimationHandle {
   const offsetY = options.cellOffset?.y ?? 0;
   const dropCells = options.dropCells ?? [];
   const dropPatterns = new Set(options.dropPatterns ?? []);
+  const cycle = options.patternCycle && options.patternCycle.patterns.length > 0 ? options.patternCycle : null;
+  const cycleHold = Math.max(1, Math.floor(cycle?.holdFrames ?? 1));
   let lastFrame = -1;
   let finished = false;
 
@@ -145,13 +170,16 @@ export function playAnimation(options: PlayAnimationOptions): AnimationHandle {
     const t = buildAnimTransform(options.getAttacker(), options.getTarget(), options.scale, {
       attackerY: options.getAttackerDepth?.(),
       targetY: options.getTargetDepth?.(),
+      upright: options.upright,
     });
     const frame = frames[frameIndex];
     const cells = texture ? frame.c : [];
+    const cycleStep = Math.floor(frameIndex / cycleHold);
     for (let i = 0; i < cells.length; i++) {
       const cell = cells[i];
       const image = imageAt(i);
-      const frameName = String(cell[Cell.PATTERN]);
+      const pattern = cycle ? cycle.patterns[Math.max(0, Math.min(cycle.patterns.length - 1, cycleStep - i))] : cell[Cell.PATTERN];
+      const frameName = String(pattern);
       const cellX = cell[Cell.X];
       const cellY = cell[Cell.Y];
       if (
@@ -208,7 +236,7 @@ export function playAnimation(options: PlayAnimationOptions): AnimationHandle {
       return;
     }
     const frameIndex = Math.floor((scene.time.now - startedAt) / msPerFrame);
-    if (frameIndex >= frames.length) {
+    if (frameIndex >= frameCount) {
       teardown();
       options.onComplete?.();
       return;
@@ -216,7 +244,7 @@ export function playAnimation(options: PlayAnimationOptions): AnimationHandle {
     render(frameIndex);
   };
 
-  if (frames.length === 0) {
+  if (frameCount === 0) {
     finished = true;
     options.onComplete?.();
     return { durationMs: 0, stop: () => {} };

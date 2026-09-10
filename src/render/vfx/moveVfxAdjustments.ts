@@ -4,6 +4,7 @@
 // later reviewer can tell why it exists. The review page can play a move
 // with these switched off to show the "before".
 
+import type { PatternCycle } from './anim/AnimPlayer';
 import type { ScreenAnchor } from './anim/geometry';
 
 export interface MoveVfxAdjustment {
@@ -29,6 +30,21 @@ export interface MoveVfxAdjustment {
    * with the canonical point `center` landing on it — see geometry.ts's
    * ScreenAnchor. */
   screenAnchor?: ScreenAnchor;
+  /** Keeps the pack animation's authored orientation whatever direction
+   * the attacker faces: its battler-anchored cells sit at their authored
+   * offset from the battler and nothing turns with the attacker->target
+   * direction (see geometry.ts's AnimTransform.upright) — for face art
+   * drawn to be looked at, which the rotation spins or hangs upside down. */
+  upright?: boolean;
+  /** Steps every drawn cell of the pack animation through a sequence of
+   * its sheet's cells instead of the one it was authored with (see
+   * AnimPlayer.ts's PatternCycle) — for an animation that draws a single
+   * cell of a sheet holding a whole sequence. */
+  patternCycle?: PatternCycle;
+  /** Playback speed in a match as a multiple of the pack's native 20 fps,
+   * replacing the arena's default (AnimPlayer.ts's ATTACK_PLAYBACK_SPEED,
+   * 2×); the animation is still compressed to fit the attack window. */
+  playbackSpeed?: number;
   /** Where the arena's own family effect anchors on the fighters, overriding
    * the family's default (see playFamilyVfx.ts's familyAnchorsAtBodyCenter). */
   familyAnchor?: 'center' | 'feet';
@@ -66,8 +82,29 @@ export const MOVE_VFX_ADJUSTMENTS: Readonly<Record<number, MoveVfxAdjustment>> =
   // sprite. Pokemon seems to be top left". The panel is authored 14px right
   // of the user spot, and the body's center sits above it.
   112: { offset: { x: -14, y: -12 } },
+  // Glare — review: "The glare assets should be facing the user. The
+  // orientation should not change". The eyes are face art, drawn to be
+  // looked at; the arena's direction rotation was turning them.
+  137: { upright: true },
+  // Lovely Kiss — review: "The attack sprite orientation is rotating. it
+  // shuold not rotate". The figures either side of the target and the
+  // heart on it are face art too.
+  142: { upright: true },
+  // Explosion — review: "Cycle through more of the attack animation. it
+  // stops at smoke". The pack's Explosion draws only its sheet's smoke cell
+  // (three puffs drifting around the user); the blast itself is a
+  // full-screen white flash and a fire backdrop the conversion doesn't
+  // ship. The puffs now step through the sheet's burst cells (0-3) before
+  // its smoke (5-7), each puff a step behind the last, at the pack's own
+  // pace so the sequence reads — the 50 idle frames the pack tacks on no
+  // longer compress the 15 real ones into the attack window.
+  153: { patternCycle: { patterns: [0, 1, 2, 3, 5, 6, 7], holdFrames: 2 }, playbackSpeed: 1 },
   // Flash — review: use assets (battler-only animation, like Confusion).
   148: { usePackAnimation: true },
+  // Scary Face — review: "Scary face orientation should be fixed, facing
+  // the user. It should not be rotating or upside down". The eyes and
+  // mouth around the target are face art the direction rotation was turning.
+  184: { upright: true },
   // Steel Wing — review: "Use assets". The slash is authored at the target spot.
   211: { usePackAnimation: true },
   // Sweet Scent — review: use assets.

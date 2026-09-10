@@ -29,6 +29,9 @@ import type { PmdSpriteIndex } from '../src/data/types';
 // the existing scripts (fetch-pmd-sprites.ts, fetch-pmd-shiny-sprites.ts,
 // optimize-pmd-sprites.ts), run for just the affected species; what they
 // produce for the volume is tarred up for scripts/upload-pmd-sprites.sh.
+// measure-pmd-bodies.ts then re-measures the visible body sizes the arena
+// scales sprites by (src/data/generated/pmdBodySizes.json, bundled with the
+// app rather than uploaded), since a redrawn sheet may have a new silhouette.
 
 const TRACKER_URL = 'https://raw.githubusercontent.com/PMDCollab/SpriteCollab/master/tracker.json';
 const TRACKER_COMMITS_URL = 'https://api.github.com/repos/PMDCollab/SpriteCollab/commits?path=tracker.json&per_page=1';
@@ -42,6 +45,7 @@ const DEPLOY_ASSETS_ROOT = new URL('../deploy-assets/', import.meta.url).pathnam
 const FETCH_SCRIPT = new URL('./fetch-pmd-sprites.ts', import.meta.url).pathname;
 const FETCH_SHINY_SCRIPT = new URL('./fetch-pmd-shiny-sprites.ts', import.meta.url).pathname;
 const OPTIMIZE_SCRIPT = new URL('./optimize-pmd-sprites.ts', import.meta.url).pathname;
+const MEASURE_BODIES_SCRIPT = new URL('./measure-pmd-bodies.ts', import.meta.url).pathname;
 const CHANGELOG_HEADER = `# PMD sprite updates
 
 Every applied run of \`npm run data:pmd-sprites:update\` (see
@@ -155,6 +159,7 @@ async function applyPlan(plan: SpriteUpdatePlan, trackerCommit: string | null): 
     runScript(FETCH_SHINY_SCRIPT, { PMD_SHINY_SPRITE_SPECIES_IDS: shinyIds.join(','), PMD_SHINY_SPRITE_FORCE: 'true' });
   }
   runScript(OPTIMIZE_SCRIPT, {});
+  runScript(MEASURE_BODIES_SCRIPT, {});
 
   const index = await loadJsonOrDefault<PmdSpriteIndex>(PMD_SPRITE_INDEX_PATH, {});
   const landed = (id: number): boolean => !!index[String(id)];

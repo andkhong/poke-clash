@@ -1,9 +1,9 @@
 {
   "version": 1,
-  "lastCheckedAt": "2026-09-10T18:39:01.884Z",
+  "lastCheckedAt": "2026-09-10T20:06:21.449Z",
   "upstream": {
-    "trackerCommit": "aab3d49",
-    "trackerCommittedAt": "2026-09-10T18:21:26Z",
+    "trackerCommit": "ebe2875",
+    "trackerCommittedAt": "2026-09-10T19:31:10Z",
     "latestSpriteChangeAt": "2026-09-06T21:55:08.512Z"
   },
   "pending": {

@@ -56,6 +56,11 @@ export interface MoveDefinition {
   targeting: MoveTargeting;
   effect?: MoveEffect;
   highCrit?: boolean; // moves like Slash get an elevated crit stage
+  /** The move takes its user down with it — Self-Destruct, Explosion, Misty
+   * Explosion: the user's HP drops to 0 the moment the move resolves,
+   * whatever it was (see engine.ts's executeMove). The AI keeps such a move
+   * as a last resort (see ai.ts's chooseMove). */
+  userFaints?: true;
   /** Struggle only: bypasses the type chart and STAB entirely (real in-game rule). */
   typeless?: boolean;
 }

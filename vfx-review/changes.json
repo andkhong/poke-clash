@@ -39,9 +39,25 @@
     "summary": "Second pass: the glass panel is authored 14px right of the user spot and the body's center sits above it, so it now gets a nudge of 14px left and 12px up (moveVfxAdjustments.ts offset) on top of the body-center anchor — the panel should sit squarely on the body.",
     "changedAt": "2026-09-10T18:05:00.000Z"
   },
+  "137": {
+    "summary": "Glare's eyes now keep their authored orientation whatever direction the attacker faces: the animation is marked upright (moveVfxAdjustments.ts), so its cells sit at their drawn offset from the attacker and nothing turns with the attacker→target direction. Before, the arena's direction rotation spun the eyes (and hung them upside down when attacking leftward/downward). They still appear where the pack draws them — above the attacker's body center, as the attacker fades out.",
+    "changedAt": "2026-09-10T21:58:00.000Z"
+  },
+  "142": {
+    "summary": "Lovely Kiss no longer rotates: marked upright (moveVfxAdjustments.ts), so the two figures flanking the target and the heart on it keep their drawn orientation and positions instead of turning with the attacker→target direction.",
+    "changedAt": "2026-09-10T21:58:00.000Z"
+  },
   "148": {
     "summary": "Flash now plays the pack's animation per your Assets pick. Like Confusion, the pack's Flash draws nothing of its own (its full-screen white-out isn't shipped), so it's the battler motion plus the arena's fallback flash.",
     "changedAt": "2026-09-10T18:15:00.000Z"
+  },
+  "153": {
+    "summary": "Explosion now shows a blast, not just smoke. The pack's Explosion only ever draws its sheet's smoke cell (three puffs drifting around the attacker) — the blast itself is a full-screen white flash and a fire backdrop the conversion doesn't ship — and it pads 50 empty frames after the 15 real ones, which the arena compressed into a ~0.3s puff. Now: the pack's idle tail is no longer played (any animation, AnimPlayer/playableFrameCount), Explosion runs at the pack's own 20 fps (0.75s), and each puff steps through the sheet's burst cells (small burst → big burst → ring → fading ring) before its three smoke cells, one puff a step behind the next (moveVfxAdjustments.ts patternCycle + playbackSpeed). Before = the smoke-only puff.",
+    "changedAt": "2026-09-10T21:58:00.000Z"
+  },
+  "184": {
+    "summary": "Scary Face is fixed facing the viewer: marked upright (moveVfxAdjustments.ts), so the two eyes above and the mouth below the target keep their drawn arrangement and orientation regardless of which way the attacker faces — no rotation, never upside down.",
+    "changedAt": "2026-09-10T21:58:00.000Z"
   },
   "211": {
     "summary": "Steel Wing now plays the pack's slash per your feedback ('Use assets') instead of the arena's lunge. The slash is authored at the pack's target spot, so it lands on the target's body.",

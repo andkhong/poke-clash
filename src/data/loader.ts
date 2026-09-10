@@ -4,7 +4,8 @@ import pmdSpriteIds from './generated/pmdSpriteIds.json';
 import type { GeneratedSpecies } from './types';
 import type { MoveDefinition, PokemonTypeName } from '../sim/types';
 import type { MoveLookup, SpeciesData } from '../sim/matchSetup';
-import { COLLISION_RADIUS_FACTOR, computeOnScreenSizeFromHeight } from '../sim/constants';
+import { COLLISION_RADIUS_FACTOR, computeOnScreenSizeFromBody, computeOnScreenSizeFromHeight } from '../sim/constants';
+import { getPmdBodySize } from './pmdBodySizes';
 
 const SPECIES_LIST = pokemonData as GeneratedSpecies[];
 const MOVES_BY_ID = new Map<number, MoveDefinition>(
@@ -26,16 +27,22 @@ export function hasPmdSprite(speciesId: number): boolean {
   return PMD_SPRITE_IDS.has(speciesId);
 }
 
-/** Same on-screen-size math PokemonSprite.ts uses to scale the sprite,
- * turned into a collision radius (see COLLISION_RADIUS_FACTOR) so a
- * Pokémon's hitbox actually matches what's drawn. Falls back to a
- * mid-roster-typical height if the species record itself can't be found —
- * every *selectable* species has one (see hasPmdSprite/pickRandomSpeciesIds),
- * so this only matters if buildSpeciesDataForLevel is ever called directly
- * with an unfiltered id. */
+/** Same on-screen-size math PokemonSprite.ts uses to scale the sprite —
+ * its measured PMD body at the shared magnification (see
+ * computeOnScreenSizeFromBody) — turned into a collision radius (see
+ * COLLISION_RADIUS_FACTOR) so a Pokémon's hitbox actually matches what's
+ * drawn. A species with no measured PMD sprite falls back to an estimate
+ * from its real height, and to a mid-roster-typical height if even the
+ * species record can't be found — every *selectable* species has both (see
+ * hasPmdSprite/pickRandomSpeciesIds), so the fallbacks only matter if
+ * buildSpeciesDataForLevel is ever called directly with an unfiltered id. */
 function computeCollisionRadius(speciesId: number): number {
-  const heightDm = SPECIES_BY_ID.get(speciesId)?.heightDm ?? 10;
-  return computeOnScreenSizeFromHeight(heightDm) * COLLISION_RADIUS_FACTOR;
+  const bodyPx = getPmdBodySize(speciesId);
+  const onScreenSize =
+    bodyPx !== undefined
+      ? computeOnScreenSizeFromBody(bodyPx)
+      : computeOnScreenSizeFromHeight(SPECIES_BY_ID.get(speciesId)?.heightDm ?? 10);
+  return onScreenSize * COLLISION_RADIUS_FACTOR;
 }
 
 export const moveLookup: MoveLookup = (moveId) => MOVES_BY_ID.get(moveId);

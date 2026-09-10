@@ -81,6 +81,14 @@ export interface AnimTransform {
   /** True when attacker and target coincide (a self-targeting move): every
    * cell is then simply rotated by zero and scaled around the attacker. */
   degenerate: boolean;
+  /** True when the animation keeps its authored orientation whatever
+   * direction the attacker faces: a battler-anchored cell sits at its
+   * authored offset from the battler (scaled, not rotated) and no cell is
+   * turned by `rotation` — for face art the pack draws to be looked at
+   * (Glare's eyes, Scary Face, Lovely Kiss), which the direction rotation
+   * would spin or hang upside down. Cells drawn along the line between the
+   * fighters still run attacker->target. */
+  upright: boolean;
   /** Unit arena direction attacker->target and its perpendicular (the
    * canonical axis/perpendicular when degenerate). */
   dirX: number;
@@ -109,16 +117,19 @@ export function animationScaleFor(onScreenSize: number): number {
   return Math.min(MAX_SCALE, Math.max(MIN_SCALE, onScreenSize / ANIM_REFERENCE_BATTLER_SIZE));
 }
 
-/** Depth y's for the two battlers when they differ from the anchors' own y
- * (see AnimTransform.attackerDepthY); either defaults to its anchor's y. */
-export interface AnimDepths {
+export interface AnimTransformOptions {
+  /** Depth y's for the two battlers when they differ from the anchors' own
+   * y (see AnimTransform.attackerDepthY); either defaults to its anchor's y. */
   attackerY?: number;
   targetY?: number;
+  /** See AnimTransform.upright. Default false. */
+  upright?: boolean;
 }
 
-export function buildAnimTransform(attacker: Vec2, target: Vec2, scale: number, depths: AnimDepths = {}): AnimTransform {
-  const attackerDepthY = depths.attackerY ?? attacker.y;
-  const targetDepthY = depths.targetY ?? target.y;
+export function buildAnimTransform(attacker: Vec2, target: Vec2, scale: number, options: AnimTransformOptions = {}): AnimTransform {
+  const attackerDepthY = options.attackerY ?? attacker.y;
+  const targetDepthY = options.targetY ?? target.y;
+  const upright = options.upright ?? false;
   const dx = target.x - attacker.x;
   const dy = target.y - attacker.y;
   const distance = Math.hypot(dx, dy);
@@ -131,6 +142,7 @@ export function buildAnimTransform(attacker: Vec2, target: Vec2, scale: number, 
       scale,
       rotation: 0,
       degenerate: true,
+      upright,
       dirX: CANONICAL_UNIT_X,
       dirY: CANONICAL_UNIT_Y,
       perpX: CANONICAL_PERP_X,
@@ -148,6 +160,7 @@ export function buildAnimTransform(attacker: Vec2, target: Vec2, scale: number, 
     scale,
     rotation: Math.atan2(dirY, dirX) - Math.atan2(CANONICAL_UNIT_Y, CANONICAL_UNIT_X),
     degenerate: false,
+    upright,
     dirX,
     dirY,
     perpX: -dirY,
@@ -158,8 +171,10 @@ export function buildAnimTransform(attacker: Vec2, target: Vec2, scale: number, 
 
 /** A canonical-space offset expressed in the transform's rotated, scaled
  * frame: components along the canonical axis and across it become the
- * same components along/across the arena direction. */
+ * same components along/across the arena direction. An upright transform
+ * only scales it (the same as the degenerate case works out to). */
 function rotateOffset(t: AnimTransform, offsetX: number, offsetY: number): Vec2 {
+  if (t.upright) return { x: offsetX * t.scale, y: offsetY * t.scale };
   const along = (offsetX * CANONICAL_UNIT_X + offsetY * CANONICAL_UNIT_Y) * t.scale;
   const across = (offsetX * CANONICAL_PERP_X + offsetY * CANONICAL_PERP_Y) * t.scale;
   return { x: t.dirX * along + t.perpX * across, y: t.dirY * along + t.perpY * across };
@@ -246,11 +261,11 @@ export function mapBattlerOffset(t: AnimTransform, dx: number, dy: number): Vec2
   return { x: t.dirX * along + t.perpX * across, y: t.dirY * along + t.perpY * across };
 }
 
-/** Phaser angle (degrees) for a cell: the frame rotation plus the cell's
- * own — negated, since RGSS angles are counter-clockwise and Phaser's are
- * clockwise on screen. */
+/** Phaser angle (degrees) for a cell: the frame rotation (none for an
+ * upright transform) plus the cell's own — negated, since RGSS angles are
+ * counter-clockwise and Phaser's are clockwise on screen. */
 export function mapCellAngle(t: AnimTransform, cellAngleDegrees: number): number {
-  return (t.rotation * 180) / Math.PI - cellAngleDegrees;
+  return (t.upright ? 0 : (t.rotation * 180) / Math.PI) - cellAngleDegrees;
 }
 
 /** Depth for a cell given its priority (0 behind both battlers, 1 in front

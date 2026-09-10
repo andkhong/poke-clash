@@ -42,6 +42,8 @@ const FIXTURE_MOVES: MoveDefinition[] = [
   { id: 10, name: 'Fixture Freeze Ray', type: 'ice', category: 'status', power: null, accuracy: 100, pp: 15, priority: 0, targeting: 'enemy', effect: { kind: 'statusInflict', target: 'enemy', status: 'freeze', chance: 100 } },
   { id: 11, name: 'Fixture Toxic-ish', type: 'poison', category: 'status', power: null, accuracy: 100, pp: 10, priority: 0, targeting: 'enemy', effect: { kind: 'statusInflict', target: 'enemy', status: 'poison', chance: 100 } },
   { id: 12, name: 'Fixture Will-O-Wisp-ish', type: 'fire', category: 'status', power: null, accuracy: 100, pp: 15, priority: 0, targeting: 'enemy', effect: { kind: 'statusInflict', target: 'enemy', status: 'burn', chance: 100 } },
+  // Takes its user down with it (see the self-KO tests below; species 11 knows only this).
+  { id: 13, name: 'Fixture Explosion', type: 'normal', category: 'physical', power: 250, accuracy: 100, pp: 5, priority: 0, targeting: 'all-enemies-in-radius', userFaints: true },
 ];
 
 const movesById = new Map(FIXTURE_MOVES.map((m) => [m.id, m]));
@@ -60,6 +62,9 @@ const FIXTURE_SPECIES: Record<number, SpeciesData> = {
   8: { id: 8, name: 'Fixfrost', types: ['ice'], baseStats: { hp: 150, atk: 50, def: 150, spa: 50, spd: 150, spe: 80 }, movePool: [10], collisionRadius: 40 },
   9: { id: 9, name: 'Fixtoxin', types: ['poison'], baseStats: { hp: 150, atk: 50, def: 150, spa: 50, spd: 150, spe: 80 }, movePool: [11], collisionRadius: 40 },
   10: { id: 10, name: 'Fixember', types: ['fire'], baseStats: { hp: 150, atk: 50, def: 150, spa: 50, spd: 150, spe: 80 }, movePool: [12], collisionRadius: 40 },
+  // Fast and far too bulky to be knocked out by anything but its own Fixture
+  // Explosion, the one move it knows (see the self-KO tests).
+  11: { id: 11, name: 'Fixboom', types: ['normal'], baseStats: { hp: 200, atk: 80, def: 40, spa: 40, spd: 40, spe: 120 }, movePool: [13], collisionRadius: 40 },
 };
 
 function runFullMatch(seed: number, speciesIds: number[]): SimulationEngine {
@@ -1069,5 +1074,40 @@ describe('arena-wide attack gate', () => {
       deferredLastTick = deferredNow;
     }
     expect(deferrals).toBeGreaterThan(0); // sanity: a 16-Pokémon brawl really does contend for the two slots
+  });
+});
+
+describe('self-KO moves (MoveDefinition.userFaints)', () => {
+  it('takes the user down the moment its move resolves, after its damage has landed', () => {
+    // Fixboom (species 11) knows only Fixture Explosion; Fixiron (species 6)
+    // can't get through Fixboom's HP before the faster Fixboom fires, and
+    // its own bulk keeps it standing through the blast.
+    const engine = new SimulationEngine(
+      { level: 100, speciesIds: [11, 6], arena: { width: 960, height: 1600 }, shiny: false },
+      FIXTURE_SPECIES,
+      moveLookup,
+      3
+    );
+    const maxSteps = Math.ceil(95_000 / TICK_MS);
+    for (let i = 0; i < maxSteps; i++) {
+      if (engine.getState().phase === 'complete') break;
+      engine.tick(TICK_MS);
+    }
+
+    const state = engine.getState();
+    const fixboom = Object.values(state.pokemon).find((p) => p.speciesId === 11)!;
+    const fixiron = Object.values(state.pokemon).find((p) => p.speciesId === 6)!;
+    const events = engine.getEventsSince(0);
+    const blasts = events.filter((e): e is Extract<SimEvent, { type: 'moveUsed' }> => e.type === 'moveUsed' && e.attackerId === fixboom.instanceId);
+    expect(blasts).toHaveLength(1); // it only ever gets the one off
+    const blast = blasts[0];
+    expect(blast.moveId).toBe(13);
+    expect(blast.damage[fixiron.instanceId]).toBeGreaterThan(0); // the target still takes the hit
+    const faint = events.find((e): e is Extract<SimEvent, { type: 'fainted' }> => e.type === 'fainted' && e.instanceId === fixboom.instanceId);
+    expect(faint?.atMs).toBe(blast.atMs); // gone the same tick
+    expect(faint?.byInstanceId).toBe(fixboom.instanceId); // credited to itself
+    expect(fixboom.currentHp).toBe(0);
+    expect(state.phase).toBe('complete');
+    expect(state.winnerInstanceIds).toEqual([fixiron.instanceId]);
   });
 });

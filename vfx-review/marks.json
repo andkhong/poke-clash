@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "exportedAt": "2026-09-10T18:56:05.100Z",
+  "exportedAt": "2026-09-10T19:38:43.834Z",
   "marks": {
     "44": {
       "change": true,
@@ -23,13 +23,6 @@
       "updatedAt": "2026-09-10T18:05:01.362Z",
       "verdict": "approved",
       "verdictAt": "2026-09-10T18:05:01.362Z"
-    },
-    "62": {
-      "change": true,
-      "note": "Beam could be bigger\n",
-      "updatedAt": "2026-09-10T17:20:22.595Z",
-      "verdict": "approved",
-      "verdictAt": "2026-09-10T17:20:22.595Z"
     },
     "85": {
       "change": true,
@@ -78,6 +71,16 @@
       "verdictAt": "2026-09-10T18:05:03.712Z",
       "feedback": "Pokemon body is still not centered in barrier sprite. Pokemon seems to be top left"
     },
+    "137": {
+      "change": true,
+      "note": "The glare assets should be facing the user. The orientation should not change",
+      "updatedAt": "2026-09-10T19:32:18.791Z"
+    },
+    "142": {
+      "change": true,
+      "note": "The attack sprite orientation is rotating. it shuold not rotate",
+      "updatedAt": "2026-09-10T19:33:33.475Z"
+    },
     "148": {
       "change": false,
       "note": "",
@@ -85,6 +88,16 @@
       "verdict": "approved",
       "verdictAt": "2026-09-10T18:25:16.092Z",
       "prefer": "pack"
+    },
+    "153": {
+      "change": true,
+      "note": "Cycle throw more of the attack animation. it stops at smoke",
+      "updatedAt": "2026-09-10T19:31:33.774Z"
+    },
+    "184": {
+      "change": true,
+      "note": "Scary face orientation should be fixed, facing the user. It should not be rotating or upside down.",
+      "updatedAt": "2026-09-10T19:29:49.091Z"
     },
     "211": {
       "change": true,
@@ -96,9 +109,9 @@
       "prefer": "pack"
     },
     "230": {
-      "change": true,
-      "note": "Use assets",
-      "updatedAt": "2026-09-10T18:20:54.507Z",
+      "change": false,
+      "note": "",
+      "updatedAt": "2026-09-10T19:37:12.207Z",
       "verdict": "approved",
       "verdictAt": "2026-09-10T18:20:54.507Z",
       "prefer": "pack"
@@ -183,9 +196,9 @@
       "change": false,
       "note": "",
       "updatedAt": "2026-09-10T18:56:04.794Z",
-      "prefer": "arena",
       "verdict": "approved",
-      "verdictAt": "2026-09-10T18:56:04.794Z"
+      "verdictAt": "2026-09-10T18:56:04.794Z",
+      "prefer": "arena"
     },
     "519": {
       "change": true,

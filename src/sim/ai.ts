@@ -14,6 +14,7 @@ import {
   NO_WANDER_AGGRO_RADIUS,
   RETARGET_INTERVAL_MS,
   RETARGET_INTERVAL_MS_AGGRESSIVE,
+  SELF_KO_MOVE_HP_FRACTION,
   TICK_MS,
 } from './constants';
 import { STRUGGLE_MOVE_ID } from './struggle';
@@ -198,14 +199,22 @@ export function retaliate(defender: PokemonInstance, attackerId: string, nowMs: 
 /** Uniform-random among moves with PP remaining; Struggle if all four are
  * exhausted — unless self.forcedMoveId pins an exact move (see that field's
  * own comment), in which case it's always returned instead, even past 0 PP,
- * bypassing both the random pick and the Struggle fallback entirely. */
-export function chooseMove(self: PokemonInstance, rng: Rng): number {
+ * bypassing both the random pick and the Struggle fallback entirely.
+ *
+ * A move that takes its user down with it (MoveDefinition.userFaints —
+ * Explosion, Self-Destruct) is a last resort: it's left out of the pick
+ * unless the user is at or under SELF_KO_MOVE_HP_FRACTION of its max HP, or
+ * nothing else has PP left. `moves` resolves the slots' definitions; without
+ * it every move is treated as ordinary. */
+export function chooseMove(self: PokemonInstance, rng: Rng, moves: (id: number) => MoveDefinition | undefined = () => undefined): number {
   if (self.forcedMoveId !== undefined && self.moves.some((m) => m.moveId === self.forcedMoveId)) {
     return self.forcedMoveId;
   }
   const usable = self.moves.filter((m) => m.ppRemaining > 0);
   if (usable.length === 0) return STRUGGLE_MOVE_ID;
-  return rngPick(rng, usable).moveId;
+  const desperate = self.currentHp <= self.maxHp * SELF_KO_MOVE_HP_FRACTION;
+  const candidates = desperate ? usable : usable.filter((m) => !moves(m.moveId)?.userFaints);
+  return rngPick(rng, candidates.length > 0 ? candidates : usable).moveId;
 }
 
 /** Opportunistic self-buffing while chasing a spotted target, before it's in engage range (off the attack cooldown gate). */

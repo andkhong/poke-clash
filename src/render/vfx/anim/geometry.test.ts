@@ -154,6 +154,41 @@ describe('mapCellPosition with a ScreenAnchor', () => {
   });
 });
 
+describe('upright transforms', () => {
+  it('keep battler-anchored cells at their authored offset and unturned whatever the direction', () => {
+    // Attacker->target runs exactly opposite to the canonical direction: a half turn.
+    const attacker = { x: 256, y: 0 };
+    const target = { x: 0, y: 128 };
+    const turned = buildAnimTransform(attacker, target, 1);
+    const upright = buildAnimTransform(attacker, target, 1, { upright: true });
+    near(Math.abs(mapCellAngle(turned, 0)), 180);
+    near(mapCellAngle(upright, 0), 0);
+    near(mapCellAngle(upright, 45), -45); // the cell's own angle still applies
+    // A cell 30px right of and 20px above the target spot (an eye of Scary Face)...
+    const turnedEye = mapCellPosition(turned, ANIM_TARGET_X + 30, ANIM_TARGET_Y - 20, 1);
+    near(turnedEye.x, target.x - 30); // ...is turned to the other side by the half turn...
+    near(turnedEye.y, target.y + 20);
+    const uprightEye = mapCellPosition(upright, ANIM_TARGET_X + 30, ANIM_TARGET_Y - 20, 1);
+    near(uprightEye.x, target.x + 30); // ...but stays where it was drawn when upright.
+    near(uprightEye.y, target.y - 20);
+    // Same on the attacker, scaled with the sprite size.
+    const half = buildAnimTransform(attacker, target, 0.5, { upright: true });
+    const eyes = mapCellPosition(half, ANIM_USER_X + 8, ANIM_USER_Y - 70, 2);
+    near(eyes.x, attacker.x + 4);
+    near(eyes.y, attacker.y - 35);
+    // A cell drawn along the line still runs attacker->target: the canonical target spot lands on the target.
+    const end = mapCellPosition(upright, ANIM_TARGET_X, ANIM_TARGET_Y, 3);
+    near(end.x, target.x);
+    near(end.y, target.y);
+    // A screen-wide cell pinned on a battler keeps its authored offset too.
+    const pinned = mapCellPosition(upright, 256 + 30, 129, 4, { on: 'target', center: { x: 256, y: 129 } });
+    near(pinned.x, target.x + 30);
+    near(pinned.y, target.y);
+    // Off by default.
+    expect(buildAnimTransform(attacker, target, 1).upright).toBe(false);
+  });
+});
+
 describe('isCellOffscreen', () => {
   it('flags only cells wholly outside the 512x384 screen at their zoom', () => {
     expect(isCellOffscreen(-128, 352, 100, 100)).toBe(true); // Lumina Crash's parked flash

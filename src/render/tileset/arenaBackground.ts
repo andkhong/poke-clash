@@ -1,13 +1,22 @@
 import Phaser from 'phaser';
-import { ARENA_TOP_PADDING } from '../../sim/constants';
+import { ARENA_TOP_PADDING, isMobileArena } from '../../sim/constants';
 
-// Ground textures are cropped swatches from a real CC0 tileset ("Top Down
-// Grass, Beach and Water Tileset" by the OpenGameArt CC0 collection) rather
-// than a Pokémon-branded asset. Repeated via TileSprite instead of relying on
-// the source tileset's exact tile-grid alignment (which wasn't documented) —
-// simpler and robust, at the cost of true multi-tile transition art. The rock
-// border is procedural since no matching rock tile was sourced this session;
-// swap in real tiles later without touching ArenaScene.
+// The arena floor. A portrait (mobile) arena shows one of the route images
+// in map-assets/ at the repo root, scaled to cover the arena and centred (a
+// sliver of each side is cropped, since the images are a little wider than
+// the 900x1950 arena). A landscape (desktop) arena still gets the tiled
+// ground below: cropped swatches from a CC0 tileset ("Top Down Grass, Beach
+// and Water Tileset", OpenGameArt) repeated via TileSprite, with a
+// procedural rock border.
+
+/** Route images for the portrait arena. A match shows the first entry; to
+ * try another, put the file in map-assets/ and list it here. Once there's
+ * more than one worth keeping, the pick needs to come from something every
+ * client of a multiplayer match shares (the match seed), not Math.random. */
+const PORTRAIT_MAPS = [
+  { key: 'map-1', url: new URL('../../../map-assets/map-1.jpeg', import.meta.url).href },
+] as const;
+
 const KEYS = {
   dirt: 'tileset-dirt',
   grass: 'tileset-grass',
@@ -16,9 +25,16 @@ const KEYS = {
 export function preloadArenaTileset(scene: Phaser.Scene): void {
   scene.load.image(KEYS.dirt, new URL('./assets/dirt_swatch.png', import.meta.url).href);
   scene.load.image(KEYS.grass, new URL('./assets/grass_swatch.png', import.meta.url).href);
+  for (const map of PORTRAIT_MAPS) scene.load.image(map.key, map.url);
 }
 
 export function createArenaBackground(scene: Phaser.Scene, width: number, height: number): void {
+  const portraitMap = PORTRAIT_MAPS[0];
+  if (isMobileArena({ width, height }) && scene.textures.exists(portraitMap.key)) {
+    drawCoverImage(scene, portraitMap.key, width, height);
+    return;
+  }
+
   scene.add.tileSprite(0, 0, width, height, KEYS.dirt).setOrigin(0, 0).setDepth(-100);
 
   const grassW = width * 0.34;
@@ -29,6 +45,14 @@ export function createArenaBackground(scene: Phaser.Scene, width: number, height
     .setDepth(-90);
 
   drawRockBorder(scene, width, height);
+}
+
+/** Draws the image centred on the arena, scaled up just enough to cover it;
+ * whatever overflows the arena on the long side is outside the camera. */
+function drawCoverImage(scene: Phaser.Scene, key: string, width: number, height: number): void {
+  const source = scene.textures.get(key).getSourceImage();
+  const scale = Math.max(width / source.width, height / source.height);
+  scene.add.image(width / 2, height / 2, key).setScale(scale).setDepth(-100);
 }
 
 function drawRockBorder(scene: Phaser.Scene, width: number, height: number): void {

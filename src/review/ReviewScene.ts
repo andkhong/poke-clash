@@ -5,7 +5,7 @@ import { createRng } from '../sim/rng';
 import { velocityToFacing } from '../sim/movement';
 import { POST_ATTACK_HOLD_MS } from '../sim/constants';
 import { STRUGGLE_MOVE, STRUGGLE_MOVE_ID } from '../sim/struggle';
-import { ANIM_NATIVE_FPS } from '../data/moveAnimationFormat';
+import { ANIM_NATIVE_FPS, playableFrameCount } from '../data/moveAnimationFormat';
 import { buildSpeciesMapForLevel, getMoveDefinition, moveLookup } from '../data/loader';
 import type { PmdSpriteIndex, SpriteIndex } from '../data/types';
 import spriteIndexData from '../data/generated/spriteIndex.json';
@@ -106,10 +106,10 @@ interface ActivePlayback {
   stop(): void;
 }
 
-function msPerFrameFor(speed: PlaybackSpeed, frames: number): number {
+function msPerFrameFor(speed: PlaybackSpeed, frames: number, arenaSpeed?: number): number {
   switch (speed) {
     case 'arena':
-      return frameDurationMs(frames, POST_ATTACK_HOLD_MS);
+      return frameDurationMs(frames, POST_ATTACK_HOLD_MS, arenaSpeed);
     case 'native':
       return 1000 / ANIM_NATIVE_FPS;
     case 'slow':
@@ -324,7 +324,9 @@ export class ReviewScene extends Phaser.Scene {
           dropCells: adjustment?.dropCells,
           dropPatterns: adjustment?.dropPatterns,
           screenAnchor: adjustment?.screenAnchor,
-          msPerFrame: msPerFrameFor(options.speed, loaded.data.frames.length),
+          upright: adjustment?.upright,
+          patternCycle: adjustment?.patternCycle,
+          msPerFrame: msPerFrameFor(options.speed, playableFrameCount(loaded.data.frames), adjustment?.playbackSpeed),
           attacker: attackerSprite,
           target: hit ? targetSprite : undefined,
         });

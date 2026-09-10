@@ -14,7 +14,7 @@ import { playFallbackFlash } from '../vfx/anim/fallbackFlash';
 import { getMoveVfxAdjustment } from '../vfx/moveVfxAdjustments';
 import { resolveMoveVfxSource } from '../vfx/moveVfxSource';
 import { familyAnchorsAtBodyCenter, playFamilyVfx, preloadFamilyVfxAssets } from '../vfx/moves/playFamilyVfx';
-import { STATUS_COMMON_ANIMATIONS } from '../../data/moveAnimationFormat';
+import { STATUS_COMMON_ANIMATIONS, playableFrameCount } from '../../data/moveAnimationFormat';
 import { playMoveSound, type MoveSoundHandle } from '../sound/moveSound';
 import { playBattleMusic } from '../sound/battleMusic';
 import { installMasterLimiter } from '../sound/masterBus';
@@ -253,7 +253,10 @@ export class ArenaScene extends Phaser.Scene {
       } else if (event.type === 'fainted') {
         const sprite = this.sprites.get(event.instanceId);
         sprite?.playFaintAndDestroy(() => this.sprites.delete(event.instanceId));
-        this.removeQueuedAttacksBy(event.instanceId);
+        // A Pokémon taken down by its own move (Explosion — the engine
+        // credits the faint to itself) keeps the attack it just fired
+        // queued: the blast plays while its sprite fades out.
+        if (event.byInstanceId !== event.instanceId) this.removeQueuedAttacksBy(event.instanceId);
       }
     }
 
@@ -481,7 +484,9 @@ export class ArenaScene extends Phaser.Scene {
       dropCells: adjustment?.dropCells,
       dropPatterns: adjustment?.dropPatterns,
       screenAnchor: adjustment?.screenAnchor,
-      msPerFrame: frameDurationMs(loaded.data.frames.length, ATTACK_VISUAL_DURATION_MS),
+      upright: adjustment?.upright,
+      patternCycle: adjustment?.patternCycle,
+      msPerFrame: frameDurationMs(playableFrameCount(loaded.data.frames), ATTACK_VISUAL_DURATION_MS, adjustment?.playbackSpeed),
       attacker: attackerSprite,
       target: hitTarget && targetSprite !== attackerSprite ? targetSprite : undefined,
     });

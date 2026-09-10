@@ -13,7 +13,7 @@ import { playSparkleReveal } from '../vfx/sparkle';
 import { frameDurationMs, playAnimation, type AnimationHandle } from '../vfx/anim/AnimPlayer';
 import { animationScaleFor } from '../vfx/anim/geometry';
 import { getLoadedCommonAnimation } from '../vfx/anim/moveAnimLoader';
-import { STATUS_COMMON_ANIMATIONS } from '../../data/moveAnimationFormat';
+import { STATUS_COMMON_ANIMATIONS, playableFrameCount } from '../../data/moveAnimationFormat';
 import type { MoveDefinition } from '../../sim/types';
 import {
   ARENA_TOP_PADDING,
@@ -23,6 +23,7 @@ import {
   POST_ATTACK_HOLD_MS,
 } from '../../sim/constants';
 import { BOSS_CONFIG } from '../../sim/bossConfig';
+import { getPmdBodySize } from '../../data/pmdBodySizes';
 
 /** Target on-screen size (px, longest side) — sprite sources range from ~30px
  * PMD action frames to several-hundred-px official artwork, so every sprite
@@ -184,20 +185,21 @@ const FACING_TO_ROW: Record<FacingDirection, number> = {
 
 // A PMD-tier sprite's on-screen target size comes from the sim's own
 // collisionRadius (see the constructor's targetOnScreenSize, and
-// tryLoadPmdSprites() below) rather than being recomputed here from the
-// spritesheet's own Idle-frame pixel dimensions. computeOnScreenSizeFromHeight
-// (sim/constants.ts) — which is what loader.ts used to derive that
-// collisionRadius in the first place — scales off each species' real height,
-// not its PMD frame's incidental canvas size, so this is guaranteed to be the
-// exact same number the sim used for its hitbox, and a Pokémon's visible size
-// always matches what it can actually collide with.
+// tryLoadPmdSprites() below) rather than being recomputed here.
+// computeOnScreenSizeFromBody (sim/constants.ts) — which is what loader.ts
+// used to derive that collisionRadius in the first place — is the species'
+// measured visible body (src/data/pmdBodySizes.ts) at one magnification
+// shared by the whole roster, so this is guaranteed to be the exact same
+// number the sim used for its hitbox, and a Pokémon's visible size always
+// matches what it can actually collide with. Dividing by that same measured
+// body (not the sheet's padded frame canvas) is what turns it back into a
+// texture scale.
 //
 // Unlike the hotlink tier below (which normalizes every sprite to
 // TARGET_SPRITE_SIZE regardless of source resolution, since Showdown/PokeAPI
-// art isn't drawn at a consistent relative scale), PMD species keep their
-// real relative proportions — a Wailord looks bigger than a Voltorb — since
-// every PMD sprite is scaled off the same real-world-height formula instead
-// of being normalized to one fixed box.
+// art isn't drawn at a consistent relative scale), PMD species keep the
+// relative proportions PMDCollab drew them at — a Wailord looks bigger than
+// a Voltorb — and, since the magnification is uniform, the same pixel size.
 
 /**
  * No hand-drawn art exists for diagonal facings (or for any Pokémon facing
@@ -364,7 +366,7 @@ export class PokemonSprite {
     this.container.add(this.placeholder);
 
     // Y position is corrected every frame in updateHpBar() once a body
-    // exists — placed at 0 here since sprite sizes vary too much (56-180px
+    // exists — placed at 0 here since sprite sizes vary too much (64-150px
     // for PMD tier) for a fixed offset to sit at everyone's feet.
     this.hpBarBg = scene.add
       .rectangle(0, 0, HP_BAR_WIDTH, HP_BAR_HEIGHT, 0x1a1a1a, 0.85)
@@ -511,11 +513,14 @@ export class PokemonSprite {
     }
     this.pmdActions = loaded;
     this.isPmdTier = true;
-    // nativeSize here is purely the spritesheet's own Idle-frame pixel size —
-    // needed only to convert targetOnScreenSize (already correctly boss-scaled,
-    // see that field's own comment) into the Phaser texture scale factor that
-    // actually reaches it. Not used to decide *how big* this should render.
-    const nativeSize = Math.max(loaded.Idle.frameWidth, loaded.Idle.frameHeight, 1);
+    // The texture scale that puts the visible body at targetOnScreenSize
+    // (already correctly boss-scaled, see that field's own comment): divide
+    // by the same measured body the sim sized it from, never by the sheet's
+    // frame canvas, whose padding varies per species (see
+    // computeOnScreenSizeFromBody). The frame is only a last resort for a
+    // species the measurement somehow missed — the sim then estimated its
+    // size from real height, so nothing better is available here either.
+    const nativeSize = getPmdBodySize(this.speciesId) ?? Math.max(loaded.Idle.frameWidth, loaded.Idle.frameHeight, 1);
     this.pmdScale = this.targetOnScreenSize / nativeSize;
     this.onPmdSpritesReady();
     return true;
@@ -1197,7 +1202,7 @@ export class PokemonSprite {
       getAttacker: anchor,
       getTarget: anchor,
       scale: animationScaleFor(this.targetOnScreenSize),
-      msPerFrame: frameDurationMs(loaded.data.frames.length, Number.POSITIVE_INFINITY, STATUS_ANIM_PLAYBACK_SPEED),
+      msPerFrame: frameDurationMs(playableFrameCount(loaded.data.frames), Number.POSITIVE_INFINITY, STATUS_ANIM_PLAYBACK_SPEED),
       onComplete: () => {
         this.statusAnimation = null;
       },
@@ -1275,7 +1280,7 @@ export class PokemonSprite {
   }
 
   /** Container-space Y of the body's current top edge — sprite sizes vary a
-   * lot (PMD tier alone ranges ~56-180px tall, scaled per-species), so
+   * lot (PMD tier alone ranges ~64-150px tall, scaled per-species), so
    * anything anchored "above the sprite" has to be computed from the actual
    * current body rather than a fixed offset, or it clips into bigger ones. */
   private topOfBodyY(): number {

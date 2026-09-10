@@ -119,6 +119,29 @@ export interface MoveAnimationData {
   sfx: MoveAnimationSfxCue[];
 }
 
+/** A battler cell that leaves the sprite as it stands: no displacement,
+ * fully opaque, visible — the same as no cell at all. */
+function isBattlerCellIdle(cell: MoveAnimationBattlerCell | null): boolean {
+  return !cell || (cell[0] === 0 && cell[1] === 0 && cell[2] === 255 && cell[3] === 1);
+}
+
+/** How many of the frames are worth playing: all of them minus a trailing
+ * run that draws nothing and leaves both battlers where they stand. The
+ * pack pads some animations with such an idle tail for its own battle
+ * screen (Explosion holds 50 empty frames after its 15 of smoke, waiting
+ * for the user to faint) — in the arena that tail only compresses the
+ * real frames into the attack window, so the player stops at the last
+ * frame that does something. */
+export function playableFrameCount(frames: readonly MoveAnimationFrame[]): number {
+  let count = frames.length;
+  while (count > 0) {
+    const frame = frames[count - 1];
+    if (frame.c.length > 0 || !isBattlerCellIdle(frame.u) || !isBattlerCellIdle(frame.t)) break;
+    count -= 1;
+  }
+  return count;
+}
+
 /** The pack's status-condition animations the arena plays as ambient VFX
  * (see PokemonSprite.ts's updateStatusVfx), keyed by the sim's status.
  * Sleep keeps its text "Z"s instead. */

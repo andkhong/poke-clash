@@ -318,7 +318,7 @@ export class SimulationEngine implements EngineLike {
       }
       const target = this.state.pokemon[self.targetInstanceId!];
       if (!target || target.currentHp <= 0) continue;
-      const moveId = chooseMove(self, this.rng);
+      const moveId = chooseMove(self, this.rng, this.moves);
       const move = moveId === STRUGGLE_MOVE_ID ? STRUGGLE_MOVE : this.moves(moveId);
       if (!move) continue;
       this.executeMove(self, move, moveId, target, nowMs);
@@ -488,6 +488,7 @@ export class SimulationEngine implements EngineLike {
 
     if (move.targeting === 'self') {
       this.applyMoveEffect(move, attacker, attacker);
+      this.applyUserFaint(move, attacker);
       this.pushMoveUsedEvent(attacker, move, null, [], {}, {}, {}, {}, { ...attacker.position }, {}, nowMs);
       return;
     }
@@ -544,6 +545,7 @@ export class SimulationEngine implements EngineLike {
       const recoil = Math.max(1, Math.floor(attacker.maxHp * STRUGGLE_RECOIL_FRACTION));
       attacker.currentHp = Math.max(0, attacker.currentHp - recoil);
     }
+    this.applyUserFaint(move, attacker);
 
     this.pushMoveUsedEvent(
       attacker,
@@ -572,6 +574,20 @@ export class SimulationEngine implements EngineLike {
    * shape. */
   private resolveTargets(primary: PokemonInstance): PokemonInstance[] {
     return [primary];
+  }
+
+  /** Self-Destruct, Explosion, Misty Explosion: the user goes down with the
+   * blast, however much HP it had — after its damage has landed, so the
+   * target still takes the hit. It's swept out with this tick's other
+   * faints (sweepFaints), credited to itself so its `fainted` event says so
+   * (the arena keeps such an attacker's just-fired attack queued to play
+   * while its sprite fades — see ArenaScene.consumeEvents). If the blast
+   * also takes out the last other side, nobody is left standing and the
+   * match ends without a winner, like any other simultaneous last KO. */
+  private applyUserFaint(move: MoveDefinition, attacker: PokemonInstance): void {
+    if (!move.userFaints) return;
+    attacker.currentHp = 0;
+    attacker.lastDamagedByInstanceId = attacker.instanceId;
   }
 
   private applyMoveEffect(move: MoveDefinition, attacker: PokemonInstance, target: PokemonInstance): void {

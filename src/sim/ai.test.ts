@@ -1,9 +1,9 @@
 import { describe, expect, it } from 'vitest';
 import { chooseMove, pickWeightedRandomTarget, updateTargeting } from './ai';
 import { createRng } from './rng';
-import { AGGRO_RADIUS, COMBAT_START_DELAY_MS, ENGAGE_RANGE, NO_WANDER_AGGRO_RADIUS, TICK_MS } from './constants';
+import { AGGRO_RADIUS, COMBAT_START_DELAY_MS, ENGAGE_RANGE, NO_WANDER_AGGRO_RADIUS, SELF_KO_MOVE_HP_FRACTION, TICK_MS } from './constants';
 import { STRUGGLE_MOVE_ID } from './struggle';
-import type { PokemonInstance, SimState, Vec2 } from './types';
+import type { MoveDefinition, PokemonInstance, SimState, Vec2 } from './types';
 
 function makePokemon(
   id: string,
@@ -342,5 +342,43 @@ describe('chooseMove — forcedMoveId (MatchConfig.forcedMoveId)', () => {
     });
 
     expect(chooseMove(self, createRng(1))).toBe(STRUGGLE_MOVE_ID);
+  });
+});
+
+describe('chooseMove — self-KO moves (MoveDefinition.userFaints)', () => {
+  const ordinary = (id: number): MoveDefinition => ({ id, name: `Fixture ${id}`, type: 'normal', category: 'physical', power: 40, accuracy: 100, pp: 35, priority: 0, targeting: 'enemy' });
+  const lookup = (id: number): MoveDefinition | undefined => (id === 2 ? { ...ordinary(2), name: 'Fixture Explosion', power: 250, userFaints: true } : ordinary(id));
+  const slots = () => [
+    { moveId: 1, ppRemaining: 10, ppMax: 10 },
+    { moveId: 2, ppRemaining: 10, ppMax: 10 },
+  ];
+
+  it('never picks the self-KO move while the user is healthy', () => {
+    const self = makePokemon('self', 'a', 0, 0, { moves: slots(), currentHp: 100, maxHp: 100 });
+    for (let seed = 1; seed <= 40; seed++) expect(chooseMove(self, createRng(seed), lookup)).toBe(1);
+  });
+
+  it('puts it back on the table once the user is at or under SELF_KO_MOVE_HP_FRACTION of its HP', () => {
+    const self = makePokemon('self', 'a', 0, 0, { moves: slots(), currentHp: Math.floor(100 * SELF_KO_MOVE_HP_FRACTION), maxHp: 100 });
+    const picks = new Set<number>();
+    for (let seed = 1; seed <= 40; seed++) picks.add(chooseMove(self, createRng(seed), lookup));
+    expect(picks).toEqual(new Set([1, 2]));
+  });
+
+  it('uses it when nothing else has PP left, rather than Struggling', () => {
+    const self = makePokemon('self', 'a', 0, 0, {
+      moves: [
+        { moveId: 1, ppRemaining: 0, ppMax: 10 },
+        { moveId: 2, ppRemaining: 10, ppMax: 10 },
+      ],
+    });
+    expect(chooseMove(self, createRng(1), lookup)).toBe(2);
+  });
+
+  it('treats every move as ordinary without a definition lookup (unaffected baseline)', () => {
+    const self = makePokemon('self', 'a', 0, 0, { moves: slots() });
+    const picks = new Set<number>();
+    for (let seed = 1; seed <= 40; seed++) picks.add(chooseMove(self, createRng(seed)));
+    expect(picks).toEqual(new Set([1, 2]));
   });
 });

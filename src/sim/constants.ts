@@ -218,6 +218,13 @@ export const STATUS_TICK_INTERVAL_MS = 1000;
 export const BURN_CHIP_FRACTION = 1 / 16;
 export const POISON_CHIP_FRACTION = 1 / 8;
 
+/** A move that takes its user down with it (MoveDefinition.userFaints —
+ * Explosion, Self-Destruct) is a last resort: the AI only reaches for it
+ * once the user is at or under this fraction of its max HP, or has nothing
+ * else with PP left (see ai.ts's chooseMove). Without this a Pokémon that
+ * knows Explosion would blow itself up at full HP one time in four. */
+export const SELF_KO_MOVE_HP_FRACTION = 1 / 3;
+
 export const CRIT_CHANCE = 1 / 24;
 export const HIGH_CRIT_CHANCE = 1 / 8;
 export const CRIT_DAMAGE_MULT = 1.5;
@@ -302,39 +309,72 @@ export const ARENA_TOP_PADDING = 200;
 
 /**
  * On-screen sprite scale — shared with the renderer (PokemonSprite.ts derives
- * its Phaser texture scale from the same computeOnScreenSizeFromHeight() this
- * feeds into loader.ts's collisionRadius) so a Pokémon's hitbox always
- * matches what's actually drawn.
+ * its Phaser texture scale from the same number this feeds into loader.ts's
+ * collisionRadius) so a Pokémon's hitbox always matches what's drawn.
  *
- * Driven by each species' real height (GeneratedSpecies.heightDm, from
- * PokeAPI), not its PMD idle-animation frame's own pixel dimensions — that
- * frame's canvas size varies with incidental animation padding as much as
- * with real size (Pikachu's ears+tail stick up during its idle wiggle,
- * giving it a *taller* Idle frame than Blastoise's compact shell), so two
- * species close in real size could land in the wrong relative order on
- * screen. Height doesn't have that problem. A straight sqrt (rather than
- * linear) keeps the giant handful of 100+dm legendaries from dwarfing
- * everything else while still keeping genuinely small Pokémon small — heights
- * across the full roster span 1-200dm (median 10dm), so linear scaling would
- * either make most of the roster nearly the same size or let the rare giant
- * swallow the arena. POKEMON_HEIGHT_SCALE is picked so a ~16dm Pokémon (a
- * Blastoise, Charizard, Venusaur-ish mid-size) lands around 100px — matched
- * against the reference battle footage this game is modeled on (see
- * examples/ and the "improved asset for upload" commit).
+ * Every PMD sprite is drawn at one uniform magnification, PMD_SPRITE_SCALE,
+ * of its *visible body* — the bounding box of its non-transparent pixels
+ * across its Idle frames in every facing, measured by
+ * data-pipeline/measure-pmd-bodies.ts into src/data/generated/pmdBodySizes.json
+ * (see src/data/pmdBodySizes.ts). Uniform because that's what makes a
+ * pixel-art roster read as one set: every Pokémon's pixels are the same
+ * size on screen, and PMDCollab's artists already drew each species at a
+ * consistent relative scale (a Wailord's sheet is bigger than a Joltik's),
+ * so relative size comes free without any per-species formula. The
+ * magnification is matched against the reference battle footage this game
+ * is modeled on (see examples/): a fully evolved starter — Blaziken,
+ * Torterra, Greninja — stands ~85-100px in the 900px-wide portrait arena,
+ * about a tenth of the frame's width.
+ *
+ * Only the extremes are clamped: the visible body's longest side is kept
+ * within PMD_MIN_BODY_SIZE (a Joltik would otherwise be a ~50px speck) and
+ * PMD_MAX_BODY_SIZE (a Moltres with wings spread would otherwise span a
+ * quarter of the arena), which costs those few species (~5% at each end)
+ * the shared pixel size.
+ *
+ * Why the visible body and not the sheet's frame canvas: PMDCollab pads
+ * every frame for its animation's full range of motion, by an amount that
+ * varies from ~40% to ~98% of the canvas per species. Scaling the canvas
+ * to a target size (what this used to do, driven by a sqrt of the species'
+ * real height) put two same-size Pokémon at very different on-screen sizes
+ * and magnifications — a Blaziken at 1.95x next to a Swampert at 1.5x and a
+ * Serperior at 3x — with a median visible body of only ~50px.
+ */
+export const PMD_SPRITE_SCALE = 3;
+export const PMD_MIN_BODY_SIZE = 64;
+export const PMD_MAX_BODY_SIZE = 150;
+
+/** On-screen size (px, longest side) of a PMD sprite whose visible body's
+ * longest side is `bodyPx` native sheet pixels. */
+export function computeOnScreenSizeFromBody(bodyPx: number): number {
+  const scaled = Math.max(1, bodyPx) * PMD_SPRITE_SCALE;
+  return Math.min(PMD_MAX_BODY_SIZE, Math.max(PMD_MIN_BODY_SIZE, scaled));
+}
+
+/**
+ * Fallback for a species with no measured PMD body — none of the selectable
+ * roster (see loader.ts's hasPmdSprite), but the hotlink-art tier in
+ * PokemonSprite.ts can still render one: an estimate from the species' real
+ * height (GeneratedSpecies.heightDm, from PokeAPI). A sqrt rather than
+ * linear keeps the giant handful of 100+dm legendaries from dwarfing
+ * everything else (heights span 1-200dm, median 10dm), and
+ * POKEMON_HEIGHT_SCALE puts a ~16dm Pokémon at ~100px — the same band
+ * computeOnScreenSizeFromBody lands a measured sprite of that size in,
+ * clamped to the same bounds.
  */
 export const POKEMON_HEIGHT_SCALE = 25;
-export const PMD_MIN_SPRITE_SIZE = 84;
-export const PMD_MAX_SPRITE_SIZE = 270;
 
 export function computeOnScreenSizeFromHeight(heightDm: number): number {
   const scaled = Math.sqrt(Math.max(1, heightDm)) * POKEMON_HEIGHT_SCALE;
-  return Math.min(PMD_MAX_SPRITE_SIZE, Math.max(PMD_MIN_SPRITE_SIZE, scaled));
+  return Math.min(PMD_MAX_BODY_SIZE, Math.max(PMD_MIN_BODY_SIZE, scaled));
 }
 
-/** Collision/separation radius as a fraction of a species' on-screen size —
- * smaller than a full circumscribing circle (0.5) since sprites aren't solid
- * squares; ~0.35 approximates the actual body footprint reasonably. */
-export const COLLISION_RADIUS_FACTOR = 0.35;
+/** Collision/separation radius as a fraction of a species' on-screen size
+ * (its visible body's longest side). Half would be the tightest circle
+ * around a sprite as wide as it is tall; most bodies are taller than wide
+ * and not solid to their corners, so a touch under that lets two sprites
+ * walk close enough to read as jostling without their bodies overlapping. */
+export const COLLISION_RADIUS_FACTOR = 0.45;
 
 /** How far beyond two Pokémon's combined collision radii (i.e. beyond
  * actually touching) the soft steering nudge starts easing them apart. The

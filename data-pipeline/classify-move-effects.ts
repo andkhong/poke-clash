@@ -30,6 +30,13 @@ const STAT_NAME_MAP: Record<string, StageKey> = {
 const PRIMARY_STAT_CATEGORIES = new Set(['net-good-stats']);
 /** Meta categories where a stat change is a secondary chance riding on a damaging move. */
 const SECONDARY_STAT_CATEGORIES = new Set(['damage+lower', 'damage+raise', 'swagger']);
+/** Moves whose user faints on use (MoveDefinition.userFaints). PokeAPI's
+ * move.meta has no field for this — it's only in the prose effect text, and
+ * missing even there for newer moves (Misty Explosion) — so a short list by
+ * API name. The status ones (Memento, Healing Wish, Lunar Dance) and Final
+ * Gambit (no listed power) are excluded from the dataset anyway; they're
+ * here so the flag is right if they ever come in. */
+const USER_FAINTS_MOVES = new Set(['self-destruct', 'explosion', 'misty-explosion', 'final-gambit', 'memento', 'healing-wish', 'lunar-dance']);
 
 function mapTargeting(targetName: string): MoveTargeting | null {
   switch (targetName) {
@@ -125,5 +132,6 @@ export function classifyMove(api: ApiMove): MoveDefinition | null {
     targeting,
     effect,
     highCrit: (api.meta?.crit_rate ?? 0) > 0 || undefined,
+    userFaints: USER_FAINTS_MOVES.has(api.name) || undefined,
   };
 }
