@@ -361,7 +361,17 @@ describe('SimulationEngine full match', () => {
     // invariant that actually matters is that wanderWaypoint is never a
     // stale leftover, only ever genuinely unset or freshly repicked.
     const afterHold = replay.getState().pokemon[attackerId];
-    if (afterHold.aiState === 'wander') {
+    // A paralyzed Pokémon is a third legitimate case alongside the two
+    // below: stepMovement's paralysis branch (checked before 'wander's own)
+    // holds it in place without ever reaching the wanderWaypoint-picking
+    // logic at all, so aiState reads 'wander' (updateTargeting has no reason
+    // to say otherwise) while wanderWaypoint stays genuinely unset — not a
+    // stale leftover, just never assigned because idle wandering itself is
+    // suppressed for as long as the paralysis lasts.
+    if (afterHold.status === 'paralysis') {
+      expect(afterHold.aiState).toBe('wander');
+      expect(afterHold.wanderWaypoint).toBeUndefined();
+    } else if (afterHold.aiState === 'wander') {
       expect(afterHold.wanderWaypoint).toBeDefined(); // freshly repicked, not a stale/absent one
     } else {
       expect(afterHold.wanderWaypoint).toBeUndefined();

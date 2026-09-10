@@ -1,9 +1,10 @@
 import { useMemo, useState, type CSSProperties } from 'react';
 import type { ArenaSizeId, SelectableLevel } from '../../app/config';
-import { ARENA_SIZE_OPTIONS, LEVEL_OPTIONS } from '../../app/config';
+import { IS_MOBILE_DEVICE, LEVEL_OPTIONS, buildArenaSizeOptions, resolveMatchArena } from '../../app/config';
 import { buildSpeciesDataForLevel, getMoveDefinition, hasPmdSprite, listAllSpecies, type SpeciesSummary } from '../../data/loader';
 import { getMoveTypeColor } from '../../render/vfx/typeColor';
 import type { MatchConfig, MoveCategory } from '../../sim/types';
+import { useWideArenaPreference } from '../hooks/useWideArenaPreference';
 
 interface CustomBattleScreenProps {
   onStart: (config: MatchConfig) => void;
@@ -29,17 +30,22 @@ export function CustomBattleScreen({ onStart, onBack }: CustomBattleScreenProps)
   const [shiny, setShiny] = useState(false);
   const [arenaSizeId, setArenaSizeId] = useState<ArenaSizeId>('standard');
   const [disableWander, setDisableWander] = useState(false);
+  const [wideArena, setWideArena] = useWideArenaPreference();
   const [fighterA, setFighterA] = useState<FighterConfig>({ speciesId: null, moveIds: [] });
   const [fighterB, setFighterB] = useState<FighterConfig>({ speciesId: null, moveIds: [] });
 
   const allSpecies = useMemo(() => listAllSpecies().filter((s) => hasPmdSprite(s.id)), []);
+  // Small/Tiny scale down whichever base (mobile or, if opted into, the wide
+  // desktop arena) is currently selected, so this picker always previews the
+  // same shape the match will actually start with.
+  const arenaSizeOptions = useMemo(() => buildArenaSizeOptions(resolveMatchArena(wideArena)), [wideArena]);
 
   const canStart =
     fighterA.speciesId !== null && fighterA.moveIds.length > 0 && fighterB.speciesId !== null && fighterB.moveIds.length > 0;
 
   const handleStart = () => {
     if (!canStart || fighterA.speciesId === null || fighterB.speciesId === null) return;
-    const arenaSize = ARENA_SIZE_OPTIONS.find((o) => o.id === arenaSizeId) ?? ARENA_SIZE_OPTIONS[0];
+    const arenaSize = arenaSizeOptions.find((o) => o.id === arenaSizeId) ?? arenaSizeOptions[0];
     const forcedMoveId: Record<number, number> = {};
     if (fighterA.forcedMoveId !== undefined) forcedMoveId[fighterA.speciesId] = fighterA.forcedMoveId;
     if (fighterB.forcedMoveId !== undefined) forcedMoveId[fighterB.speciesId] = fighterB.forcedMoveId;
@@ -99,7 +105,7 @@ export function CustomBattleScreen({ onStart, onBack }: CustomBattleScreenProps)
       <section style={{ width: '100%', maxWidth: 420 }}>
         <h2 style={sectionHeading}>Map Size</h2>
         <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
-          {ARENA_SIZE_OPTIONS.map((opt) => (
+          {arenaSizeOptions.map((opt) => (
             <button key={opt.id} onClick={() => setArenaSizeId(opt.id)} style={pillButton(arenaSizeId === opt.id)}>
               {opt.label}
             </button>
@@ -134,6 +140,11 @@ export function CustomBattleScreen({ onStart, onBack }: CustomBattleScreenProps)
           <button onClick={() => setDisableWander((w) => !w)} style={shinyToggleButton(disableWander)}>
             🎯 Disable Wander {disableWander ? 'ON' : 'OFF'}
           </button>
+          {!IS_MOBILE_DEVICE && (
+            <button onClick={() => setWideArena(!wideArena)} style={shinyToggleButton(wideArena)}>
+              🖥️ Wide Arena {wideArena ? 'ON' : 'OFF'}
+            </button>
+          )}
         </div>
         <p style={{ margin: '6px 0 0', fontSize: 10, opacity: 0.5 }}>
           Fighters lock onto each other immediately and hold their ground between attacks instead of wandering off.

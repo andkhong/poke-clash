@@ -3,7 +3,7 @@ import { SimulationEngine } from '../src/sim/engine';
 import { buildSpeciesMapForLevel, hasPmdSprite, listAllSpecies, moveLookup, pickRandomSpeciesIds } from '../src/data/loader';
 import { ARENA_HEIGHT, ARENA_WIDTH, TICK_MS } from '../src/sim/constants';
 import { HUD_REFRESH_INTERVAL_MS } from '../src/ui/state/simStore';
-import type { MatchConfig } from '../src/sim/types';
+import type { ArenaBounds, MatchConfig } from '../src/sim/types';
 import type { BattleStartPayload, HelloPayload, RoomMode, RoomPhase, RoomSlotSummary, RoomSummary, RoomTeam } from '../src/net/protocol';
 import { roomCapacityForMode, teamSizeForMode } from '../src/net/protocol';
 import { broadcast } from './sse';
@@ -34,6 +34,10 @@ interface RoomState {
   /** Boss Mode only — chosen once at battle start; nobody picks it, so it
    * isn't a PlayerSlot. Null outside 'battle'/'complete'. */
   bossSpeciesId: number | null;
+  /** Set once at room creation from whoever created it (see createRoom) —
+   * defaults to the portrait constant for the server's own boot-time
+   * pre-seeded rooms, which have no client to ask. */
+  arena: ArenaBounds;
   countdownEndsAtMs: number | null;
   engine: SimulationEngine | null;
   lastBroadcastSeq: number;
@@ -65,7 +69,7 @@ function emptySlots(mode: RoomMode): PlayerSlot[] {
   }));
 }
 
-export function createRoom(mode: RoomMode = 'classic') {
+export function createRoom(mode: RoomMode = 'classic', arena?: ArenaBounds) {
   const id = `room-${nextRoomNumber}`;
   const name = `Room ${nextRoomNumber}`;
   nextRoomNumber += 1;
@@ -76,6 +80,7 @@ export function createRoom(mode: RoomMode = 'classic') {
     phase: 'idle',
     slots: emptySlots(mode),
     bossSpeciesId: null,
+    arena: arena ?? { width: ARENA_WIDTH, height: ARENA_HEIGHT },
     countdownEndsAtMs: null,
     engine: null,
     lastBroadcastSeq: 0,
@@ -182,7 +187,7 @@ function startBattle(room: RoomState): void {
   const config: MatchConfig = {
     level: MULTIPLAYER_LEVEL,
     speciesIds,
-    arena: { width: ARENA_WIDTH, height: ARENA_HEIGHT },
+    arena: room.arena,
     shiny: false,
     ...(bossSpeciesId !== null ? { boss: { speciesId: bossSpeciesId } } : {}),
     ...(teamSize !== null ? { teams: { size: teamSize } } : {}),

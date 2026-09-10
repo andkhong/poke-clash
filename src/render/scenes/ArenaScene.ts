@@ -98,9 +98,19 @@ function logBattleEvent(event: MoveUsedEvent, state: Readonly<SimState>): void {
   );
 }
 
-const MAX_CONCURRENT_ATTACKS = 4;
-const ATTACK_QUEUE_STAGGER_MIN_MS = 250;
-const ATTACK_QUEUE_STAGGER_MAX_MS = 500;
+// How many attack visuals can be in flight at once. At the full 16-Pokémon
+// roster's aggressive phase, most/all combatants sit on the same
+// POST_ATTACK_HOLD_MS-floored cooldown (see resetCooldown in engine.ts), so
+// the sim itself can legitimately produce attacks several times faster than
+// a low concurrency cap here can ever drain — the surplus piles up in
+// attackQueue until MAX_ATTACK_QUEUE_AGE_MS/MAX_QUEUED_ATTACKS below start
+// silently dropping them: no move-name callout, no impact VFX, nothing but
+// an HP bar that moved with no visible cause. Sized well above the old 4 (a
+// leftover from when the largest roster was 6) so a busy 16-mon brawl's
+// realistic burst rate is actually absorbed instead of routinely
+// overflowing — some simultaneous attacks are exactly what a 16-Pokémon
+// free-for-all should look like anyway, not something to hide.
+const MAX_CONCURRENT_ATTACKS = 8;
 // Roughly the longest a single attack's visuals stay on screen (beam/flame
 // charge+extend, lunge dash+impact burst, etc.) — used to know when a
 // concurrency slot frees up, and (see handleMoveUsed's callers) when to cut
@@ -285,8 +295,9 @@ export class ArenaScene extends Phaser.Scene {
   // earlier move is still sitting in the queue waiting for a slot. Without
   // this, that stale attack would eventually get dequeued, find no attacker
   // sprite (handleMoveUsed's existing `!attackerSprite` guard), and silently
-  // no-op — wasting one of the concurrency slots and a full stagger delay on
-  // nothing instead of letting a real pending attack play sooner.
+  // no-op — wasting one of the concurrency slots (and however long it sat
+  // queued first) on nothing instead of letting a real pending attack play
+  // sooner.
   private removeQueuedAttacksBy(instanceId: string): void {
     for (let i = this.attackQueue.length - 1; i >= 0; i--) {
       if (this.attackQueue[i].event.attackerId === instanceId) this.attackQueue.splice(i, 1);
@@ -316,12 +327,18 @@ export class ArenaScene extends Phaser.Scene {
     }
   }
 
+  // Just frees the slot — no need to explicitly re-pump the queue here.
+  // update() calls consumeEvents() (which ends with pumpAttackQueue()) every
+  // rendered frame regardless of what triggered this call, so the freed slot
+  // gets noticed and refilled on the very next frame on its own. An earlier
+  // version scheduled a further 250-500ms "stagger" delay here before
+  // re-pumping, on top of that — which never actually staggered anything
+  // (the per-frame pump always got there first) and just ate into how many
+  // attacks could be drained per second, worsening the exact
+  // dropped-attack/missing-visual problem MAX_CONCURRENT_ATTACKS's own
+  // comment describes.
   private releaseAttackSlot(): void {
     this.activeAttackSlots -= 1;
-    if (this.attackQueue.length > 0) {
-      const stagger = Phaser.Math.Between(ATTACK_QUEUE_STAGGER_MIN_MS, ATTACK_QUEUE_STAGGER_MAX_MS);
-      this.time.delayedCall(stagger, () => this.pumpAttackQueue());
-    }
   }
 
   private handleMoveUsed(

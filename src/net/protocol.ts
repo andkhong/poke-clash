@@ -64,6 +64,14 @@ export interface RoomSummary {
 
 export interface CreateRoomRequest {
   mode?: RoomMode;
+  /** The creating client's own chosen arena (see app/config.ts's
+   * resolveMatchArena — mobile devices are hard-locked to the portrait
+   * arena, desktop browsers can opt into the wide one) — since the sim is
+   * server-authoritative and shared by everyone in the room (one arena per
+   * match, not per viewer), only whoever creates a room gets any say in its
+   * shape. Omitted for the server's own boot-time pre-seeded rooms, which
+   * have no client to ask. */
+  arena?: { width: number; height: number };
 }
 
 export interface HelloPayload {

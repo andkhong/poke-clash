@@ -18,7 +18,7 @@ export function LandingScreen() {
 
 const containerStyle: CSSProperties = {
   width: '100vw',
-  height: '100vh',
+  height: '100dvh',
   boxSizing: 'border-box',
   display: 'flex',
   flexDirection: 'column',

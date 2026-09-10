@@ -34,6 +34,12 @@ data-pipeline/cache/
 # sync, so there's nothing here to commit even a small derived copy of.
 /sound-track/
 
+# Cover-art-stripped/re-encoded copies of /sound/ and /sound-track/ (see
+# transcode.sh run during deploy prep) — same "not committed" reasoning as
+# the raw mirrors above, just a second local tree staged for upload.
+/sound-optimized/
+/sound-track-optimized/
+
 *.log
 npm-debug.log*
 *.tsbuildinfo

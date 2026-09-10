@@ -2,6 +2,8 @@ import { useEffect, useState, type CSSProperties } from 'react';
 import type { RoomMode, RoomPhase, RoomSummary } from '../../net/protocol';
 import { teamSizeForMode } from '../../net/protocol';
 import { useCountdown } from '../../net/useCountdown';
+import { IS_MOBILE_DEVICE, resolveMatchArena } from '../../app/config';
+import { useWideArenaPreference } from '../hooks/useWideArenaPreference';
 import { TEAM_A_COLOR_CSS } from '../teamColors';
 
 const POLL_INTERVAL_MS = 2000;
@@ -17,6 +19,7 @@ const PHASE_LABEL: Record<RoomPhase, string> = {
 export function RoomListScreen() {
   const [rooms, setRooms] = useState<RoomSummary[]>([]);
   const [error, setError] = useState<string | null>(null);
+  const [wideArena, setWideArena] = useWideArenaPreference();
 
   useEffect(() => {
     let cancelled = false;
@@ -48,7 +51,7 @@ export function RoomListScreen() {
     fetch('/api/rooms', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ mode }),
+      body: JSON.stringify({ mode, arena: resolveMatchArena(wideArena) }),
     })
       .then((res) => res.json())
       .then((data: { room: RoomSummary }) => {
@@ -76,6 +79,17 @@ export function RoomListScreen() {
         ))}
         {rooms.length === 0 && !error && <p style={{ fontSize: 12, opacity: 0.6 }}>No rooms yet — create one below.</p>}
       </div>
+
+      {!IS_MOBILE_DEVICE && (
+        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 4 }}>
+          <button onClick={() => setWideArena(!wideArena)} style={wideArenaToggle(wideArena)}>
+            🖥️ Wide Arena {wideArena ? 'ON' : 'OFF'}
+          </button>
+          <p style={{ margin: 0, fontSize: 10, opacity: 0.5, textAlign: 'center' }}>
+            Applies to rooms you create below — everyone in the room plays on it.
+          </p>
+        </div>
+      )}
 
       <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', justifyContent: 'center' }}>
         <button onClick={() => createRoom('classic')} style={primaryButton}>
@@ -124,7 +138,7 @@ function RoomRow({ room }: { room: RoomSummary }) {
 
 const containerStyle: CSSProperties = {
   width: '100vw',
-  height: '100vh',
+  height: '100dvh',
   boxSizing: 'border-box',
   display: 'flex',
   flexDirection: 'column',
@@ -206,6 +220,20 @@ const teamButton: CSSProperties = {
   borderRadius: 6,
   cursor: 'pointer',
 };
+
+function wideArenaToggle(active: boolean): CSSProperties {
+  return {
+    fontSize: 12,
+    fontFamily: 'monospace',
+    fontWeight: 'bold',
+    padding: '6px 14px',
+    borderRadius: 16,
+    border: active ? '1px solid #ffd700' : '1px solid rgba(255,255,255,0.2)',
+    background: active ? 'rgba(255,215,0,0.22)' : 'rgba(255,255,255,0.05)',
+    color: active ? '#ffd700' : '#ddd',
+    cursor: 'pointer',
+  };
+}
 
 const teamTag: CSSProperties = {
   fontSize: 9,

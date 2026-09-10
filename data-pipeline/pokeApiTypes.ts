@@ -35,6 +35,12 @@ export interface ApiPokemon {
   name: string;
   is_default: boolean;
   species: NamedApiResource;
+  /** Decimeters. Drives on-screen sprite scale (see build-dataset.ts /
+   * sim/constants.ts's computeOnScreenSizeFromHeight) — a far more reliable
+   * "how big is this creature" signal than the PMD idle-animation frame's own
+   * pixel dimensions, which vary with incidental animation padding as much as
+   * with real size. */
+  height: number;
   stats: ApiPokemonStat[];
   types: ApiPokemonType[];
   moves: ApiPokemonMove[];

@@ -1,6 +1,8 @@
 // Single source of truth for tunable simulation constants. Values are initial
 // proposals from the design pass — expect to retune during the QA/balance phase.
 
+import type { ArenaBounds } from './types';
+
 export const TICK_RATE_HZ = 20;
 export const TICK_MS = 1000 / TICK_RATE_HZ;
 
@@ -25,6 +27,63 @@ export function computeIntroDurationMs(rosterSize: number): number {
 // like iPhone 14/15 and most current Android), rather than the old 3:5 shape.
 export const ARENA_WIDTH = 900;
 export const ARENA_HEIGHT = 1950;
+
+/**
+ * Widescreen arena a non-mobile (desktop/web) browser can opt into — see
+ * app/config.ts's resolveMatchArena() and useWideArenaPreference(). Mobile
+ * devices are hard-locked to the portrait arena above and never offered
+ * this. 1920x1080 was picked over an arbitrarily-scaled shape because its
+ * diagonal (~2202px) lands almost
+ * exactly on the portrait arena's own (~2147px, see NO_WANDER_AGGRO_RADIUS's
+ * comment below) — every absolute-pixel gameplay constant tuned around the
+ * portrait arena (AGGRO_RADIUS, movement speeds, etc.) carries over to this
+ * shape without needing a second tuning pass.
+ */
+export const DESKTOP_ARENA_WIDTH = 1920;
+export const DESKTOP_ARENA_HEIGHT = 1080;
+
+/** True for a portrait ("mobile") arena, false for a landscape ("desktop")
+ * one — derived from the arena's own shape rather than stored anywhere, so
+ * MatchConfig/the network protocol never need a companion "which layout is
+ * this" field just to stay in sync with it. */
+export function isMobileArena(arena: ArenaBounds): boolean {
+  return arena.width < arena.height;
+}
+
+/**
+ * Fraction of arena width/height reserved on each edge so Pokémon never
+ * wander behind where Instagram's own Story-viewer UI would sit once a
+ * match is recorded and posted — the whole reason this arena is shaped like
+ * a vertical video frame in the first place. Read directly off Instagram's
+ * own 1080x1920 Story safe-zone template (profile/close-button strip along
+ * the top, reply-bar strip along the bottom, and a narrower margin on both
+ * sides so nothing sits flush against the frame's outer edge): the visual
+ * reference measured out to roughly top 13%, bottom 11%, and left/right 7%
+ * each. Easy to retune since nothing else depends on these exact values.
+ * Only meaningful for a portrait/mobile arena — a landscape desktop arena
+ * isn't a vertical-video export, so it gets no reservation at all.
+ */
+export const RED_ZONE_TOP_FRACTION = 0.13;
+export const RED_ZONE_BOTTOM_FRACTION = 0.11;
+export const RED_ZONE_LEFT_FRACTION = 0.07;
+export const RED_ZONE_RIGHT_FRACTION = 0.07;
+
+export interface RedZoneInsets {
+  top: number;
+  right: number;
+  bottom: number;
+  left: number;
+}
+
+export function getRedZoneInsets(arena: ArenaBounds): RedZoneInsets {
+  if (!isMobileArena(arena)) return { top: 0, right: 0, bottom: 0, left: 0 };
+  return {
+    top: arena.height * RED_ZONE_TOP_FRACTION,
+    right: arena.width * RED_ZONE_RIGHT_FRACTION,
+    bottom: arena.height * RED_ZONE_BOTTOM_FRACTION,
+    left: arena.width * RED_ZONE_LEFT_FRACTION,
+  };
+}
 
 /**
  * Match clock: a match can never run past MATCH_TIME_LIMIT_MS — whoever's
@@ -152,16 +211,35 @@ export const ARENA_PADDING = 48;
 export const ARENA_TOP_PADDING = 200;
 
 /**
- * On-screen sprite scale — shared with the renderer (PokemonSprite.ts uses
- * these same 3 constants for visual size) so a Pokémon's hitbox actually
- * matches what's drawn on screen. PMD frame sizes are authored at consistent
- * in-game scale (a Wailord's frame really is bigger than a Voltorb's), so
- * every species shares this one multiplier rather than being normalized to a
- * fixed box. See PokemonSprite.ts for the full distribution/tuning rationale.
+ * On-screen sprite scale — shared with the renderer (PokemonSprite.ts derives
+ * its Phaser texture scale from the same computeOnScreenSizeFromHeight() this
+ * feeds into loader.ts's collisionRadius) so a Pokémon's hitbox always
+ * matches what's actually drawn.
+ *
+ * Driven by each species' real height (GeneratedSpecies.heightDm, from
+ * PokeAPI), not its PMD idle-animation frame's own pixel dimensions — that
+ * frame's canvas size varies with incidental animation padding as much as
+ * with real size (Pikachu's ears+tail stick up during its idle wiggle,
+ * giving it a *taller* Idle frame than Blastoise's compact shell), so two
+ * species close in real size could land in the wrong relative order on
+ * screen. Height doesn't have that problem. A straight sqrt (rather than
+ * linear) keeps the giant handful of 100+dm legendaries from dwarfing
+ * everything else while still keeping genuinely small Pokémon small — heights
+ * across the full roster span 1-200dm (median 10dm), so linear scaling would
+ * either make most of the roster nearly the same size or let the rare giant
+ * swallow the arena. POKEMON_HEIGHT_SCALE is picked so a ~16dm Pokémon (a
+ * Blastoise, Charizard, Venusaur-ish mid-size) lands around 100px — matched
+ * against the reference battle footage this game is modeled on (see
+ * examples/ and the "improved asset for upload" commit).
  */
-export const PMD_NATIVE_SCALE = 3.375;
+export const POKEMON_HEIGHT_SCALE = 25;
 export const PMD_MIN_SPRITE_SIZE = 84;
 export const PMD_MAX_SPRITE_SIZE = 270;
+
+export function computeOnScreenSizeFromHeight(heightDm: number): number {
+  const scaled = Math.sqrt(Math.max(1, heightDm)) * POKEMON_HEIGHT_SCALE;
+  return Math.min(PMD_MAX_SPRITE_SIZE, Math.max(PMD_MIN_SPRITE_SIZE, scaled));
+}
 
 /** Collision/separation radius as a fraction of a species' on-screen size —
  * smaller than a full circumscribing circle (0.5) since sprites aren't solid

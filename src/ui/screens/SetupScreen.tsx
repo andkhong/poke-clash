@@ -1,9 +1,16 @@
 import { useMemo, useState, type CSSProperties } from 'react';
 import type { SelectableLevel } from '../../app/config';
-import { DEFAULT_ROSTER_SIZE, LEVEL_OPTIONS, MAX_ROSTER_SIZE, getThemePresets } from '../../app/config';
+import {
+  DEFAULT_ROSTER_SIZE,
+  IS_MOBILE_DEVICE,
+  LEVEL_OPTIONS,
+  MAX_ROSTER_SIZE,
+  getThemePresets,
+  resolveMatchArena,
+} from '../../app/config';
 import { listAllSpecies, pickRandomSpeciesIds } from '../../data/loader';
 import type { MatchConfig } from '../../sim/types';
-import { ARENA_HEIGHT, ARENA_WIDTH } from '../../app/config';
+import { useWideArenaPreference } from '../hooks/useWideArenaPreference';
 
 interface SetupScreenProps {
   onStart: (config: MatchConfig) => void;
@@ -17,6 +24,7 @@ export function SetupScreen({ onStart, onOpenCustomBattle, onOpenBossMode, onOpe
   const [speciesIds, setSpeciesIds] = useState<number[]>(() => pickRandomSpeciesIds(DEFAULT_ROSTER_SIZE));
   const [activePreset, setActivePreset] = useState<string | null>(null);
   const [shiny, setShiny] = useState(false);
+  const [wideArena, setWideArena] = useWideArenaPreference();
 
   const themePresets = useMemo(() => getThemePresets(), []);
   const speciesById = useMemo(() => new Map(listAllSpecies().map((s) => [s.id, s])), []);
@@ -117,14 +125,21 @@ export function SetupScreen({ onStart, onOpenCustomBattle, onOpenBossMode, onOpe
 
       <section style={{ width: '100%', maxWidth: 420 }}>
         <h2 style={sectionHeading}>Special</h2>
-        <button onClick={() => setShiny((s) => !s)} style={shinyToggleButton(shiny)}>
-          ✨ Shiny {shiny ? 'ON' : 'OFF'}
-        </button>
+        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+          <button onClick={() => setShiny((s) => !s)} style={shinyToggleButton(shiny)}>
+            ✨ Shiny {shiny ? 'ON' : 'OFF'}
+          </button>
+          {!IS_MOBILE_DEVICE && (
+            <button onClick={() => setWideArena(!wideArena)} style={shinyToggleButton(wideArena)}>
+              🖥️ Wide Arena {wideArena ? 'ON' : 'OFF'}
+            </button>
+          )}
+        </div>
       </section>
 
       <button
         onClick={() =>
-          onStart({ level, speciesIds, arena: { width: ARENA_WIDTH, height: ARENA_HEIGHT }, shiny })
+          onStart({ level, speciesIds, arena: resolveMatchArena(wideArena), shiny })
         }
         disabled={!canStart}
         style={{

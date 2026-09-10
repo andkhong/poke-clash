@@ -1,9 +1,10 @@
 import { useMemo, useState, type CSSProperties } from 'react';
 import type { SelectableLevel } from '../../app/config';
-import { ARENA_HEIGHT, ARENA_WIDTH, LEVEL_OPTIONS } from '../../app/config';
+import { IS_MOBILE_DEVICE, LEVEL_OPTIONS, resolveMatchArena } from '../../app/config';
 import { hasPmdSprite, listAllSpecies, pickRandomSpeciesIds } from '../../data/loader';
 import type { MatchConfig } from '../../sim/types';
 import { SpeciesPicker } from '../components/SpeciesPicker';
+import { useWideArenaPreference } from '../hooks/useWideArenaPreference';
 
 const PARTY_SIZE = 4;
 
@@ -15,6 +16,7 @@ interface BossModeScreenProps {
 export function BossModeScreen({ onStart, onBack }: BossModeScreenProps) {
   const [level, setLevel] = useState<SelectableLevel>(50);
   const [shiny, setShiny] = useState(false);
+  const [wideArena, setWideArena] = useWideArenaPreference();
   const [partyIds, setPartyIds] = useState<number[]>(() => pickRandomSpeciesIds(PARTY_SIZE));
   const [bossId, setBossId] = useState<number>(() => pickRandomSpeciesIds(1, partyIds)[0]);
 
@@ -34,7 +36,7 @@ export function BossModeScreen({ onStart, onBack }: BossModeScreenProps) {
     onStart({
       level,
       speciesIds: partyIds,
-      arena: { width: ARENA_WIDTH, height: ARENA_HEIGHT },
+      arena: resolveMatchArena(wideArena),
       shiny,
       boss: { speciesId: bossId },
     });
@@ -90,9 +92,16 @@ export function BossModeScreen({ onStart, onBack }: BossModeScreenProps) {
 
       <section style={{ width: '100%', maxWidth: 420 }}>
         <h2 style={sectionHeading}>Special</h2>
-        <button onClick={() => setShiny((s) => !s)} style={shinyToggleButton(shiny)}>
-          ✨ Shiny {shiny ? 'ON' : 'OFF'}
-        </button>
+        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+          <button onClick={() => setShiny((s) => !s)} style={shinyToggleButton(shiny)}>
+            ✨ Shiny {shiny ? 'ON' : 'OFF'}
+          </button>
+          {!IS_MOBILE_DEVICE && (
+            <button onClick={() => setWideArena(!wideArena)} style={shinyToggleButton(wideArena)}>
+              🖥️ Wide Arena {wideArena ? 'ON' : 'OFF'}
+            </button>
+          )}
+        </div>
       </section>
 
       <button onClick={handleStart} style={startButton}>

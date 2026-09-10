@@ -1,9 +1,10 @@
 import { useMemo, useState, type CSSProperties } from 'react';
 import type { SelectableLevel, TeamSize } from '../../app/config';
-import { ARENA_HEIGHT, ARENA_WIDTH, LEVEL_OPTIONS, TEAM_SIZE_OPTIONS } from '../../app/config';
+import { IS_MOBILE_DEVICE, LEVEL_OPTIONS, TEAM_SIZE_OPTIONS, resolveMatchArena } from '../../app/config';
 import { hasPmdSprite, listAllSpecies, pickRandomSpeciesIds } from '../../data/loader';
 import type { MatchConfig } from '../../sim/types';
 import { TEAM_A_COLOR_CSS, TEAM_B_COLOR_CSS } from '../teamColors';
+import { useWideArenaPreference } from '../hooks/useWideArenaPreference';
 
 interface TeamModeScreenProps {
   onStart: (config: MatchConfig) => void;
@@ -16,6 +17,7 @@ export function TeamModeScreen({ onStart, onBack }: TeamModeScreenProps) {
   const [level, setLevel] = useState<SelectableLevel>(50);
   const [teamSize, setTeamSize] = useState<TeamSize>(DEFAULT_TEAM_SIZE);
   const [shiny, setShiny] = useState(false);
+  const [wideArena, setWideArena] = useWideArenaPreference();
   const [teamA, setTeamA] = useState<number[]>(() => pickRandomSpeciesIds(DEFAULT_TEAM_SIZE));
   const [teamB, setTeamB] = useState<number[]>(() => pickRandomSpeciesIds(DEFAULT_TEAM_SIZE, teamA));
 
@@ -39,7 +41,7 @@ export function TeamModeScreen({ onStart, onBack }: TeamModeScreenProps) {
     onStart({
       level,
       speciesIds: [...teamA, ...teamB],
-      arena: { width: ARENA_WIDTH, height: ARENA_HEIGHT },
+      arena: resolveMatchArena(wideArena),
       shiny,
       teams: { size: teamSize },
     });
@@ -100,9 +102,16 @@ export function TeamModeScreen({ onStart, onBack }: TeamModeScreenProps) {
 
       <section style={{ width: '100%', maxWidth: 420 }}>
         <h2 style={sectionHeading}>Special</h2>
-        <button onClick={() => setShiny((s) => !s)} style={shinyToggleButton(shiny)}>
-          ✨ Shiny {shiny ? 'ON' : 'OFF'}
-        </button>
+        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+          <button onClick={() => setShiny((s) => !s)} style={shinyToggleButton(shiny)}>
+            ✨ Shiny {shiny ? 'ON' : 'OFF'}
+          </button>
+          {!IS_MOBILE_DEVICE && (
+            <button onClick={() => setWideArena(!wideArena)} style={shinyToggleButton(wideArena)}>
+              🖥️ Wide Arena {wideArena ? 'ON' : 'OFF'}
+            </button>
+          )}
+        </div>
       </section>
 
       <button onClick={handleStart} disabled={!canStart} style={startButton(canStart)}>

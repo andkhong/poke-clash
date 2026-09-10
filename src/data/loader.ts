@@ -4,13 +4,14 @@ import pmdSpriteIndexData from './generated/pmdSpriteIndex.json';
 import type { GeneratedSpecies, PmdSpriteIndex } from './types';
 import type { MoveDefinition, PokemonTypeName } from '../sim/types';
 import type { MoveLookup, SpeciesData } from '../sim/matchSetup';
-import { COLLISION_RADIUS_FACTOR, PMD_MAX_SPRITE_SIZE, PMD_MIN_SPRITE_SIZE, PMD_NATIVE_SCALE } from '../sim/constants';
+import { COLLISION_RADIUS_FACTOR, computeOnScreenSizeFromHeight } from '../sim/constants';
 
 const SPECIES_LIST = pokemonData as GeneratedSpecies[];
 const MOVES_BY_ID = new Map<number, MoveDefinition>(
   Object.entries(movesData as Record<string, MoveDefinition>).map(([id, def]) => [Number(id), def])
 );
 const PMD_SPRITE_INDEX = pmdSpriteIndexData as PmdSpriteIndex;
+const SPECIES_BY_ID = new Map<number, GeneratedSpecies>(SPECIES_LIST.map((s) => [s.id, s]));
 
 /** Only species with a real downloaded PMD sprite (see
  * data-pipeline/fetch-pmd-sprites.ts) are selectable for a match — the ~6%
@@ -23,18 +24,15 @@ export function hasPmdSprite(speciesId: number): boolean {
 
 /** Same on-screen-size math PokemonSprite.ts uses to scale the sprite,
  * turned into a collision radius (see COLLISION_RADIUS_FACTOR) so a
- * Pokémon's hitbox actually matches what's drawn. Species without PMD data
- * fall back to a mid-roster-typical size — selectable species always have
- * one (see hasPmdSprite/pickRandomSpeciesIds), so this only matters if
- * buildSpeciesDataForLevel is ever called directly with an unfiltered id. */
+ * Pokémon's hitbox actually matches what's drawn. Falls back to a
+ * mid-roster-typical height if the species record itself can't be found —
+ * every *selectable* species has one (see hasPmdSprite/pickRandomSpeciesIds),
+ * so this only matters if buildSpeciesDataForLevel is ever called directly
+ * with an unfiltered id. */
 function computeCollisionRadius(speciesId: number): number {
-  const idle = PMD_SPRITE_INDEX[String(speciesId)]?.actions.Idle;
-  const nativeSize = idle ? Math.max(idle.frameWidth, idle.frameHeight) : 48;
-  const onScreenSize = Math.min(PMD_MAX_SPRITE_SIZE, Math.max(PMD_MIN_SPRITE_SIZE, nativeSize * PMD_NATIVE_SCALE));
-  return onScreenSize * COLLISION_RADIUS_FACTOR;
+  const heightDm = SPECIES_BY_ID.get(speciesId)?.heightDm ?? 10;
+  return computeOnScreenSizeFromHeight(heightDm) * COLLISION_RADIUS_FACTOR;
 }
-
-const SPECIES_BY_ID = new Map<number, GeneratedSpecies>(SPECIES_LIST.map((s) => [s.id, s]));
 
 export const moveLookup: MoveLookup = (moveId) => MOVES_BY_ID.get(moveId);
 

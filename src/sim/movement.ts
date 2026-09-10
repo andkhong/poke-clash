@@ -5,6 +5,7 @@ import {
   ARENA_TOP_PADDING,
   ARRIVAL_SLOWDOWN_RADIUS,
   CHASE_SPEED,
+  getRedZoneInsets,
   SEPARATION_INFLUENCE_MULTIPLIER,
   SEPARATION_STRENGTH,
   WANDER_SPEED,
@@ -50,13 +51,56 @@ export function buildNeighborListFromPositions(
 const MIN_WANDER_DISTANCE = 400;
 const WANDER_DISTANCE_RANGE = 500;
 
-export function pickWanderWaypoint(rng: Rng, arena: ArenaBounds, from: Vec2): Vec2 {
-  const angle = rng() * Math.PI * 2;
-  const dist = MIN_WANDER_DISTANCE + rng() * WANDER_DISTANCE_RANGE;
+/** Clamps a point to the arena's playable bounds — ARENA_PADDING's small
+ * fixed edge buffer on the left/right/bottom (absent a red zone, that's the
+ * whole story on those three sides), plus the red zone's own per-side
+ * reservation (see getRedZoneInsets) added on top of it on a portrait/mobile
+ * arena, so recorded footage never hides a Pokémon behind Instagram's own
+ * Story-viewer UI. The top edge instead takes whichever of ARENA_TOP_PADDING
+ * (our own HUD's reservation) or the red zone's top inset is bigger, not
+ * both added together — both are just "how far down from y=0 is off
+ * limits," so a Pokémon clear of the larger one is already clear of the
+ * smaller one too; adding them would reserve the same strip twice over.
+ * Shared by every call site that needs to keep a position (or a candidate
+ * one) inside the arena, so the boundary can only ever be defined in one
+ * place. */
+export function clampToArenaBounds(pos: Vec2, arena: ArenaBounds): Vec2 {
+  const redZone = getRedZoneInsets(arena);
+  const topBound = Math.max(ARENA_TOP_PADDING, redZone.top);
   return {
-    x: Math.max(ARENA_PADDING, Math.min(arena.width - ARENA_PADDING, from.x + Math.cos(angle) * dist)),
-    y: Math.max(ARENA_TOP_PADDING, Math.min(arena.height - ARENA_PADDING, from.y + Math.sin(angle) * dist)),
+    x: Math.max(ARENA_PADDING + redZone.left, Math.min(arena.width - ARENA_PADDING - redZone.right, pos.x)),
+    y: Math.max(topBound, Math.min(arena.height - ARENA_PADDING - redZone.bottom, pos.y)),
   };
+}
+
+/** A raw random angle/distance cast from right at (or near) a wall lands
+ * out-of-bounds about as often as not — clamping that back onto the
+ * boundary (see clampToArenaBounds) tends to produce another point sitting
+ * on that very same wall, since only the axis that overshot gets pulled in
+ * while the other rides along it unchanged. steerToward() then aims straight
+ * at that new point, which is a walk *along* the wall rather than away from
+ * it — repeat that a few legs in a row (each new pick has the same ~50/50
+ * odds) and it reads as sliding along the wall instead of redirecting into
+ * the arena. */
+const MAX_WANDER_PICK_ATTEMPTS = 8;
+
+export function pickWanderWaypoint(rng: Rng, arena: ArenaBounds, from: Vec2): Vec2 {
+  // Retry with a fresh random angle whenever the cast needed clamping at
+  // all, keeping only a pick that lands fully in-bounds unmodified — that
+  // makes heading back into the open arena the common case instead of a
+  // coin flip. Falls through to the old clamp-whatever-you-get behavior only
+  // if every attempt still needed it (a very small arena, or boxed into a
+  // corner), so this can never spin or fail to return a value.
+  let lastCandidate: Vec2 = from;
+  for (let attempt = 0; attempt < MAX_WANDER_PICK_ATTEMPTS; attempt++) {
+    const angle = rng() * Math.PI * 2;
+    const dist = MIN_WANDER_DISTANCE + rng() * WANDER_DISTANCE_RANGE;
+    const candidate = { x: from.x + Math.cos(angle) * dist, y: from.y + Math.sin(angle) * dist };
+    const clamped = clampToArenaBounds(candidate, arena);
+    if (clamped.x === candidate.x && clamped.y === candidate.y) return candidate;
+    lastCandidate = candidate;
+  }
+  return clampToArenaBounds(lastCandidate, arena);
 }
 
 /**
@@ -76,6 +120,24 @@ export function steerToward(
   const dist = Math.hypot(toTarget.x, toTarget.y);
   const desiredSpeed = dist < ARRIVAL_SLOWDOWN_RADIUS ? speed * (dist / ARRIVAL_SLOWDOWN_RADIUS) : speed;
   const seek = normalize(toTarget);
+
+  // Facing follows this pure "where am I actually trying to go" direction,
+  // not the final self.velocity computed below — separation is a corrective
+  // nudge, freshly resummed every tick from whoever happens to be
+  // overlapping this instant, and its direction can swing hard tick to tick
+  // when several (especially large-collision-radius) Pokémon are packed
+  // together. Blending that into the vector facing is derived from turns
+  // "which way is the crowd jostling me" into the Pokémon's visible
+  // orientation, which whips back and forth far faster than any real turn —
+  // this is what actually produced Pokémon reading as "spinning wildly" in a
+  // packed 16-Pokémon match (worst with large species like legendaries,
+  // whose big collision radii mean heavier, near-constant overlap). Skipped
+  // when there's nowhere to go at all (steerToward's hold-still callers pass
+  // target=self.position, i.e. dist=0) — those states' facing is handled
+  // separately (see PokemonSprite.ts's desiredFacing).
+  if (dist > 1e-3) {
+    self.facing = velocityToFacing(seek, self.facing);
+  }
 
   let sepX = 0;
   let sepY = 0;
@@ -109,21 +171,21 @@ export function steerToward(
  * same spot (through the wall) again next tick. A wandering Pokémon has no
  * other reason to want to go there specifically — see stepMovement's 'wander'
  * branch, which uses this to drop the stale waypoint and pick a new direction
- * instead of pressing against the wall indefinitely. */
+ * instead of pressing against the wall indefinitely.
+ *
+ * Facing is set by steerToward() itself, not here — see that function's own
+ * comment for why it has to be derived from the pure seek direction rather
+ * than this function's `self.velocity` (which also carries separation). */
 export function applyMovement(self: PokemonInstance, dtMs: number, arena: ArenaBounds): boolean {
   const dtSec = dtMs / 1000;
   self.position.x += self.velocity.x * dtSec;
   self.position.y += self.velocity.y * dtSec;
 
-  const clampedX = Math.max(ARENA_PADDING, Math.min(arena.width - ARENA_PADDING, self.position.x));
-  const clampedY = Math.max(ARENA_TOP_PADDING, Math.min(arena.height - ARENA_PADDING, self.position.y));
-  const hitWall = clampedX !== self.position.x || clampedY !== self.position.y;
-  self.position.x = clampedX;
-  self.position.y = clampedY;
+  const clamped = clampToArenaBounds(self.position, arena);
+  const hitWall = clamped.x !== self.position.x || clamped.y !== self.position.y;
+  self.position.x = clamped.x;
+  self.position.y = clamped.y;
 
-  if (Math.abs(self.velocity.x) > 1 || Math.abs(self.velocity.y) > 1) {
-    self.facing = velocityToFacing(self.velocity, self.facing);
-  }
   return hitWall;
 }
 
@@ -175,8 +237,9 @@ export function resolveCollisions(
 
   for (const id of livingIds) {
     const p = pokemonById[id];
-    p.position.x = Math.max(ARENA_PADDING, Math.min(arena.width - ARENA_PADDING, p.position.x));
-    p.position.y = Math.max(ARENA_TOP_PADDING, Math.min(arena.height - ARENA_PADDING, p.position.y));
+    const clamped = clampToArenaBounds(p.position, arena);
+    p.position.x = clamped.x;
+    p.position.y = clamped.y;
   }
 
   return collided;
@@ -188,11 +251,17 @@ export function resolveCollisions(
 const EIGHT_WAY_ORDER: readonly FacingDirection[] = ['E', 'SE', 'S', 'SW', 'W', 'NW', 'N', 'NE'];
 const SECTOR_SIZE_RAD = (Math.PI * 2) / 8;
 /** Extra angular buffer (beyond the sector's own half-width) the velocity must
- * cross before facing switches away from its current sector. Without this,
- * steering/separation forces nudging the angle back and forth across a sector
- * boundary (common mid-crowd) flip `facing` every tick — and since the
- * renderer restarts its walk animation on every facing change, that reads as
- * a stuttering "hop" instead of a smooth walk cycle. */
+ * cross before facing switches away from its current sector. Without this, a
+ * seek direction sitting right at a sector boundary (e.g. approaching a
+ * wander waypoint dead ahead) could flip `facing` every tick on nothing more
+ * than rounding noise — and since the renderer restarts its walk animation on
+ * every facing change, that reads as a stuttering "hop" instead of a smooth
+ * walk cycle. steerToward() feeds this function the pure seek direction, not
+ * the separation-blended velocity, specifically so a crowd of jostling
+ * neighbors can't drag facing along with it (see that function's own
+ * comment) — this buffer only has to absorb the seek signal's own small
+ * jitter, not real, potentially large swings from nearby Pokémon shoving
+ * past each other. */
 const HYSTERESIS_RAD = (10 * Math.PI) / 180;
 
 /** Buckets velocity into the nearest of 8 compass directions; keeps the

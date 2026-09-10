@@ -13,6 +13,7 @@ import type { Rng } from './rng';
 import { rngShuffle } from './rng';
 import { computeStats, createNeutralStages } from './statCalc';
 import { computeIntroDurationMs } from './constants';
+import { clampToArenaBounds } from './movement';
 import { BOSS_CONFIG } from './bossConfig';
 
 export interface SpeciesData {
@@ -51,14 +52,19 @@ function circlePosition(index: number, count: number, arena: ArenaBounds): Vec2 
   const centerY = arena.height / 2;
   const radius = Math.min(arena.width, arena.height) * 0.32;
   const angle = (index / count) * Math.PI * 2 - Math.PI / 2;
-  return {
-    x: centerX + Math.cos(angle) * radius,
-    y: centerY + Math.sin(angle) * radius,
-  };
+  // Defensive clamp — the circle's own radius keeps every spawn point safely
+  // inside the arena for typical rosters/arena sizes, but a point right at
+  // the circle's edge could otherwise land inside the red zone (see
+  // clampToArenaBounds) for the one frame before movement.ts's own clamping
+  // ever runs.
+  return clampToArenaBounds(
+    { x: centerX + Math.cos(angle) * radius, y: centerY + Math.sin(angle) * radius },
+    arena
+  );
 }
 
 function arenaCenter(arena: ArenaBounds): Vec2 {
-  return { x: arena.width / 2, y: arena.height / 2 };
+  return clampToArenaBounds({ x: arena.width / 2, y: arena.height / 2 }, arena);
 }
 
 function scaleBaseStats(base: StatBlock, multiplier: number): StatBlock {
