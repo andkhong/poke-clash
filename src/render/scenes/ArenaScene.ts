@@ -401,21 +401,29 @@ export class ArenaScene extends Phaser.Scene {
     // to produce. A self-targeting move (Swords Dance, ...) has no target at
     // all: its animation plays on the attacker, which the sim never counts
     // as a hit (see engine.ts's early return for `targeting === 'self'`).
-    const target = pickVfxTarget(engagedTarget, hitTargets);
+    const hitTarget = pickVfxTarget(engagedTarget, hitTargets);
+    const selfTargeting = move.targeting === 'self';
+    // A miss still plays the attack, aimed at wherever the target stood
+    // when the move fired — the target then dodges out of that spot (see
+    // playMissReaction), so the effect visibly lands on empty ground.
+    const missedTarget = !hitTarget && !selfTargeting ? engagedTarget : undefined;
+    const target = hitTarget ?? missedTarget;
     if (family) {
       // Family VFX are one-shot effects flown from the fire-time snapshot
-      // to the single hit target; a miss or a self-targeting move shows
-      // pose/label/sound only, as they always have.
+      // to the single target; a self-targeting move shows pose/label/sound
+      // only, as it always has.
       if (target) playFamilyVfx(this, family, attackerPosition, target.position, target.collisionRadius, move.type, attackerSprite);
+      if (missedTarget) this.playMissReaction(missedTarget, attackerPosition, family === 'lunge' ? LUNGE_MISS_DELAY_MS : FAMILY_MISS_DELAY_MS);
       return { soundHandle, hideMoveLabel, unlockPosition };
     }
-    const selfTargeting = move.targeting === 'self';
-    if (!target && !selfTargeting) return { soundHandle, hideMoveLabel, unlockPosition }; // a clean miss: pose/label/sound only
+    if (!target && !selfTargeting) return { soundHandle, hideMoveLabel, unlockPosition }; // nothing to aim at: pose/label/sound only
 
     // Anchors are read live every frame so the animation follows a target
     // that keeps walking during the attack, falling back to the positions
-    // snapshotted when the move fired once a sprite is gone (fainted).
-    const targetSprite = target ? this.sprites.get(target.instanceId) : undefined;
+    // snapshotted when the move fired once a sprite is gone (fainted). A
+    // missed target is deliberately NOT followed: the attack goes where it
+    // was, and it steps away from there.
+    const targetSprite = hitTarget ? this.sprites.get(hitTarget.instanceId) : undefined;
     const getAttacker = (): Vec2 => (attackerSprite.isDestroyed() ? attackerPosition : attackerSprite.getRenderPosition());
     const getTarget = (): Vec2 => {
       if (!target) return getAttacker();
@@ -430,6 +438,7 @@ export class ArenaScene extends Phaser.Scene {
       // fetch it for the next use.
       playFallbackFlash(this, impact.x, impact.y, move.type);
       requestMoveAnimation(this, move.id);
+      if (missedTarget) this.playMissReaction(missedTarget, attackerPosition, 0);
       return { soundHandle, hideMoveLabel, unlockPosition };
     }
     // A handful of the pack's animations only move or tint the battlers
@@ -446,12 +455,34 @@ export class ArenaScene extends Phaser.Scene {
       scale: animationScaleFor(attackerSprite.getOnScreenSize()),
       msPerFrame: frameDurationMs(loaded.data.frames.length, ATTACK_VISUAL_DURATION_MS),
       attacker: attackerSprite,
-      target: target && targetSprite !== attackerSprite ? targetSprite : undefined,
+      target: hitTarget && targetSprite !== attackerSprite ? targetSprite : undefined,
     });
+    if (missedTarget) {
+      // Dodge once the attack has had time to arrive — most pack animations
+      // reach the target somewhere in their first third.
+      this.playMissReaction(missedTarget, attackerPosition, Math.min(MAX_MISS_DELAY_MS, animation.durationMs * MISS_DELAY_FRACTION));
+    }
 
     return { soundHandle, hideMoveLabel, unlockPosition, animation };
   }
+
+  /** The missed target's side of a miss: its sprite sidesteps the attack
+   * and pops a "MISS" callout (see PokemonSprite.playDodge), `delayMs`
+   * after the attack starts so the effect lands where it stood. */
+  private playMissReaction(target: AttackTargetSnapshot, attackerPosition: Vec2, delayMs: number): void {
+    this.sprites.get(target.instanceId)?.playDodge(attackerPosition, delayMs);
+  }
 }
+
+/** When a missed target starts its dodge relative to the attack's start:
+ * pack animations reach the target within roughly their first third
+ * (capped, since long animations are time-compressed anyway); the family
+ * VFX's beams/jets take ~200ms to arrive and a lunge lands at its 120ms
+ * apex. */
+const MISS_DELAY_FRACTION = 0.35;
+const MAX_MISS_DELAY_MS = 300;
+const FAMILY_MISS_DELAY_MS = 200;
+const LUNGE_MISS_DELAY_MS = 100;
 
 interface AttackEffects {
   soundHandle: MoveSoundHandle | undefined;

@@ -57,6 +57,23 @@ const HIT_FLASH_MS = 160;
 const MAX_LUNGE_DISTANCE = 130;
 const LUNGE_OUT_MS = 120;
 const LUNGE_BACK_MS = 170;
+/** A missed move's target sidesteps out of the attack's path (see
+ * playDodge): a quick hop across the line of attack, a beat there while
+ * the effect lands where it stood, then back. Distance scales with the
+ * sprite's size, within these bounds, so a Wailord's dodge reads as much
+ * as a Pikachu's. */
+const DODGE_DISTANCE_FACTOR = 0.35;
+const DODGE_MIN_PX = 20;
+const DODGE_MAX_PX = 48;
+const DODGE_OUT_MS = 110;
+const DODGE_HOLD_MS = 120;
+const DODGE_BACK_MS = 170;
+/** The "MISS" callout that pops above a dodging target — same pixel font
+ * as the move label, rising and fading like a damage number. */
+const MISS_CALLOUT_FONT_SIZE = 11;
+const MISS_CALLOUT_RISE_PX = 30;
+const MISS_CALLOUT_LIFESPAN_MS = 800;
+const MISS_CALLOUT_POP_MS = 120;
 /** One-shot (play-once, non-looping) PMD actions — everything else registered
  * on a species (Idle/Walk/Sleep) loops. */
 const ONE_SHOT_PMD_ACTIONS = new Set(['Attack', 'Shoot', 'Shock', 'SpAttack', 'Hurt', 'Faint']);
@@ -284,7 +301,11 @@ export class PokemonSprite {
    * the sim; PokemonInstance.position stays the sole source of truth, per
    * ArenaScene's "renderer never mutates simulation state" invariant. */
   private readonly animOffset: Vec2 = { x: 0, y: 0 };
-  private lungeTween: Phaser.Tweens.TweenChain | null = null;
+  /** The tween currently driving animOffset on this sprite's own behalf (a
+   * lunge dash or a dodge) — stopped whenever something newer takes over
+   * the offset, so motions never stack. */
+  private offsetTween: Phaser.Tweens.TweenChain | null = null;
+  private pendingDodge: Phaser.Time.TimerEvent | null = null;
   /** The status animation currently playing on this sprite, if any — see
    * playStatusAnimation(). */
   private statusAnimation: AnimationHandle | null = null;
@@ -879,10 +900,76 @@ export class PokemonSprite {
    * animOffset. Reset to (0, 0) by the animation when it ends or is cut off. */
   setAnimOffset(x: number, y: number): void {
     if (this.isDestroyed()) return;
-    this.lungeTween?.stop();
-    this.lungeTween = null;
+    this.offsetTween?.stop();
+    this.offsetTween = null;
     this.animOffset.x = x;
     this.animOffset.y = y;
+  }
+
+  /** The reaction to a move that missed this Pokémon: after `delayMs` (the
+   * attack's flight time, so the effect visibly lands where it stood) it
+   * hops across the line of attack from `attackerPosition`, pops a "MISS"
+   * callout, holds a beat, and steps back. Purely cosmetic via animOffset,
+   * like a lunge; a newer offset motion cancels it. */
+  playDodge(attackerPosition: Vec2, delayMs: number): void {
+    if (this.isDestroyed()) return;
+    this.pendingDodge?.remove();
+    this.pendingDodge = this.scene.time.delayedCall(delayMs, () => {
+      this.pendingDodge = null;
+      if (this.isDestroyed()) return;
+      const dx = this.renderPos.x - attackerPosition.x;
+      const dy = this.renderPos.y - attackerPosition.y;
+      const distance = Math.hypot(dx, dy);
+      // Across the line of attack; the side is a coin flip so repeated
+      // dodges don't always go the same way.
+      const side = Math.random() < 0.5 ? -1 : 1;
+      const perpX = distance > 0 ? (-dy / distance) * side : side;
+      const perpY = distance > 0 ? (dx / distance) * side : 0;
+      const hop = Phaser.Math.Clamp(this.targetOnScreenSize * DODGE_DISTANCE_FACTOR, DODGE_MIN_PX, DODGE_MAX_PX);
+
+      this.showMissCallout();
+      this.offsetTween?.stop();
+      this.offsetTween = this.scene.tweens.chain({
+        targets: this.animOffset,
+        tweens: [
+          { x: perpX * hop, y: perpY * hop, duration: DODGE_OUT_MS, ease: 'Quad.easeOut' },
+          { x: 0, y: 0, duration: DODGE_BACK_MS, delay: DODGE_HOLD_MS, ease: 'Quad.easeIn' },
+        ],
+      });
+    });
+  }
+
+  /** "MISS" popping up above the body and drifting away, in the move
+   * label's pixel font — the tell that the attack that just played
+   * connected with nothing. */
+  private showMissCallout(): void {
+    const startY = this.topOfBodyY() - 4;
+    const text = this.scene.add
+      .text(0, startY, 'MISS', {
+        fontSize: `${MISS_CALLOUT_FONT_SIZE}px`,
+        fontFamily: MOVE_LABEL_FONT_FAMILY,
+        color: '#ffffff',
+        stroke: '#1a1a1a',
+        strokeThickness: 3,
+      })
+      .setOrigin(0.5, 1)
+      .setScale(0.5)
+      .setAlpha(0.95);
+    this.container.add(text);
+    this.scene.tweens.add({ targets: text, scale: 1, duration: MISS_CALLOUT_POP_MS, ease: 'Back.easeOut' });
+    this.scene.tweens.add({
+      targets: text,
+      y: startY - MISS_CALLOUT_RISE_PX,
+      duration: MISS_CALLOUT_LIFESPAN_MS,
+      ease: 'Sine.easeOut',
+      onComplete: () => text.destroy(),
+    });
+    this.scene.tweens.add({
+      targets: text,
+      alpha: 0,
+      delay: MISS_CALLOUT_LIFESPAN_MS * 0.5,
+      duration: MISS_CALLOUT_LIFESPAN_MS * 0.5,
+    });
   }
 
   /** The arena's own lunge-family VFX (see moves/playFamilyVfx.ts, used for
@@ -894,7 +981,7 @@ export class PokemonSprite {
    * hits retarget smoothly instead of stacking offsets. `onImpact` fires
    * at the apex, for the caller's contact VFX. */
   playLungeAttack(selfPosition: Vec2, targetPosition: Vec2, targetCollisionRadius: number, onImpact?: () => void): void {
-    this.lungeTween?.stop();
+    this.offsetTween?.stop();
 
     const dx = targetPosition.x - selfPosition.x;
     const dy = targetPosition.y - selfPosition.y;
@@ -903,7 +990,7 @@ export class PokemonSprite {
     const dirX = distanceToTarget > 0 ? dx / distanceToTarget : 0;
     const dirY = distanceToTarget > 0 ? dy / distanceToTarget : 0;
 
-    this.lungeTween = this.scene.tweens.chain({
+    this.offsetTween = this.scene.tweens.chain({
       targets: this.animOffset,
       tweens: [
         {
@@ -1258,6 +1345,10 @@ export class PokemonSprite {
     this.statusVfxTimer = null;
     this.statusAnimation?.stop();
     this.statusAnimation = null;
+    this.pendingDodge?.remove();
+    this.pendingDodge = null;
+    this.offsetTween?.stop();
+    this.offsetTween = null;
     this.container.destroy();
   }
 }
