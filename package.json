@@ -13,6 +13,7 @@
     "lint": "eslint .",
     "data:build": "tsx data-pipeline/build-dataset.ts",
     "data:probe-sprites": "tsx data-pipeline/probe-sprites.ts",
+    "data:fetch-fallback-sprites": "tsx data-pipeline/fetch-fallback-sprites.ts",
     "data:fetch-pmd-sprites": "tsx data-pipeline/fetch-pmd-sprites.ts",
     "data:fetch-pmd-shiny-sprites": "tsx data-pipeline/fetch-pmd-shiny-sprites.ts",
     "data:build-move-sounds": "tsx data-pipeline/build-move-sound-index.ts",

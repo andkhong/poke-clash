@@ -25,6 +25,15 @@ export interface SpriteIndexEntry {
   /** Showdown slug used for both ani/ and ani-back/ (or the static fallback folder). */
   slug: string;
   tier: SpriteTier;
+  /** Root-relative URLs of a locally mirrored copy of this species' `tier`
+   * art (public/fallback-sprites/, committed — see
+   * data-pipeline/fetch-fallback-sprites.ts). Only species without PMD
+   * sprites get one; the resolver prefers it over the hotlinked original,
+   * so production never depends on Showdown or GitHub being up. */
+  local?: {
+    front: string;
+    back: string;
+  };
 }
 
 export type SpriteIndex = Record<string, SpriteIndexEntry>;

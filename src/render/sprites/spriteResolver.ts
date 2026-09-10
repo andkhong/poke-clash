@@ -46,12 +46,17 @@ export function downgradeTier(tier: SpriteTier): SpriteTier | null {
 const runtimeCache = new Map<number, SpriteUrls>();
 
 /**
- * Resolves the sprite URLs for one species, preferring the build-time probe
- * hint (spriteIndex.json) for correct-on-first-paint, defaulting to 'animated'
- * (the common case) when no hint exists. The caller (PokemonSprite) is
- * responsible for calling `downgradeTier` + re-resolving on an actual image
- * load failure — this function alone can't guarantee the URL it returns
- * exists, only that it's the best guess.
+ * Resolves the sprite URLs for one species. A locally mirrored copy
+ * (spriteIndex.json's `local`, fetched into public/fallback-sprites/ by
+ * data-pipeline/fetch-fallback-sprites.ts) wins outright — same-origin,
+ * cached, no third party involved. Otherwise it's the hotlinked original,
+ * preferring the build-time probe hint's tier for correct-on-first-paint
+ * and defaulting to 'animated' (the common case) when no hint exists. The
+ * caller (PokemonSprite) is responsible for calling `downgradeTier` +
+ * re-resolving with a `tierOverride` on an actual image load failure —
+ * this function alone can't guarantee the URL it returns exists, only that
+ * it's the best guess; an override always goes back to the hotlinked
+ * chain, since a local file that failed has nothing local beneath it.
  */
 export function resolveSpriteUrls(
   speciesId: number,
@@ -62,10 +67,14 @@ export function resolveSpriteUrls(
   if (!tierOverride && runtimeCache.has(speciesId)) return runtimeCache.get(speciesId)!;
 
   const hint = hintIndex?.[String(speciesId)];
-  const slug = hint?.slug ?? toShowdownSlug(speciesName);
-  const tier = tierOverride ?? hint?.tier ?? 'animated';
-
-  const resolved = urlsForTier(slug, tier, speciesId);
+  let resolved: SpriteUrls;
+  if (!tierOverride && hint?.local) {
+    resolved = { tier: hint.tier, front: hint.local.front, back: hint.local.back, isAnimated: hint.tier === 'animated' };
+  } else {
+    const slug = hint?.slug ?? toShowdownSlug(speciesName);
+    const tier = tierOverride ?? hint?.tier ?? 'animated';
+    resolved = urlsForTier(slug, tier, speciesId);
+  }
   if (!tierOverride) runtimeCache.set(speciesId, resolved);
   return resolved;
 }
