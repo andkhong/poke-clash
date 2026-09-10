@@ -1,35 +1,59 @@
 import { describe, expect, it } from 'vitest';
 import { ANIM_TARGET_X, ANIM_TARGET_Y, ANIM_USER_X, ANIM_USER_Y } from '../../../data/moveAnimationFormat';
-import { buildAnimTransform, mapBattlerOffset, mapCellAngle, mapCellDepth, mapCellPosition } from './geometry';
+import { animationScaleFor, buildAnimTransform, mapBattlerOffset, mapCellAngle, mapCellDepth, mapCellPosition } from './geometry';
 
 const near = (v: number, expected: number): void => expect(v).toBeCloseTo(expected, 6);
+const AXIS_LENGTH = Math.hypot(ANIM_TARGET_X - ANIM_USER_X, ANIM_TARGET_Y - ANIM_USER_Y);
+const UNIT_X = (ANIM_TARGET_X - ANIM_USER_X) / AXIS_LENGTH;
+const UNIT_Y = (ANIM_TARGET_Y - ANIM_USER_Y) / AXIS_LENGTH;
 
 describe('buildAnimTransform / mapCellPosition', () => {
-  it('lands a user-focused cell at the canonical user spot on the attacker, and target-focused at the target', () => {
+  it('anchors focus-2 (user) cells on the attacker and focus-1 (target) cells on the target', () => {
+    // The pack's numbering: self-buffs are focus 2 at the user spot, impacts are focus 1 at the target spot.
     const t = buildAnimTransform({ x: 100, y: 500 }, { x: 400, y: 200 }, 1);
-    const u = mapCellPosition(t, ANIM_USER_X, ANIM_USER_Y, 1);
+    const u = mapCellPosition(t, ANIM_USER_X, ANIM_USER_Y, 2);
     near(u.x, 100);
     near(u.y, 500);
-    const g = mapCellPosition(t, ANIM_TARGET_X, ANIM_TARGET_Y, 2);
+    const g = mapCellPosition(t, ANIM_TARGET_X, ANIM_TARGET_Y, 1);
     near(g.x, 400);
     near(g.y, 200);
   });
 
-  it('stretches a both-focused cell along the attacker->target line: the canonical midpoint lands on the arena midpoint', () => {
+  it('stretches only the corridor of a both-focused cell: the canonical midpoint lands on the arena midpoint', () => {
     const attacker = { x: 50, y: 50 };
     const target = { x: 650, y: 50 }; // far apart, horizontal
     const t = buildAnimTransform(attacker, target, 0.5);
     const mid = mapCellPosition(t, (ANIM_USER_X + ANIM_TARGET_X) / 2, (ANIM_USER_Y + ANIM_TARGET_Y) / 2, 3);
     near(mid.x, 350);
     near(mid.y, 50);
-    // and the canonical target spot lands exactly on the target, however far it is
+    // the canonical target spot lands exactly on the target, however far it is
     const end = mapCellPosition(t, ANIM_TARGET_X, ANIM_TARGET_Y, 3);
     near(end.x, 650);
     near(end.y, 50);
-    // a screen-focused cell uses the same stretch
+    // a screen-focused cell uses the same mapping
     const screenEnd = mapCellPosition(t, ANIM_TARGET_X, ANIM_TARGET_Y, 4);
     near(screenEnd.x, 650);
     near(screenEnd.y, 50);
+  });
+
+  it('keeps a splat drawn around the target in proportion whether the fighters are far apart or adjacent', () => {
+    // A cell 40 canonical px past the target along the axis (part of an impact drawn on it).
+    const x = ANIM_TARGET_X + UNIT_X * 40;
+    const y = ANIM_TARGET_Y + UNIT_Y * 40;
+    const far = buildAnimTransform({ x: 0, y: 0 }, { x: 600, y: 0 }, 1);
+    const farP = mapCellPosition(far, x, y, 3);
+    near(farP.x, 640);
+    near(farP.y, 0);
+    const close = buildAnimTransform({ x: 0, y: 0 }, { x: 60, y: 0 }, 1);
+    const closeP = mapCellPosition(close, x, y, 3);
+    near(closeP.x, 100); // still 40px past the target — not squashed to 4px
+    near(closeP.y, 0);
+    // a cell 40px in front of the user stays 40px in front of the attacker when there's room;
+    // with only 60px to the target the two zones shrink to meet at the midpoint instead
+    const ux = ANIM_USER_X + UNIT_X * 40;
+    const uy = ANIM_USER_Y + UNIT_Y * 40;
+    near(mapCellPosition(far, ux, uy, 3).x, 40);
+    near(mapCellPosition(close, ux, uy, 3).x, 30);
   });
 
   it('scales across-axis offsets with sprite size, not distance', () => {
@@ -49,7 +73,7 @@ describe('buildAnimTransform / mapCellPosition', () => {
     const backward = buildAnimTransform({ x: 0, y: 0 }, { x: -256, y: 128 }, 1);
     near(Math.abs(backward.rotation), Math.PI);
     // a user-focused cell 50px "ahead" of the user flips to 50px behind
-    const ahead = mapCellPosition(backward, ANIM_USER_X + 256 / 2.86, ANIM_USER_Y - 128 / 2.86, 1);
+    const ahead = mapCellPosition(backward, ANIM_USER_X + 256 / 2.86, ANIM_USER_Y - 128 / 2.86, 2);
     expect(ahead.x).toBeLessThan(0);
     expect(ahead.y).toBeGreaterThan(0);
   });
@@ -61,13 +85,17 @@ describe('buildAnimTransform / mapCellPosition', () => {
     const p = mapCellPosition(t, ANIM_USER_X + 40, ANIM_USER_Y, 3);
     near(p.x, 320);
     near(p.y, 300);
-    const q = mapCellPosition(t, ANIM_TARGET_X, ANIM_TARGET_Y, 2);
+    const q = mapCellPosition(t, ANIM_TARGET_X, ANIM_TARGET_Y, 1);
     near(q.x, 300);
     near(q.y, 300);
-    // a screen-focused cell at the screen center sits on the Pokémon itself
-    const s = mapCellPosition(t, 256, 192, 4);
+    // a status effect's user-focused cell right on the user spot sits on the Pokémon itself
+    const s = mapCellPosition(t, ANIM_USER_X, ANIM_USER_Y, 2);
     near(s.x, 300);
     near(s.y, 300);
+    // a screen-focused cell at the screen center sits on the Pokémon itself
+    const c = mapCellPosition(t, 256, 192, 4);
+    near(c.x, 300);
+    near(c.y, 300);
   });
 });
 
@@ -90,6 +118,15 @@ describe('mapBattlerOffset', () => {
   });
 });
 
+describe('animationScaleFor', () => {
+  it('scales with sprite size within bounds', () => {
+    near(animationScaleFor(128), 1);
+    near(animationScaleFor(64), 0.5);
+    expect(animationScaleFor(10)).toBe(0.5);
+    expect(animationScaleFor(800)).toBe(1.4);
+  });
+});
+
 describe('mapCellAngle / mapCellDepth', () => {
   it('negates RGSS counter-clockwise angles and adds the frame rotation', () => {
     const t = buildAnimTransform({ x: 0, y: 0 }, { x: -256, y: 128 }, 1);
@@ -98,14 +135,14 @@ describe('mapCellAngle / mapCellDepth', () => {
     near(mapCellAngle(forward, 45), -45);
   });
 
-  it('orders cells around the battlers by priority', () => {
+  it('orders cells around the battlers by priority, with focus 1 = target and 2 = attacker', () => {
     const t = buildAnimTransform({ x: 0, y: 100 }, { x: 0, y: 300 }, 1);
     expect(mapCellDepth(t, 0, 3, 0)).toBeLessThan(100);
     expect(mapCellDepth(t, 1, 3, 0)).toBeGreaterThan(300);
-    expect(mapCellDepth(t, 2, 1, 0)).toBeLessThan(100);
-    expect(mapCellDepth(t, 3, 1, 0)).toBeGreaterThan(100);
-    expect(mapCellDepth(t, 3, 1, 0)).toBeLessThan(300);
-    expect(mapCellDepth(t, 3, 2, 0)).toBeGreaterThan(300);
+    expect(mapCellDepth(t, 2, 2, 0)).toBeLessThan(100);
+    expect(mapCellDepth(t, 3, 2, 0)).toBeGreaterThan(100);
+    expect(mapCellDepth(t, 3, 2, 0)).toBeLessThan(300);
+    expect(mapCellDepth(t, 3, 1, 0)).toBeGreaterThan(300);
     // later cells in the same frame draw above earlier ones
     expect(mapCellDepth(t, 1, 3, 5)).toBeGreaterThan(mapCellDepth(t, 1, 3, 4));
   });

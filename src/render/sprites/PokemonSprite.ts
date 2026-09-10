@@ -11,8 +11,9 @@ import { playCry } from './cryAudio';
 import { pmdSheetUrl } from './pmdSheetUrl';
 import { playSparkleReveal } from '../vfx/sparkle';
 import { frameDurationMs, playAnimation, type AnimationHandle } from '../vfx/anim/AnimPlayer';
+import { animationScaleFor } from '../vfx/anim/geometry';
 import { getLoadedCommonAnimation } from '../vfx/anim/moveAnimLoader';
-import { ANIM_REFERENCE_BATTLER_SIZE, STATUS_COMMON_ANIMATIONS } from '../../data/moveAnimationFormat';
+import { STATUS_COMMON_ANIMATIONS } from '../../data/moveAnimationFormat';
 import type { MoveDefinition } from '../../sim/types';
 import { ARENA_TOP_PADDING, BALL_DROP_DURATION_MS, BALL_DROP_STAGGER_MS, COLLISION_RADIUS_FACTOR } from '../../sim/constants';
 import { BOSS_CONFIG } from '../../sim/bossConfig';
@@ -1029,7 +1030,7 @@ export class PokemonSprite {
       sheetKey: loaded.sheetKey,
       getAttacker: anchor,
       getTarget: anchor,
-      scale: this.targetOnScreenSize / ANIM_REFERENCE_BATTLER_SIZE,
+      scale: animationScaleFor(this.targetOnScreenSize),
       msPerFrame: frameDurationMs(loaded.data.frames.length, Number.POSITIVE_INFINITY, STATUS_ANIM_PLAYBACK_SPEED),
       onComplete: () => {
         this.statusAnimation = null;

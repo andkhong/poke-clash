@@ -94,7 +94,10 @@ const COMMON_ANIMATIONS = [
  * moves nudge the user by at most a few px of recoil. */
 const MELEE_DASH_THRESHOLD_PX = 40;
 
-/** Raw Essentials cell layout (PBAnimation's AnimFrame constants, 27 entries). */
+/** Raw Essentials cell layout (PBAnimation's AnimFrame constants, 27
+ * entries). FOCUS is passed through untouched; its meaning (1 target,
+ * 2 user, 3 line, 4 screen — measured from the pack's data) is documented
+ * on the output format's Cell table. */
 const RAW = {
   X: 0,
   Y: 1,

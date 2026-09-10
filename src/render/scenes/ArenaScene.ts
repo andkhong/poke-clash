@@ -8,9 +8,10 @@ import { PokemonSprite } from '../sprites/PokemonSprite';
 import { preloadArenaTileset, createArenaBackground } from '../tileset/arenaBackground';
 import { preloadPokeballAsset } from '../sprites/pokeballAsset';
 import { frameDurationMs, playAnimation, type AnimationHandle } from '../vfx/anim/AnimPlayer';
+import { animationScaleFor } from '../vfx/anim/geometry';
 import { getLoadedMoveAnimation, getMoveAnimationEntry, queueAnimationLoads, requestMoveAnimation } from '../vfx/anim/moveAnimLoader';
 import { playFallbackFlash } from '../vfx/anim/fallbackFlash';
-import { ANIM_REFERENCE_BATTLER_SIZE, STATUS_COMMON_ANIMATIONS } from '../../data/moveAnimationFormat';
+import { STATUS_COMMON_ANIMATIONS } from '../../data/moveAnimationFormat';
 import { playMoveSound, type MoveSoundHandle } from '../sound/moveSound';
 import { playBattleMusic } from '../sound/battleMusic';
 import { installMasterLimiter } from '../sound/masterBus';
@@ -427,7 +428,7 @@ export class ArenaScene extends Phaser.Scene {
       sheetKey: loaded.sheetKey,
       getAttacker,
       getTarget,
-      scale: attackerSprite.getOnScreenSize() / ANIM_REFERENCE_BATTLER_SIZE,
+      scale: animationScaleFor(attackerSprite.getOnScreenSize()),
       msPerFrame: frameDurationMs(loaded.data.frames.length, ATTACK_VISUAL_DURATION_MS),
       attacker: attackerSprite,
       target: target && targetSprite !== attackerSprite ? targetSprite : undefined,

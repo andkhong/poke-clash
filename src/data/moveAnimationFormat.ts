@@ -44,8 +44,11 @@ export const Cell = {
   /** 0 behind both battlers, 1 in front of everything, 2 behind the focus
    * battler, 3 in front of the focus battler. */
   PRIORITY: 9,
-  /** 1 anchored to the user, 2 to the target, 3 stretched between them, 4
-   * the whole screen. */
+  /** 1 anchored to the target, 2 to the user, 3 between them (the line
+   * from user to target), 4 the whole screen. This is the pack's own
+   * numbering, established from its data rather than assumed: every
+   * self-buff's cells carry 2 and sit on the user spot, every impact
+   * (Scratch, Bite, Thunderbolt) carries 1 and sits on the target spot. */
   FOCUS: 10,
   /** 0 = none, else 0xAARRGGBB — a flat color blended over the cell at that
    * alpha. */
@@ -107,8 +110,10 @@ export interface MoveAnimationData {
   sheet: string | null;
   /** Cells per sheet row — floor(sheetWidth / ANIM_CELL_SIZE). */
   columns: number;
-  /** 1 user-only, 2 target-only, 3 user and target, 4 screen — the pack's
-   * own classification; informational, every cell carries its own focus. */
+  /** The pack's own per-animation "position" field. Informational only:
+   * it is not applied consistently by the pack's authors (Swords Dance
+   * says 1, Harden 2, Agility 3, Calm Mind 4), so the player relies on
+   * each cell's own focus instead. */
   position: 1 | 2 | 3 | 4;
   frames: MoveAnimationFrame[];
   sfx: MoveAnimationSfxCue[];
