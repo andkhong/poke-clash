@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "exportedAt": "2026-09-10T18:25:16.400Z",
+  "exportedAt": "2026-09-10T18:56:05.100Z",
   "marks": {
     "44": {
       "change": true,
@@ -11,8 +11,10 @@
     },
     "45": {
       "change": false,
-      "note": "",
-      "updatedAt": "2026-09-10T18:24:23.056Z",
+      "note": "Use assets",
+      "updatedAt": "2026-09-10T18:48:53.498Z",
+      "verdict": "approved",
+      "verdictAt": "2026-09-10T18:48:53.498Z",
       "prefer": "pack"
     },
     "59": {
@@ -32,9 +34,9 @@
     "85": {
       "change": true,
       "note": "Reuse the previous thunder VFX for this move",
-      "updatedAt": "2026-09-10T18:23:21.857Z",
+      "updatedAt": "2026-09-10T18:55:46.979Z",
       "verdict": "approved",
-      "verdictAt": "2026-09-10T17:20:18.678Z",
+      "verdictAt": "2026-09-10T18:55:46.979Z",
       "prefer": "pack"
     },
     "89": {
@@ -63,7 +65,9 @@
     "94": {
       "change": false,
       "note": "",
-      "updatedAt": "2026-09-10T18:23:40.273Z",
+      "updatedAt": "2026-09-10T18:49:23.181Z",
+      "verdict": "approved",
+      "verdictAt": "2026-09-10T18:49:23.181Z",
       "prefer": "pack"
     },
     "112": {
@@ -78,9 +82,9 @@
       "change": false,
       "note": "",
       "updatedAt": "2026-09-10T18:25:16.092Z",
-      "prefer": "pack",
       "verdict": "approved",
-      "verdictAt": "2026-09-10T18:25:16.092Z"
+      "verdictAt": "2026-09-10T18:25:16.092Z",
+      "prefer": "pack"
     },
     "211": {
       "change": true,
@@ -118,9 +122,10 @@
     "295": {
       "change": false,
       "note": "",
-      "updatedAt": "2026-09-10T18:22:17.641Z",
+      "updatedAt": "2026-09-10T18:49:04.998Z",
       "verdict": "approved",
-      "verdictAt": "2026-09-10T18:22:17.641Z",
+      "verdictAt": "2026-09-10T18:49:04.998Z",
+      "feedback": "Remove the kanji characters that show at the end of the attack animation.",
       "prefer": "pack"
     },
     "299": {
@@ -169,8 +174,18 @@
     "466": {
       "change": false,
       "note": "",
-      "updatedAt": "2026-09-10T18:24:01.324Z",
+      "updatedAt": "2026-09-10T18:49:32.681Z",
+      "verdict": "approved",
+      "verdictAt": "2026-09-10T18:49:32.681Z",
       "prefer": "arena"
+    },
+    "482": {
+      "change": false,
+      "note": "",
+      "updatedAt": "2026-09-10T18:56:04.794Z",
+      "prefer": "arena",
+      "verdict": "approved",
+      "verdictAt": "2026-09-10T18:56:04.794Z"
     },
     "519": {
       "change": true,
@@ -204,9 +219,11 @@
       "prefer": "pack"
     },
     "618": {
-      "change": false,
-      "note": "",
-      "updatedAt": "2026-09-10T18:23:45.258Z",
+      "change": true,
+      "note": "Use assets, remove the kanji characters at the end of the animation",
+      "updatedAt": "2026-09-10T18:49:26.331Z",
+      "verdict": "approved",
+      "verdictAt": "2026-09-10T18:49:26.331Z",
       "prefer": "pack"
     },
     "690": {
@@ -259,10 +276,11 @@
     "846": {
       "change": true,
       "note": "Attack sprite should be a little higher up.",
-      "updatedAt": "2026-09-10T18:21:29.592Z",
+      "updatedAt": "2026-09-10T18:40:13.818Z",
       "verdict": "approved",
       "verdictAt": "2026-09-10T18:21:29.592Z",
-      "feedback": "Use assets"
+      "feedback": "Use assets",
+      "prefer": "pack"
     },
     "847": {
       "change": false,

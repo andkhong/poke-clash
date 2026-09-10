@@ -33,11 +33,47 @@ fly ssh console -C "sh -c 'cd /data && tar -xzf deploy-assets.tar.gz && rm deplo
 ```
 
 Uploading replaces files in place; nothing in the image caches them, so
-the new assets are live immediately. If the sprite sheets changed in
-pixels or frame layout (a re-fetch from PMDCollab, or a change to the
-optimizer's output), bump `PMD_SHEET_VERSION` in
-`src/render/sprites/pmdSheetUrl.ts` before deploying the app: sheet URLs
-are cached immutably for a year, keyed by that tag.
+the new assets are live immediately. Sheet URLs are cached immutably for a
+year, keyed by two tags: `PMD_SHEET_VERSION` in
+`src/render/sprites/pmdSheetUrl.ts` (bump it when every sheet changes at
+once — a change to the optimizer's output, a re-fetch of the whole mirror)
+and a per-species tag in `public/pmd-sprite-index.json` stamped from when
+that species was fetched, so the update flow below changes only the URLs
+of the species it touches. The index's own URL carries a digest of its
+content, so a regenerated index is never served stale either.
+
+## Keeping the sprites up to date
+
+The sprites come from [PMDCollab/SpriteCollab](https://github.com/PMDCollab/SpriteCollab),
+which adds and redraws species every week. Its `tracker.json` records, per
+species, which actions exist and when they last changed; the mirror's
+index records when each species was fetched. Comparing the two is the
+whole process:
+
+```sh
+npm run data:pmd-sprites:check     # what upstream has that the mirror doesn't
+npm run data:pmd-sprites:update    # fetch it, optimize, bundle the volume upload
+npm run deploy:pmd-sprites -- deploy-assets/pmd-sprite-update-<stamp>.tar.gz
+```
+
+`check` prints the species coming back (they had no sprites when the
+mirror was built and are left out of the roster until they do — see
+`hasPmdSprite` in `src/data/loader.ts`), the species whose sprites upstream
+redrew, shiny recolors added or changed, and what is still missing
+upstream. It records the run in `data-pipeline/pmd-sprite-updates.json`.
+`update` runs the existing fetch/shiny/optimize scripts for just those
+species, regenerates the index (new species are selectable as soon as the
+app that carries it deploys), appends an entry to
+`data-pipeline/PMD_SPRITE_UPDATES.md`, and tars the affected folders for
+`deploy:pmd-sprites`, which puts them on the Fly volume and unpacks them
+in place. Then commit the regenerated index and the two tracking files;
+pushing deploys the app.
+
+A GitHub Action (`.github/workflows/pmd-sprite-check.yml`) runs the check
+every Monday and keeps an issue titled "PMD sprite updates available
+upstream" open while there is something to fetch, closing it once the
+mirror is current. It never fetches anything itself: the mirror and the
+volume are only reachable from a machine with the local checkout.
 
 ## Building and deploying the app
 

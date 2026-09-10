@@ -158,7 +158,7 @@ async function processSpecies(
     statusCache[key] = { status: 'failed', error: 'no existing normal-tier index entry to attach shiny to' };
     return;
   }
-  existing.shiny = { dir: shinyDirName, actions: extracted.actions };
+  existing.shiny = { dir: shinyDirName, actions: extracted.actions, generatedAt: new Date().toISOString() };
   statusCache[key] = { status: 'done' };
 }
 

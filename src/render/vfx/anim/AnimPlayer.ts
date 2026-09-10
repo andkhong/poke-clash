@@ -72,6 +72,9 @@ export interface PlayAnimationOptions {
   /** Cells to leave out, matched by their authored canonical position —
    * for a pack quirk like Dig's second mound (see moveVfxAdjustments.ts). */
   dropCells?: readonly { x: number; y: number }[];
+  /** Sheet cells (pattern indices) never to draw — the pack's kanji
+   * captions at the end of some animations (see moveVfxAdjustments.ts). */
+  dropPatterns?: readonly number[];
   /** Pins the animation's screen-focused cells on one battler (see
    * geometry.ts's ScreenAnchor) instead of spreading them along the line. */
   screenAnchor?: ScreenAnchor;
@@ -126,6 +129,7 @@ export function playAnimation(options: PlayAnimationOptions): AnimationHandle {
   const offsetX = options.cellOffset?.x ?? 0;
   const offsetY = options.cellOffset?.y ?? 0;
   const dropCells = options.dropCells ?? [];
+  const dropPatterns = new Set(options.dropPatterns ?? []);
   let lastFrame = -1;
   let finished = false;
 
@@ -153,6 +157,7 @@ export function playAnimation(options: PlayAnimationOptions): AnimationHandle {
       if (
         !texture!.has(frameName) || // a pattern past the sheet's grid draws nothing, as in the pack's own editor
         isCellOffscreen(cellX, cellY, cell[Cell.ZOOM_X], cell[Cell.ZOOM_Y]) ||
+        dropPatterns.has(cell[Cell.PATTERN]) ||
         dropCells.some((drop) => drop.x === cellX && drop.y === cellY)
       ) {
         image.setVisible(false);

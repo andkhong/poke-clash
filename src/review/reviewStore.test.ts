@@ -37,9 +37,12 @@ describe('moveCatalog', () => {
     const tackle = catalog.find((entry) => entry.move.id === 33)!;
     expect(tackle.source).toMatchObject({ kind: 'pack', viaReview: false });
     expect(tackle.alternative).toBeNull();
+    // Thunderbolt was pinned to the arena's bolt for a while; the review then
+    // picked the assets, so it's an ordinary pack move again (the
+    // 'review-preference' routing itself is covered in moveVfxSource.test.ts).
     const thunderbolt = catalog.find((entry) => entry.move.id === 85)!;
-    expect(thunderbolt.source).toMatchObject({ kind: 'family', family: 'thunder', reason: 'review-preference' }); // pinned by the review
-    expect(thunderbolt.alternative).toMatchObject({ kind: 'pack', entry: { anim: 'Move:THUNDERBOLT' } });
+    expect(thunderbolt.source).toMatchObject({ kind: 'pack', viaReview: false, entry: { anim: 'Move:THUNDERBOLT' } });
+    expect(thunderbolt.alternative).toBeNull();
     const surf = catalog.find((entry) => entry.move.id === 57)!;
     expect(surf.source).toMatchObject({ kind: 'family', family: 'wave', reason: 'screen-wide' });
     expect(surf.alternative).toMatchObject({ kind: 'pack', entry: { anim: 'Move:SURF' } });
@@ -178,7 +181,7 @@ describe('reviewStore', () => {
     expect(lines[4]).toBe('| 57 | Surf | water | special | arena wave |  | fine as is? | open |  |  | use the pack animation |');
     expect(lines[5]).toBe('| 87 | Thunder | electric | special | pack Move:THUNDER | yes | too \\| busy second line | open |  |  |  |');
     expect(lines[6]).toBe(
-      '| 85 | Thunderbolt | electric | special | arena thunder | yes | old bolt | changes requested | plays the arena bolt | brighter |  |'
+      '| 85 | Thunderbolt | electric | special | pack Move:THUNDERBOLT | yes | old bolt | changes requested | plays the arena bolt | brighter |  |'
     );
 
     // The repo file carries a preamble (with the status tally) between the heading and the same table.

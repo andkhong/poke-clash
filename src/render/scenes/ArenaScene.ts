@@ -479,6 +479,7 @@ export class ArenaScene extends Phaser.Scene {
       scale: animationScaleFor(attackerSprite.getOnScreenSize()) * (adjustment?.scale ?? 1),
       cellOffset: adjustment?.offset,
       dropCells: adjustment?.dropCells,
+      dropPatterns: adjustment?.dropPatterns,
       screenAnchor: adjustment?.screenAnchor,
       msPerFrame: frameDurationMs(loaded.data.frames.length, ATTACK_VISUAL_DURATION_MS),
       attacker: attackerSprite,

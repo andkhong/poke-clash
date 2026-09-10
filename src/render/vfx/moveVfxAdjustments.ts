@@ -22,6 +22,9 @@ export interface MoveVfxAdjustment {
   /** Cells of the pack animation to leave out, by their authored canonical
    * position. */
   dropCells?: readonly { x: number; y: number }[];
+  /** Sheet cells (pattern indices, row-major) of the pack animation never
+   * to draw — the kanji captions some animations end on. */
+  dropPatterns?: readonly number[];
   /** Pins a screen-wide animation's screen-focused cells on one battler,
    * with the canonical point `center` landing on it — see geometry.ts's
    * ScreenAnchor. */
@@ -37,13 +40,16 @@ export interface MoveVfxAdjustment {
 // fighters; most of these animations author their action at the pack's
 // target spot, so they land on the target without further help.
 export const MOVE_VFX_ADJUSTMENTS: Readonly<Record<number, MoveVfxAdjustment>> = {
+  // Growl — review: use assets (sound waves across the field).
+  45: { usePackAnimation: true },
   // Blizzard — review: "Sprite is a little wide. Shrink it by 10%".
   59: { scale: 0.9 },
   // Aurora Beam — review: "Beam could be bigger".
   62: { scale: 1.35 },
-  // Thunderbolt — review: "Reuse the previous thunder VFX for this move":
-  // the arena's jagged bolt (moves/thunderAttack.ts) over the pack's animation.
-  85: { preferArenaVfx: true },
+  // Thunderbolt plays the pack's animation: the review first asked for the
+  // arena's jagged bolt ("Reuse the previous thunder VFX for this move"),
+  // then picked "Use the assets" on the Unused assets list. A
+  // `preferArenaVfx: true` entry brings the bolt (moves/thunderAttack.ts) back.
   // Earthquake — review: use assets (the pack's rocks all over the screen).
   89: { usePackAnimation: true },
   // Dig — review: "There is an extra dig sprite to the left of the target.
@@ -54,6 +60,8 @@ export const MOVE_VFX_ADJUSTMENTS: Readonly<Record<number, MoveVfxAdjustment>> =
   // Confusion — review: use assets. The pack's animation only moves and
   // tints the battlers (no sheet); the arena adds its fallback flash.
   93: { usePackAnimation: true },
+  // Psychic — review: use assets (battler-only animation, like Confusion).
+  94: { usePackAnimation: true },
   // Barrier — review: "Pokemon body is still not centered in barrier
   // sprite. Pokemon seems to be top left". The panel is authored 14px right
   // of the user spot, and the body's center sits above it.
@@ -69,8 +77,12 @@ export const MOVE_VFX_ADJUSTMENTS: Readonly<Record<number, MoveVfxAdjustment>> =
   // Heat Wave stays on the arena's flame jet: the pack's animation is only
   // an overlay the conversion doesn't ship, and the review tried it and
   // sent it back ("Use arena effect").
-  // Luster Purge — review: use assets.
-  295: { usePackAnimation: true },
+  // Luster Purge — review: use assets, then "Remove the kanji characters
+  // that show at the end". The ending is two dark ink-burst cells drawn
+  // with the pack's subtractive blend (the glyph look) and the pack's
+  // full-screen white flash, six tiles the arena can only show as rotated
+  // white boards — all dropped; the orbs remain.
+  295: { usePackAnimation: true, dropPatterns: [0, 1, 5] },
   // Dragon Dance — review: "Sprite seems too low". The swirls are drawn 22px
   // under the user spot and 8px left of it.
   349: { offset: { x: 8, y: -22 } },
@@ -88,9 +100,17 @@ export const MOVE_VFX_ADJUSTMENTS: Readonly<Record<number, MoveVfxAdjustment>> =
   // pillar of fire is a screen-wide cell whose art centers at (377,148),
   // 52px under the target spot; pinned so that point sits on the target.
   519: { usePackAnimation: true, screenAnchor: { on: 'target', center: { x: 377, y: 148 } } },
+  // Sludge Wave stays on the arena's poison effect: the pack's animation (its
+  // Surf wave, recolored) was tried and the review picked "Keep the arena
+  // effect". A `usePackAnimation: true` entry brings the wave back.
   // Leaf Tornado — review: "attack sprite on the target is a little low".
   // The tornado's art centers 16px below the target spot.
   536: { offset: { y: -16 } },
+  // Origin Pulse — review: "Use assets, remove the kanji characters at the
+  // end of the animation". The ending is four splash cells that read as
+  // brush-stroke glyphs plus a full-screen white flash tile — dropped; the
+  // beam of orbs remains.
+  618: { usePackAnimation: true, dropPatterns: [5, 6, 7, 8, 9] },
   // Relic Song — review: use assets.
   547: { usePackAnimation: true },
   // Petal Blizzard — review: "Need to use better VFX": the pack's own petal

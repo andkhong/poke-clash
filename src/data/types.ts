@@ -62,6 +62,10 @@ export interface PmdSpriteIndexEntry {
   /** Keyed by PMD action name (Idle/Walk/Attack/Hurt/Sleep/Faint — see CORE_ACTIONS). */
   actions: Record<string, PmdAnimEntry>;
   generatedAt: string;
+  /** Cache tag for this species' sheet URLs, derived from generatedAt by
+   * data-pipeline/pmdSpriteIndexFiles.ts (see pmdSheetUrl.ts). Absent only
+   * in an index written before the tag existed. */
+  version?: string;
   /** Present only when PMDCollab has real shiny recolor art for this species
    * (see data-pipeline/fetch-pmd-shiny-sprites.ts) — a genuinely different,
    * per-species color palette, not a uniform tint. `actions` here mirrors the
@@ -72,6 +76,11 @@ export interface PmdSpriteIndexEntry {
   shiny?: {
     dir: string;
     actions: Record<string, PmdAnimEntry>;
+    /** When the shiny sheets were fetched; older entries lack it and are
+     * taken to be as old as the base fetch. */
+    generatedAt?: string;
+    /** Cache tag for the shiny sheets' URLs, like `version` above. */
+    version?: string;
   };
 }
 

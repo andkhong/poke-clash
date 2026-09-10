@@ -3,6 +3,10 @@
     "summary": "Pack animations now anchor on the Pokémon's body center instead of its feet (the pack draws its battlers centered on the user/target spots — Bite's cells sit exactly on that spot), so the bite closes on the target's body. Applies to every pack animation; see PokemonSprite.getAnimAnchor.",
     "changedAt": "2026-09-10T17:20:00.000Z"
   },
+  "45": {
+    "summary": "Growl now plays the pack's sound-wave animation per your Assets pick; its screen-wide cells spread along the line between the fighters.",
+    "changedAt": "2026-09-10T18:46:49.083Z"
+  },
   "59": {
     "summary": "Blizzard plays at 0.9× size (src/render/vfx/moveVfxAdjustments.ts); its cells stream between the fighters' body centers like every pack animation now.",
     "changedAt": "2026-09-10T18:05:00.000Z"
@@ -12,8 +16,8 @@
     "changedAt": "2026-09-10T17:20:00.000Z"
   },
   "85": {
-    "summary": "Thunderbolt plays the arena's own jagged bolt (moves/thunderAttack.ts) instead of the pack's animation — pinned in src/render/vfx/moveVfxAdjustments.ts. The bolt now strikes between body centers, as the arena's beams and jets do after this review.",
-    "changedAt": "2026-09-10T17:20:00.000Z"
+    "summary": "Thunderbolt is back on the pack's animation per your later pick on the Unused assets list ('Use the assets'): the preferArenaVfx pin in moveVfxAdjustments.ts is removed, so the pack's Move:THUNDERBOLT plays as it does for any pack move. Before = the arena's jagged bolt you first asked for; if that's still the one you want, say so in Feedback and the pin goes back.",
+    "changedAt": "2026-09-10T18:53:48.000Z"
   },
   "89": {
     "summary": "Earthquake now plays the pack's animation (rocks across the whole field) instead of the arena's rock burst — pinned with usePackAnimation per your Assets pick. Its screen-wide cells spread along the line between the fighters.",
@@ -26,6 +30,10 @@
   "93": {
     "summary": "Confusion now plays the pack's animation per your Assets pick. Note the pack's Confusion draws nothing of its own — it only moves and tints the battlers — so what you see is the target's wobble plus the arena's fallback flash. 'Keep the arena effect' brings the beam back.",
     "changedAt": "2026-09-10T18:15:00.000Z"
+  },
+  "94": {
+    "summary": "Psychic now plays the pack's animation per your Assets pick. Like Confusion, the pack's Psychic draws nothing of its own (it only moves and tints the battlers), so it shows as the target's motion plus the arena's fallback flash.",
+    "changedAt": "2026-09-10T18:46:49.083Z"
   },
   "112": {
     "summary": "Second pass: the glass panel is authored 14px right of the user spot and the body's center sits above it, so it now gets a nudge of 14px left and 12px up (moveVfxAdjustments.ts offset) on top of the body-center anchor — the panel should sit squarely on the body.",
@@ -52,8 +60,8 @@
     "changedAt": "2026-09-10T18:23:29.508Z"
   },
   "295": {
-    "summary": "Luster Purge now plays the pack's animation per your Assets pick: its charge sits on the user, its impact on the target, and its screen-wide cells spread between them.",
-    "changedAt": "2026-09-10T18:15:00.000Z"
+    "summary": "Second pass per 'Remove the kanji characters that show at the end': the ending's two dark ink-burst cells (drawn with the pack's subtractive blend — the glyph look) and its full-screen white flash (six tiles the arena could only show as rotated white boards) are no longer drawn (moveVfxAdjustments.ts dropPatterns). The orbs on the attacker and the target remain.",
+    "changedAt": "2026-09-10T18:46:49.083Z"
   },
   "299": {
     "summary": "Pack animations now anchor on the Pokémon's body center instead of its feet, so the kick and its flames land on the target's body. Same global anchor fix as Bite.",
@@ -79,6 +87,14 @@
     "summary": "The leaf spirals circle 20px under the user spot and 38px under the target spot; the whole animation is lifted 28px (moveVfxAdjustments.ts offset) so both spirals center on the bodies.",
     "changedAt": "2026-09-10T18:05:00.000Z"
   },
+  "466": {
+    "summary": "Ominous Wind stays on the arena's beam per your pick — the pack's animation draws nothing of its own (it only moves the battlers), so nothing to switch to.",
+    "changedAt": "2026-09-10T18:46:49.083Z"
+  },
+  "482": {
+    "summary": "Sludge Wave is back on the arena's own poison effect: the usePackAnimation pin in moveVfxAdjustments.ts (added for an earlier 'Use the assets' pick) is removed, since you then picked 'Keep the arena effect' and afterwards withdrew the mark altogether — with no request on record, the screen-wide pack animation is skipped as it is for any unreviewed move. Compare on the Unused assets list (With assets / Arena effect) and pick 'Use the assets' if you'd rather have the wave.",
+    "changedAt": "2026-09-10T18:53:48.000Z"
+  },
   "519": {
     "summary": "Fire Pledge now plays the pack's pillar of fire per your pick, and per 'center the target pokemon' the pillar is pinned on the target: its screen-wide cell is anchored so the pillar's center (authored 52px under the target spot) sits on the target's body (moveVfxAdjustments.ts screenAnchor).",
     "changedAt": "2026-09-10T18:15:00.000Z"
@@ -94,6 +110,10 @@
   "572": {
     "summary": "Petal Blizzard now plays the pack's own petal storm (pinned with usePackAnimation in moveVfxAdjustments.ts) instead of the arena's generic rock burst. Its animation is screen-wide, so judge it on the Unused assets list — With assets / Arena effect — and pick; 'keep the arena effect' sends it back.",
     "changedAt": "2026-09-10T18:05:00.000Z"
+  },
+  "618": {
+    "summary": "Origin Pulse now plays the pack's beam of orbs per your pick, and per 'remove the kanji characters at the end' its four closing splash cells (the brush-stroke look) and full-screen flash tile are no longer drawn (moveVfxAdjustments.ts dropPatterns).",
+    "changedAt": "2026-09-10T18:46:49.083Z"
   },
   "690": {
     "summary": "Pack animations now anchor on the Pokémon's body center instead of its feet, so the blast lands on the target's body. Same global anchor fix as Bite.",

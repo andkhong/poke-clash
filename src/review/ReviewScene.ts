@@ -322,6 +322,7 @@ export class ReviewScene extends Phaser.Scene {
           scale: animationScaleFor(attackerSprite.getOnScreenSize()) * (adjustment?.scale ?? 1),
           cellOffset: adjustment?.offset,
           dropCells: adjustment?.dropCells,
+          dropPatterns: adjustment?.dropPatterns,
           screenAnchor: adjustment?.screenAnchor,
           msPerFrame: msPerFrameFor(options.speed, loaded.data.frames.length),
           attacker: attackerSprite,

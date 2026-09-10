@@ -488,12 +488,15 @@ export class PokemonSprite {
     this.usingRealShinyArt = this.shiny && !!entry.shiny;
     const dir = this.usingRealShinyArt ? entry.shiny!.dir : entry.dir;
     const sourceActions = this.usingRealShinyArt ? entry.shiny!.actions : entry.actions;
+    // Per-species cache tag (see pmdSheetUrl.ts): an updated species gets
+    // new URLs without invalidating every other species' cached sheets.
+    const version = this.usingRealShinyArt ? entry.shiny!.version : entry.version;
 
     const loaded: Record<string, PmdAnimEntry> = {};
     await Promise.all(
       Object.entries(sourceActions).map(async ([action, meta]) => {
         const key = this.pmdTextureKey(action);
-        const ok = await this.loadSpriteSheet(key, pmdSheetUrl(dir, action), {
+        const ok = await this.loadSpriteSheet(key, pmdSheetUrl(dir, action, version), {
           frameWidth: meta.frameWidth,
           frameHeight: meta.frameHeight,
         });

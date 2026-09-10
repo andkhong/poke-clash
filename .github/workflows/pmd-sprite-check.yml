@@ -1,0 +1,60 @@
+# Weekly look at PMDCollab/SpriteCollab: opens (or updates) an issue when
+# upstream has sprites the mirror lacks — a species we're leaving out of the
+# roster that now has art, or one whose art was redrawn. It only reports;
+# applying is `npm run data:pmd-sprites:update` locally (the mirror and the
+# Fly volume aren't reachable from here). See DEPLOY.md, "Keeping the
+# sprites up to date".
+name: PMD sprite updates
+on:
+  schedule:
+    - cron: '0 9 * * 1' # Mondays 09:00 UTC
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  issues: write
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm run data:pmd-sprites:check -- --json pmd-sprite-report.json
+      - name: Open or update the tracking issue
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          node - <<'EOF'
+          const { execFileSync } = require('node:child_process');
+          const fs = require('node:fs');
+          const report = JSON.parse(fs.readFileSync('pmd-sprite-report.json', 'utf-8'));
+          const { plan } = report;
+          const work = plan.add.length + plan.update.length + plan.shinyAdd.length + plan.shinyUpdate.length;
+          const title = 'PMD sprite updates available upstream';
+          const gh = (args) => execFileSync('gh', args, { encoding: 'utf-8' });
+          const open = JSON.parse(gh(['issue', 'list', '--state', 'open', '--search', `in:title "${title}"`, '--json', 'number,title']));
+          const existing = open.find((issue) => issue.title === title);
+          if (work === 0) {
+            if (existing) gh(['issue', 'close', String(existing.number), '--comment', `Checked ${report.checkedAt}: the mirror is up to date with upstream.`]);
+            console.log('nothing to do');
+            process.exit(0);
+          }
+          const body = [
+            `Checked ${report.checkedAt} against upstream tracker ${report.upstream.trackerCommit ?? '?'} (newest sprite change ${report.upstream.latestSpriteChangeAt ?? '?'}).`,
+            '',
+            '```',
+            report.report,
+            '```',
+            '',
+            'To apply: `npm run data:pmd-sprites:update`, then `npm run deploy:pmd-sprites -- <tarball>` and commit the regenerated index (see DEPLOY.md).',
+          ].join('\n');
+          if (existing) gh(['issue', 'edit', String(existing.number), '--body', body]);
+          else gh(['issue', 'create', '--title', title, '--body', body]);
+          console.log(existing ? `updated #${existing.number}` : 'opened a new issue');
+          EOF

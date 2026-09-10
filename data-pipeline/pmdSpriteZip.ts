@@ -25,7 +25,14 @@ interface ParsedAnim {
   frameWidth: number;
   frameHeight: number;
   durationsTicks: number[];
+  /** AnimData.xml can define an action as an alias of another
+   * (`<CopyOf>Walk</CopyOf>`, e.g. Beedrill's Idle): it then has no sheet
+   * or metadata of its own and reuses the named one's. */
+  copyOf?: string;
 }
+
+/** How many aliases to follow before giving up (guards a malformed cycle). */
+const MAX_COPY_OF_HOPS = 5;
 
 const xmlParser = new XMLParser({
   ignoreAttributes: true,
@@ -53,18 +60,36 @@ export async function fetchZipWithRetry(url: string, attempts = 3): Promise<Buff
 
 function parseAnimData(xml: string): Map<string, ParsedAnim> {
   const parsed = xmlParser.parse(xml) as {
-    AnimData?: { Anims?: { Anim?: { Name: string; FrameWidth: number; FrameHeight: number; Durations?: { Duration?: number[] } }[] } };
+    AnimData?: {
+      Anims?: {
+        Anim?: { Name: string; FrameWidth?: number; FrameHeight?: number; CopyOf?: string; Durations?: { Duration?: number[] } }[];
+      };
+    };
   };
   const anims = parsed.AnimData?.Anims?.Anim ?? [];
   const map = new Map<string, ParsedAnim>();
   for (const anim of anims) {
-    map.set(anim.Name, {
-      frameWidth: Number(anim.FrameWidth),
-      frameHeight: Number(anim.FrameHeight),
+    map.set(String(anim.Name), {
+      frameWidth: Number(anim.FrameWidth ?? 0),
+      frameHeight: Number(anim.FrameHeight ?? 0),
       durationsTicks: (anim.Durations?.Duration ?? []).map(Number),
+      copyOf: anim.CopyOf ? String(anim.CopyOf) : undefined,
     });
   }
   return map;
+}
+
+/** Follows CopyOf aliases to the action whose sheet and metadata actually
+ * exist. Returns that action's name and metadata, or null for a missing
+ * action or a broken alias chain. */
+function resolveAnim(animMap: Map<string, ParsedAnim>, action: string): { source: string; anim: ParsedAnim } | null {
+  let source = action;
+  let anim = animMap.get(source);
+  for (let hop = 0; anim?.copyOf && hop < MAX_COPY_OF_HOPS; hop++) {
+    source = anim.copyOf;
+    anim = animMap.get(source);
+  }
+  return anim && !anim.copyOf ? { source, anim } : null;
 }
 
 function extractZip(buffer: Buffer): { animDataXml: string; getPng: (name: string) => Buffer | undefined } {
@@ -99,8 +124,11 @@ export async function extractCoreActions(zipBuffer: Buffer): Promise<ExtractedAc
   const pngsToWrite: Record<string, Buffer> = {};
 
   for (const action of CORE_ACTIONS) {
-    const anim = animMap.get(action);
-    const animPng = anim && getPng(`${action}-Anim.png`);
+    // An aliased action (Idle = CopyOf Walk) is stored under its own name
+    // so the client, which asks for <action>-Anim.png, needs no alias table.
+    const resolved = resolveAnim(animMap, action);
+    const anim = resolved?.anim;
+    const animPng = resolved && getPng(`${resolved.source}-Anim.png`);
     if (!anim || !animPng) continue;
 
     let width: number | undefined;
@@ -121,7 +149,7 @@ export async function extractCoreActions(zipBuffer: Buffer): Promise<ExtractedAc
         ? anim.durationsTicks
         : Array.from({ length: Math.max(1, Math.round(width / frameWidth)) }, () => 1);
 
-    const shadowPng = getPng(`${action}-Shadow.png`);
+    const shadowPng = getPng(`${resolved.source}-Shadow.png`);
 
     actions[action] = {
       frameWidth,
