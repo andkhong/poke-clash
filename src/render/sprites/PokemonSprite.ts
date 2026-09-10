@@ -50,6 +50,13 @@ const MOVE_LABEL_BORDER_COLOR = 0x1a1a1a;
  * relative to the move's base type color, for a glossy beveled-button look. */
 const MOVE_LABEL_SHADE_AMOUNT = 45;
 const HIT_FLASH_MS = 160;
+/** How far the arena's own lunge-family VFX (see playLungeAttack) dashes
+ * the attacker's sprite toward its target, at most. Kept well under
+ * typical inter-Pokémon spacing so a lunge reads as "closing the last bit
+ * of distance to throw a punch," not a teleport across the arena. */
+const MAX_LUNGE_DISTANCE = 130;
+const LUNGE_OUT_MS = 120;
+const LUNGE_BACK_MS = 170;
 /** One-shot (play-once, non-looping) PMD actions — everything else registered
  * on a species (Idle/Walk/Sleep) loops. */
 const ONE_SHOT_PMD_ACTIONS = new Set(['Attack', 'Shoot', 'Shock', 'SpAttack', 'Hurt', 'Faint']);
@@ -277,6 +284,7 @@ export class PokemonSprite {
    * the sim; PokemonInstance.position stays the sole source of truth, per
    * ArenaScene's "renderer never mutates simulation state" invariant. */
   private readonly animOffset: Vec2 = { x: 0, y: 0 };
+  private lungeTween: Phaser.Tweens.TweenChain | null = null;
   /** The status animation currently playing on this sprite, if any — see
    * playStatusAnimation(). */
   private statusAnimation: AnimationHandle | null = null;
@@ -871,8 +879,43 @@ export class PokemonSprite {
    * animOffset. Reset to (0, 0) by the animation when it ends or is cut off. */
   setAnimOffset(x: number, y: number): void {
     if (this.isDestroyed()) return;
+    this.lungeTween?.stop();
+    this.lungeTween = null;
     this.animOffset.x = x;
     this.animOffset.y = y;
+  }
+
+  /** The arena's own lunge-family VFX (see moves/playFamilyVfx.ts, used for
+   * the moves whose pack animation is screen-wide) — dashes this sprite
+   * toward `targetPosition` and back via the same additive animOffset a
+   * pack animation drives. Distance is clamped so the attacker stops just
+   * short of the target's own footprint rather than overlapping it. Kills
+   * any lunge already in flight first so a fast attacker's consecutive
+   * hits retarget smoothly instead of stacking offsets. `onImpact` fires
+   * at the apex, for the caller's contact VFX. */
+  playLungeAttack(selfPosition: Vec2, targetPosition: Vec2, targetCollisionRadius: number, onImpact?: () => void): void {
+    this.lungeTween?.stop();
+
+    const dx = targetPosition.x - selfPosition.x;
+    const dy = targetPosition.y - selfPosition.y;
+    const distanceToTarget = Math.hypot(dx, dy);
+    const travel = Phaser.Math.Clamp(distanceToTarget - targetCollisionRadius, 0, MAX_LUNGE_DISTANCE);
+    const dirX = distanceToTarget > 0 ? dx / distanceToTarget : 0;
+    const dirY = distanceToTarget > 0 ? dy / distanceToTarget : 0;
+
+    this.lungeTween = this.scene.tweens.chain({
+      targets: this.animOffset,
+      tweens: [
+        {
+          x: dirX * travel,
+          y: dirY * travel,
+          duration: LUNGE_OUT_MS,
+          ease: 'Quad.easeOut',
+          onComplete: () => onImpact?.(),
+        },
+        { x: 0, y: 0, duration: LUNGE_BACK_MS, ease: 'Quad.easeIn' },
+      ],
+    });
   }
 
   /** A move animation hiding or fading this battler's body (Fly's ascent,

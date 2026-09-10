@@ -7,6 +7,19 @@ over the **Gen 9 Move Animation Project**, a Pokémon Essentials animation
 pack, converted into a compact JSON format the arena's own player understands
 (`src/render/vfx/anim/`, format in `src/data/moveAnimationFormat.ts`).
 
+## Screen-wide effects are the exception
+
+The pack was drawn for a side-view battle screen. An animation that anchors
+most of its cells to that whole screen (Surf's waves, Earthquake's shaking
+ground, Growl's sound rings) or that draws nothing but a full-screen
+background/foreground overlay (Heat Wave, Psychic) doesn't translate to a
+free-roaming top-down arena, so the converter flags those moves (`screen: true`
+in the index — 27 moves at the time of writing) and the arena plays its own
+family VFX for them instead, from `public/move-assets/` and
+`src/render/vfx/moves/`. The flag is derived, not hand-picked: at least half the
+cells anchored to the screen, or no cells plus an overlay (self-targeting moves
+excepted, since the family VFX draw nothing for those).
+
 ## Layout
 
 ```

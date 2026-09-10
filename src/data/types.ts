@@ -110,6 +110,14 @@ export interface MoveAnimationIndexEntry {
    * (Tackle, Body Slam, ...), so the attacker should play its melee-swing
    * pose rather than the ranged one. */
   melee: boolean;
+  /** True for a screen-wide effect: most of the animation's cells are
+   * anchored to the whole battle screen rather than to a battler (Surf,
+   * Earthquake, Growl, ...), or it draws nothing but a full-screen
+   * background/foreground overlay the conversion doesn't ship (Heat Wave,
+   * Psychic, ...). Those don't translate to a free-roaming top-down arena,
+   * so the arena plays its own family VFX for them instead (see
+   * src/render/vfx/moveAnimations.ts) and skips the pack animation. */
+  screen: boolean;
 }
 
 export interface MoveAnimationIndex {

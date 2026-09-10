@@ -40,6 +40,19 @@ describe('moveAnimations.json', () => {
     expect(missingFiles).toEqual([]);
   });
 
+  it('flags screen-wide animations so the arena plays its own family VFX for them', () => {
+    expect(index.moves['57'].screen, 'Surf').toBe(true);
+    expect(index.moves['89'].screen, 'Earthquake').toBe(true);
+    expect(index.moves['45'].screen, 'Growl').toBe(true);
+    expect(index.moves['257'].screen, 'Heat Wave (overlay only)').toBe(true);
+    expect(index.moves['33'].screen, 'Tackle').toBe(false);
+    expect(index.moves['53'].screen, 'Flamethrower').toBe(false);
+    expect(index.moves['14'].screen, 'Swords Dance').toBe(false);
+    const screenWide = Object.values(index.moves).filter((entry) => entry.screen).length;
+    expect(screenWide).toBeGreaterThan(20);
+    expect(screenWide).toBeLessThan(60);
+  });
+
   it('writes well-formed frames (a spot check on Tackle and Flamethrower)', () => {
     const tackle = JSON.parse(readFileSync(new URL('public/move-anims/moves/33.json', ROOT), 'utf-8')) as MoveAnimationData;
     expect(tackle.v).toBe(1);

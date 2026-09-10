@@ -11,6 +11,8 @@ import { frameDurationMs, playAnimation, type AnimationHandle } from '../vfx/ani
 import { animationScaleFor } from '../vfx/anim/geometry';
 import { getLoadedMoveAnimation, getMoveAnimationEntry, queueAnimationLoads, requestMoveAnimation } from '../vfx/anim/moveAnimLoader';
 import { playFallbackFlash } from '../vfx/anim/fallbackFlash';
+import { resolveMoveAnimation } from '../vfx/moveAnimations';
+import { playFamilyVfx, preloadFamilyVfxAssets } from '../vfx/moves/playFamilyVfx';
 import { STATUS_COMMON_ANIMATIONS } from '../../data/moveAnimationFormat';
 import { playMoveSound, type MoveSoundHandle } from '../sound/moveSound';
 import { playBattleMusic } from '../sound/battleMusic';
@@ -178,6 +180,7 @@ export class ArenaScene extends Phaser.Scene {
     this.load.json(PMD_SPRITE_INDEX_KEY, pmdSpriteIndexUrl());
     preloadArenaTileset(this);
     preloadPokeballAsset(this);
+    preloadFamilyVfxAssets(this);
     // Every move this roster can actually use is known up front (each
     // Pokémon's four slots are fixed at match setup), so their animations
     // and sheets download with the rest of the arena's assets instead of on
@@ -361,12 +364,17 @@ export class ArenaScene extends Phaser.Scene {
 
     const hideMoveLabel = attackerSprite.showMoveLabel(move);
     const soundHandle = playMoveSound(this, move);
+    // A move whose pack animation is a screen-wide effect (or that has no
+    // pack animation at all) plays the arena's own family VFX instead —
+    // see MoveAnimationIndexEntry.screen and moves/playFamilyVfx.ts.
+    const entry = getMoveAnimationEntry(move.id);
+    const family = !entry || entry.screen ? resolveMoveAnimation(move).family : null;
     // Melee-swing pose for a physical move or any animation that dashes the
     // attacker into its target (the pack marks those — see the index's
-    // `melee`); every other move holds ground and fires from range, so
-    // prefer the species' dedicated ranged-attack pose there.
-    const entry = getMoveAnimationEntry(move.id);
-    const ranged = !(entry?.melee || move.category === 'physical');
+    // `melee`; the family VFX's own lunge); every other move holds ground
+    // and fires from range, so prefer the species' dedicated ranged-attack
+    // pose there.
+    const ranged = family ? family !== 'lunge' : !(entry?.melee || move.category === 'physical');
     // The sim's own action-cooldown/wander transition kicks in almost
     // immediately after this move fires — well before this attack's on-screen
     // visual window (ATTACK_VISUAL_DURATION_MS, released below) closes — so
@@ -394,6 +402,13 @@ export class ArenaScene extends Phaser.Scene {
     // all: its animation plays on the attacker, which the sim never counts
     // as a hit (see engine.ts's early return for `targeting === 'self'`).
     const target = pickVfxTarget(engagedTarget, hitTargets);
+    if (family) {
+      // Family VFX are one-shot effects flown from the fire-time snapshot
+      // to the single hit target; a miss or a self-targeting move shows
+      // pose/label/sound only, as they always have.
+      if (target) playFamilyVfx(this, family, attackerPosition, target.position, target.collisionRadius, move.type, attackerSprite);
+      return { soundHandle, hideMoveLabel, unlockPosition };
+    }
     const selfTargeting = move.targeting === 'self';
     if (!target && !selfTargeting) return { soundHandle, hideMoveLabel, unlockPosition }; // a clean miss: pose/label/sound only
 

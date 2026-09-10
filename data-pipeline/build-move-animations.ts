@@ -93,6 +93,15 @@ const COMMON_ANIMATIONS = [
  * strike for the attacker's pose. Tackle-style dashes go ~200px; ranged
  * moves nudge the user by at most a few px of recoil. */
 const MELEE_DASH_THRESHOLD_PX = 40;
+/** An animation whose cells are at least this much screen-anchored (focus
+ * 4) is a screen-wide effect — see MoveAnimationIndexEntry.screen. Below
+ * this the screen cells are incidental (a flash, a backdrop) and the
+ * battler-anchored rest still reads in the arena. */
+const SCREEN_FOCUS_FRACTION = 0.5;
+/** Timing entries that set a full-screen background/foreground image or
+ * color: an animation with no cells of its own that relies on these is a
+ * screen-wide effect too. */
+const SCREEN_OVERLAY_TIMING_TYPES = new Set([1, 2, 3, 4]);
 
 /** Raw Essentials cell layout (PBAnimation's AnimFrame constants, 27
  * entries). FOCUS is passed through untouched; its meaning (1 target,
@@ -126,6 +135,9 @@ interface PackAnimation {
   position: 1 | 2 | 3 | 4;
   frames: (RubyValue[] | null)[];
   timing: RubyObject[];
+  /** True when the timing track sets a full-screen background/foreground
+   * image or color (types 1-4), none of which the conversion ships. */
+  hasScreenOverlay: boolean;
 }
 
 function normalizeMoveName(name: string): string {
@@ -169,6 +181,7 @@ function readPack(bytes: Uint8Array): PackAnimation[] {
       position: position >= 1 && position <= 4 ? (position as 1 | 2 | 3 | 4) : 3,
       frames: frames.map((frame) => (Array.isArray(frame) ? frame : null)),
       timing,
+      hasScreenOverlay: timing.some((entry) => SCREEN_OVERLAY_TIMING_TYPES.has(num(entry.ivars.timingType))),
     });
   }
   return animations;
@@ -310,11 +323,28 @@ function dashesIntoTarget(frames: MoveAnimationFrame[]): boolean {
   return false;
 }
 
+/** See MoveAnimationIndexEntry.screen. A cell-less self-targeting move
+ * (Agility: a hop plus a speed-lines background) keeps the pack's battler
+ * motion, since the arena's family VFX draw nothing for self moves. */
+function isScreenWide(animation: PackAnimation, frames: MoveAnimationFrame[], selfTargeting: boolean): boolean {
+  let total = 0;
+  let screen = 0;
+  for (const frame of frames) {
+    for (const cell of frame.c) {
+      total += 1;
+      if (cell[10] === 4) screen += 1;
+    }
+  }
+  if (total === 0) return animation.hasScreenOverlay && !selfTargeting;
+  return screen / total >= SCREEN_FOCUS_FRACTION;
+}
+
 async function convertAnimation(
   animation: PackAnimation,
   sheets: SheetRegistry,
-  warn: (message: string) => void
-): Promise<{ data: MoveAnimationData; melee: boolean }> {
+  warn: (message: string) => void,
+  selfTargeting = false
+): Promise<{ data: MoveAnimationData; melee: boolean; screen: boolean }> {
   const firstFrame = animation.frames.find((frame) => frame !== null) ?? null;
   const userAnchor = findBattlerCell(firstFrame, PATTERN_USER);
   const targetAnchor = findBattlerCell(firstFrame, PATTERN_TARGET);
@@ -355,6 +385,7 @@ async function convertAnimation(
   return {
     data: { v: 1, name: animation.name, sheet, columns, position: animation.position, frames, sfx: convertTiming(animation.timing) },
     melee: dashesIntoTarget(frames),
+    screen: isScreenWide(animation, frames, selfTargeting),
   };
 }
 
@@ -474,11 +505,11 @@ async function main(): Promise<void> {
       (reachable.has(move.id) || move.id === STRUGGLE_MOVE.id ? unmatchedReachable : unmatchedOther).push(`${move.id} ${move.name}`);
       continue;
     }
-    const { data, melee } = await convertAnimation(animation, sheets, warn);
+    const { data, melee, screen } = await convertAnimation(animation, sheets, warn, move.targeting === 'self');
     const file = `${move.id}.json`;
     await writeFile(join(MOVES_OUTPUT_DIR, file), JSON.stringify(data), 'utf-8');
     moveFiles.add(file);
-    const entry: MoveAnimationIndexEntry = { anim: animation.name, sheet: data.sheet, frames: data.frames.length, melee };
+    const entry: MoveAnimationIndexEntry = { anim: animation.name, sheet: data.sheet, frames: data.frames.length, melee, screen };
     index.moves[String(move.id)] = entry;
   }
 
@@ -489,11 +520,11 @@ async function main(): Promise<void> {
       warn(`Common:${name} is not in the pack`);
       continue;
     }
-    const { data, melee } = await convertAnimation(animation, sheets, warn);
+    const { data, melee, screen } = await convertAnimation(animation, sheets, warn);
     const file = `${name}.json`;
     await writeFile(join(COMMON_OUTPUT_DIR, file), JSON.stringify(data), 'utf-8');
     commonFiles.add(file);
-    index.common[name] = { anim: animation.name, sheet: data.sheet, frames: data.frames.length, melee };
+    index.common[name] = { anim: animation.name, sheet: data.sheet, frames: data.frames.length, melee, screen };
   }
 
   const sheetJobs = sheets.all();
@@ -506,10 +537,12 @@ async function main(): Promise<void> {
   await writeFile(INDEX_PATH, JSON.stringify(index), 'utf-8');
 
   const hueVariants = sheetJobs.filter((job) => job.hue !== 0).length;
+  const screenWide = Object.values(index.moves).filter((entry) => entry.screen).length;
   const seconds = ((Date.now() - startedAt) / 1000).toFixed(1);
   console.log(
     `[build-move-animations] ${Object.keys(index.moves).length}/${allMoves.length} moves matched ` +
       `(${unmatchedReachable.length} reachable unmatched, ${unmatchedOther.length} unreachable unmatched), ` +
+      `${screenWide} screen-wide (arena plays its own family VFX for those), ` +
       `${Object.keys(index.common).length} common animations, ${sheetJobs.length} sheets (${hueVariants} hue variants), ` +
       `removed ${staleMoves + staleCommon + staleSheets} stale files, in ${seconds}s`
   );
