@@ -1,7 +1,9 @@
 import { createServer } from 'node:http';
-import { readFile, readdir } from 'node:fs/promises';
+import { createReadStream } from 'node:fs';
+import { readdir, stat } from 'node:fs/promises';
 import { extname, join } from 'node:path';
 import { parseFile } from 'music-metadata';
+import { parseByteRange } from './byteRange';
 
 // Minimal standalone static-file server for locally-mirrored, gitignored
 // binary asset mirrors: PMDCollab sprite art (see
@@ -114,15 +116,42 @@ function soundtrackTrackUrl(track: SoundtrackTrack): string {
   return `/soundtracks/track/${encodeURIComponent(track.folder)}/${encodeURIComponent(track.file)}`;
 }
 
-function serveFile(res: import('node:http').ServerResponse, filePath: string, contentType: string): void {
-  readFile(filePath)
-    .then((data) => {
-      res.writeHead(200, {
+// Streams from disk rather than reading the whole file into memory, and
+// honors single byte ranges: the client streams music through an <audio>
+// element now (see src/render/sound/battleMusic.ts), and browsers — Safari
+// in particular — will only stream (and seek) media from a server that
+// answers Range requests with 206s. Sprites and everything else get the
+// same treatment for free.
+function serveFile(
+  req: import('node:http').IncomingMessage,
+  res: import('node:http').ServerResponse,
+  filePath: string,
+  contentType: string
+): void {
+  stat(filePath)
+    .then((info) => {
+      if (!info.isFile()) throw new Error('not a file');
+      const headers: Record<string, string | number> = {
         'Content-Type': contentType,
         'Cache-Control': 'public, max-age=31536000, immutable',
         'Access-Control-Allow-Origin': '*',
-      });
-      res.end(data);
+        'Accept-Ranges': 'bytes',
+      };
+      const range = parseByteRange(req.headers.range, info.size);
+      if (req.headers.range && !range) {
+        res.writeHead(416, { 'Content-Range': `bytes */${info.size}` }).end();
+        return;
+      }
+      if (range) {
+        headers['Content-Range'] = `bytes ${range.start}-${range.end}/${info.size}`;
+        headers['Content-Length'] = range.end - range.start + 1;
+        res.writeHead(206, headers);
+        createReadStream(filePath, { start: range.start, end: range.end }).pipe(res);
+      } else {
+        headers['Content-Length'] = info.size;
+        res.writeHead(200, headers);
+        createReadStream(filePath).pipe(res);
+      }
     })
     .catch(() => {
       res.writeHead(404).end('not found');
@@ -147,7 +176,7 @@ const server = createServer((req, res) => {
   const spriteMatch = SPRITE_ROUTE_RE.exec(url);
   if (spriteMatch) {
     const [, speciesDir, file] = spriteMatch;
-    serveFile(res, join(SPRITE_MIRROR_ROOT, speciesDir, file), 'image/png');
+    serveFile(req, res, join(SPRITE_MIRROR_ROOT, speciesDir, file), 'image/png');
     return;
   }
 
@@ -177,7 +206,7 @@ const server = createServer((req, res) => {
         res.writeHead(404).end('not found');
         return;
       }
-      serveFile(res, join(SOUNDTRACK_MIRROR_ROOT, folder, file), soundtrackContentType(file));
+      serveFile(req, res, join(SOUNDTRACK_MIRROR_ROOT, folder, file), soundtrackContentType(file));
     });
     return;
   }

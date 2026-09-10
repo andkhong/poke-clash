@@ -35,9 +35,14 @@ data-pipeline/cache/
 # sync, so there's nothing here to commit even a small derived copy of.
 /sound-track/
 
-# Cover-art-stripped/re-encoded copies of /sound/ and /sound-track/ (see
-# transcode.sh run during deploy prep) — same "not committed" reasoning as
-# the raw mirrors above, just a second local tree staged for upload.
+# What actually gets uploaded to the production volume, built from the raw
+# mirrors above by the data-pipeline scripts (build-soundtrack.ts →
+# deploy-assets/sound-track/, re-encoded and loudness-normalized) — same
+# "not committed" reasoning, just a second local tree staged for upload.
+/deploy-assets/
+# Older hand-made equivalents of the same thing (cover-art-stripped copies of
+# /sound/ and /sound-track/); superseded by deploy-assets/, kept ignored so a
+# leftover checkout can't accidentally commit them.
 /sound-optimized/
 /sound-track-optimized/
 

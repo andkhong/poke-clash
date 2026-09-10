@@ -1,12 +1,10 @@
-// Type-only: this module stays free of any Phaser runtime dependency so its
-// measurement can be unit-tested (and run offline against the asset packs,
-// see the calibration notes in mix.ts) without a browser.
-import type Phaser from 'phaser';
-
 /**
- * Play-time loudness normalization for every clip the arena plays — battle
- * music, Pokémon cries, move SFX — so each lands at its category's target
- * level (see mix.ts) regardless of how hot its source file happens to be.
+ * Loudness normalization for every clip the arena plays — Pokémon cries and
+ * move SFX at play time (see clipVolume.ts), battle music offline in
+ * data-pipeline/build-soundtrack.ts with this same meter (it's streamed, so
+ * there's no decoded buffer to measure when it starts) — so each lands at
+ * its category's target level (see mix.ts) regardless of how hot its
+ * source file happens to be.
  *
  * A single per-category gain can't make the mix even, because the source
  * files themselves aren't: measured with ffmpeg's ebur128 across the
@@ -30,6 +28,9 @@ import type Phaser from 'phaser';
  * it to (twice the power, +3 dB), so mono SFX and stereo music are compared
  * as they come out of the speakers. Checked against ffmpeg's ebur128 on the
  * same files (see mix.ts), it tracks within about 1 dB.
+ *
+ * Pure: no DOM or Phaser types, so it's unit-testable and usable from the
+ * node-side data pipeline as-is.
  */
 
 /** The slice of AudioBuffer this needs — a plain object with these fields
@@ -161,40 +162,29 @@ export function measureLoudnessDb(clip: PcmClip): number | null {
   return lufs(pool.reduce((s, p) => s + p, 0) / pool.length);
 }
 
-/** Linear gain that plays `clip` at `targetDb` — 1 for a silent clip
- * (nothing to normalize), never more than MAX_NORMALIZATION_BOOST_DB up. */
-export function normalizationGain(clip: PcmClip, targetDb: number): number {
-  const measured = measureLoudnessDb(clip);
-  if (measured === null) return 1;
-  return gainFromMeasured(measured, targetDb);
-}
-
-function gainFromMeasured(measuredDb: number, targetDb: number): number {
+/** Linear gain that takes a clip measured at `measuredDb` to `targetDb`,
+ * never more than MAX_NORMALIZATION_BOOST_DB up. */
+export function gainToTarget(measuredDb: number, targetDb: number): number {
   return Math.pow(10, Math.min(MAX_NORMALIZATION_BOOST_DB, targetDb - measuredDb) / 20);
 }
 
-// One measurement per decoded buffer per game — the buffer object itself is
-// what Phaser's audio cache hands back, so keying on it means a re-created
-// Phaser.Game (one per match, see PhaserGame.tsx) naturally starts fresh.
-const measuredDbByBuffer = new WeakMap<object, number | null>();
-
-function isAudioBuffer(value: unknown): value is AudioBuffer {
-  return typeof AudioBuffer !== 'undefined' && value instanceof AudioBuffer;
+/** Linear gain that plays `clip` at `targetDb` — 1 for a silent clip
+ * (nothing to normalize). */
+export function normalizationGain(clip: PcmClip, targetDb: number): number {
+  const measured = measureLoudnessDb(clip);
+  if (measured === null) return 1;
+  return gainToTarget(measured, targetDb);
 }
 
-/** The volume to hand Phaser so the cached clip `key` plays at `targetDb`.
- * Under WebAudio the cache holds the decoded AudioBuffer, which is measured
- * (once) and normalized; under the HTML5 audio fallback there are no
- * samples to look at, so `fallbackVolume` — a flat per-category gain sized
- * for a typical clip — is used instead. */
-export function normalizedVolume(scene: Phaser.Scene, key: string, targetDb: number, fallbackVolume: number): number {
-  const cached: unknown = scene.cache.audio.get(key);
-  if (!isAudioBuffer(cached)) return fallbackVolume;
-  let measured = measuredDbByBuffer.get(cached);
-  if (measured === undefined) {
-    measured = measureLoudnessDb(cached);
-    measuredDbByBuffer.set(cached, measured);
-  }
-  if (measured === null) return 1;
-  return gainFromMeasured(measured, targetDb);
+/** The gain that brings a clip measured at `measuredDb` to `targetDb`,
+ * held back so its sample peak (`samplePeak`, linear, 1.0 = full scale)
+ * never lands above `ceilingDbfs` — for offline normalization (see
+ * data-pipeline/build-soundtrack.ts), where a boosted file has no limiter
+ * downstream to save it from clipping. A clip that's already peaking above
+ * the ceiling is left alone rather than turned down. */
+export function peakLimitedGain(measuredDb: number, targetDb: number, samplePeak: number, ceilingDbfs: number): number {
+  const wanted = gainToTarget(measuredDb, targetDb);
+  if (samplePeak <= 0) return wanted;
+  const ceiling = Math.pow(10, ceilingDbfs / 20) / samplePeak;
+  return Math.min(wanted, Math.max(1, ceiling));
 }

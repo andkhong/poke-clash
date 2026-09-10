@@ -24,7 +24,7 @@ import { playImpactBurst } from '../vfx/moves/impactBurst';
 import { playLungePunchFlash, preloadLungeVfxAssets } from '../vfx/moves/lungeImpact';
 import { playMoveSound, type MoveSoundHandle } from '../sound/moveSound';
 import { playBattleMusic } from '../sound/battleMusic';
-import { installMasterLimiter } from '../sound/mix';
+import { installMasterLimiter } from '../sound/masterBus';
 import { getMoveDefinition } from '../../data/loader';
 import { teamColorHex } from '../../ui/teamColors';
 import type { PmdSpriteIndex, SpriteIndex } from '../../data/types';

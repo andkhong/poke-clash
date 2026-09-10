@@ -4,6 +4,7 @@ import {
   MAX_NORMALIZATION_BOOST_DB,
   measureLoudnessDb,
   normalizationGain,
+  peakLimitedGain,
   type PcmClip,
 } from './loudness';
 
@@ -110,6 +111,27 @@ describe('measureLoudnessDb (BS.1770 integrated loudness, as heard in stereo)', 
     const copy = Float32Array.from(data);
     measureLoudnessDb(clipFrom([data]));
     expect(data).toEqual(copy);
+  });
+});
+
+describe('peakLimitedGain', () => {
+  it('is the plain normalization gain when the peak has room', () => {
+    // -30 LUFS to -21 wants +9 dB; a 0.1 peak boosted 9 dB is 0.28, well under -1 dBFS.
+    expect(20 * Math.log10(peakLimitedGain(-30, -21, 0.1, -1))).toBeCloseTo(9, 5);
+  });
+
+  it('holds the boost back so the peak lands exactly on the ceiling', () => {
+    // -30 to -21 wants +9 dB, but a 0.5 peak may only rise to 0.891 (-1 dBFS): +5.02 dB.
+    const gain = peakLimitedGain(-30, -21, 0.5, -1);
+    expect(20 * Math.log10(gain * 0.5)).toBeCloseTo(-1, 5);
+  });
+
+  it('never turns a clip down just because its peak is already over the ceiling', () => {
+    expect(peakLimitedGain(-30, -21, 1.0, -1)).toBe(1);
+  });
+
+  it('still attenuates a hot clip normally', () => {
+    expect(20 * Math.log10(peakLimitedGain(-12, -21, 1.0, -1))).toBeCloseTo(-9, 5);
   });
 });
 

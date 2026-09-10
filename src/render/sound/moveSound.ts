@@ -2,7 +2,7 @@ import Phaser from 'phaser';
 import type { MoveDefinition } from '../../sim/types';
 import type { MoveSoundIndex } from '../../data/types';
 import moveSoundIndexData from '../../data/generated/moveSounds.json';
-import { normalizedVolume } from './loudness';
+import { normalizedVolume } from './clipVolume';
 import { MOVE_SOUND_FALLBACK_VOLUME, MOVE_SOUND_TARGET_DB } from './mix';
 
 // Same "loaded on demand, cached forever" shape as cryAudio.ts — see that

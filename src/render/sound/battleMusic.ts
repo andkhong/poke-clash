@@ -1,6 +1,6 @@
 import Phaser from 'phaser';
-import { normalizedVolume } from './loudness';
-import { MUSIC_FALLBACK_VOLUME, MUSIC_TARGET_DB } from './mix';
+import { loopFadeEnvelope } from './loopFade';
+import { getWebAudioBus } from './masterBus';
 
 // Picked server-side, not bundled — see sprite-server/server.ts's /soundtracks
 // routes. The mirror (sound-track/<pack>/*.mp3) is gitignored and can grow new
@@ -9,15 +9,24 @@ import { MUSIC_FALLBACK_VOLUME, MUSIC_TARGET_DB } from './mix';
 // hardcoding pack names or shipping a generated index. The server also
 // excludes anything under MIN_TRACK_DURATION_SECONDS (10s) from the random
 // pool, so every track this fetches is long enough for the loop-fade below
-// to have real room to work with. Volume is per-track loudness-normalized to
-// MUSIC_TARGET_DB (tracks vary ~6 dB among themselves — see loudness.ts), so
-// every match's music bed sits at the same level under the cries and SFX.
+// to have real room to work with.
+//
+// Streamed through an <audio> element rather than loaded as a Phaser sound:
+// Phaser's loader downloads the whole file and decodes it to PCM before the
+// first note (a 3-minute stereo track is ~60-100 MB of samples, a real cost
+// on a phone, and the intro could run for seconds in silence on a slow
+// connection), whereas a media element starts playing after the first few
+// hundred KB arrive. Under WebAudio the element is routed into Phaser's own
+// graph via a MediaElementAudioSourceNode, so the master mute/volume and
+// the limiter (see mix.ts) still apply and the loop fade is a GainNode ramp;
+// with the HTML5/no-audio managers it just plays on its own. Level: the
+// tracks are loudness-normalized in the file (data-pipeline/build-soundtrack.ts),
+// so the element plays at unity.
 const RANDOM_TRACK_URL = '/soundtracks/random';
-const BATTLE_MUSIC_KEY = 'battle-music';
-// How long the volume fade takes on each side of a loop boundary — long
-// enough to smooth over the seam, short enough not to eat a big chunk out of
-// even the shortest track the server will hand back.
-const LOOP_FADE_MS = 3000;
+/** Time constant of the GainNode ramp that follows the loop-fade envelope
+ * (see loopFade.ts) — timeupdate only fires ~4x/s, so the ramp is what
+ * keeps the fade from stepping. */
+const FADE_SMOOTHING_S = 0.1;
 
 interface RandomTrackResponse {
   folder: string;
@@ -25,17 +34,7 @@ interface RandomTrackResponse {
   url: string;
 }
 
-/** The subset of BaseSound's concrete-subclass-only API (WebAudioSound,
- * HTML5AudioSound, NoAudioSound all implement it identically) that isn't on
- * the base class itself but is needed for the loop-fade below. */
-interface FadeableSound extends Phaser.Sound.BaseSound {
-  volume: number;
-  setVolume(value: number): this;
-}
-
-/** Starts a random background track looping for the scene's lifetime, with a
- * short crossfade-style dip at each loop boundary (fades out just before the
- * track ends, fades back in as it restarts) so the repeat isn't a hard cut.
+/** Starts a random background track looping for the scene's lifetime.
  * Called once from ArenaScene.create(), so it runs once per match (local or
  * multiplayer — both mount a fresh Arena scene per match, see PhaserGame.tsx).
  * Fire-and-forget: if sprite-server isn't running or the mirror is empty, the
@@ -49,25 +48,7 @@ export function playBattleMusic(scene: Phaser.Scene): void {
         return;
       }
       if (!scene.sys.isActive()) return;
-
-      // 'loaderror' is generic (fires for ANY failed file in the queue, not
-      // just this one — unlike filecomplete-audio-{key} below), so a plain
-      // .once() here would risk consuming itself on some unrelated sprite
-      // load failing first. .on() + filtering by key avoids that; there's
-      // nothing to remove it since the whole scene is torn down within
-      // seconds either way (new match or exit).
-      scene.load.on('loaderror', (file: Phaser.Loader.File) => {
-        if (file.key === BATTLE_MUSIC_KEY) console.warn('[battleMusic] failed to load track', file.src);
-      });
-
-      // filecomplete-audio-{key} is per-file (see the loaderror comment
-      // above for why that distinction matters), so a plain .once() here is safe.
-      scene.load.once(`filecomplete-audio-${BATTLE_MUSIC_KEY}`, () => {
-        if (!scene.sys.isActive()) return;
-        startLoopingWithFade(scene);
-      });
-      scene.load.audio(BATTLE_MUSIC_KEY, track.url);
-      if (!scene.load.isLoading()) scene.load.start();
+      startStreaming(scene, track.url);
     })
     .catch((err) => {
       // no music this match — sprite-server unreachable or mirror empty
@@ -75,60 +56,83 @@ export function playBattleMusic(scene: Phaser.Scene): void {
     });
 }
 
-function startLoopingWithFade(scene: Phaser.Scene): void {
-  const trackVolume = normalizedVolume(scene, BATTLE_MUSIC_KEY, MUSIC_TARGET_DB, MUSIC_FALLBACK_VOLUME);
-  const sound = scene.sound.add(BATTLE_MUSIC_KEY, { loop: true, volume: trackVolume }) as FadeableSound;
+function startStreaming(scene: Phaser.Scene, url: string): void {
+  const element = document.createElement('audio');
+  element.loop = true;
+  element.preload = 'auto';
+  // Same-origin in every deployment (Vite proxy in dev, Caddy in prod), but a
+  // MediaElementAudioSourceNode outputs silence for a tainted cross-origin
+  // element, so be explicit that CORS is expected should that ever change.
+  element.crossOrigin = 'anonymous';
+  element.src = url;
 
-  // Browsers block audio playback until a genuine user gesture unlocks the
-  // page's AudioContext. PhaserGame.tsx tears down and recreates the whole
-  // Phaser.Game (and with it, a brand-new AudioContext) for every match, so
-  // "the player clicked something to get here" doesn't guarantee THIS
-  // context is already unlocked — that click can easily land before this
-  // particular context even exists. Calling .play() while locked fails
-  // completely silently (no error, no sound, and Phaser never retries it on
-  // its own), which is exactly the intermittent "sometimes no music" bug:
-  // deferring to the manager's own 'unlocked' event instead guarantees
-  // playback actually starts the moment the browser allows it, rather than
-  // being lost forever if the timing was unlucky.
-  if (scene.sound.locked) {
-    scene.sound.once(Phaser.Sound.Events.UNLOCKED, () => {
-      if (scene.sys.isActive()) beginPlayback(scene, sound, trackVolume);
-    });
-    return;
+  const bus = getWebAudioBus(scene.sound);
+  let gain: GainNode | undefined;
+  let source: MediaElementAudioSourceNode | undefined;
+  if (bus) {
+    source = bus.context.createMediaElementSource(element);
+    gain = bus.context.createGain();
+    source.connect(gain);
+    gain.connect(bus.destination);
   }
 
-  beginPlayback(scene, sound, trackVolume);
+  let loopedOnce = false;
+  let lastTime = 0;
+  const onTimeUpdate = (): void => {
+    // The loop wraps currentTime back to ~0 — that's the only way it can go
+    // backwards on a track nobody seeks.
+    if (element.currentTime < lastTime - 1) loopedOnce = true;
+    lastTime = element.currentTime;
+    const level = loopFadeEnvelope(element.currentTime, element.duration, loopedOnce);
+    if (gain && bus) gain.gain.setTargetAtTime(level, bus.context.currentTime, FADE_SMOOTHING_S);
+    else element.volume = level;
+  };
+  element.addEventListener('timeupdate', onTimeUpdate);
+  element.addEventListener('error', () => console.warn('[battleMusic] failed to stream track', url));
+
+  // The element lives outside Phaser, so it has to be torn down with the
+  // scene by hand — PhaserGame.tsx destroys the whole game per match, which
+  // destroys this scene, and a scene restart would shut it down.
+  const teardown = (): void => {
+    element.removeEventListener('timeupdate', onTimeUpdate);
+    element.pause();
+    element.removeAttribute('src');
+    element.load();
+    source?.disconnect();
+    gain?.disconnect();
+  };
+  scene.events.once(Phaser.Scenes.Events.SHUTDOWN, teardown);
+  scene.events.once(Phaser.Scenes.Events.DESTROY, teardown);
+
+  beginPlayback(scene, element);
 }
 
-/** `trackVolume` is this track's normalized level (see startLoopingWithFade)
- * — the loop fade-in below has to come back up to exactly that, not to a
- * flat constant. */
-function beginPlayback(scene: Phaser.Scene, sound: FadeableSound, trackVolume: number): void {
-  sound.play();
-
-  const fadeSec = LOOP_FADE_MS / 1000;
-  // A track this short shouldn't reach here (see MIN_TRACK_DURATION_SECONDS
-  // above) — stay defensive anyway rather than schedule overlapping fades.
-  if (!Number.isFinite(sound.duration) || sound.duration <= fadeSec * 2) return;
-
-  const fadeOutDelayMs = (sound.duration - fadeSec) * 1000;
-
-  const scheduleFadeOut = (): void => {
-    scene.time.delayedCall(fadeOutDelayMs, () => {
-      if (!sound.isPlaying) return;
-      scene.tweens.add({ targets: sound, volume: 0, duration: LOOP_FADE_MS, ease: 'Linear' });
-    });
+/** Browsers block audio until a genuine user gesture unlocks the page, and
+ * PhaserGame.tsx builds a brand-new AudioContext for every match, so "the
+ * player clicked something to get here" doesn't guarantee THIS context is
+ * unlocked yet. Phaser tracks that for its context (`locked` + the UNLOCKED
+ * event); the element's own play() can additionally be refused, in which
+ * case it's retried on the next gesture. Starting the element while the
+ * context is still suspended would run the track silently (its output is
+ * routed into that context), so wait for the unlock first. */
+function beginPlayback(scene: Phaser.Scene, element: HTMLAudioElement): void {
+  const attempt = (): void => {
+    if (!scene.sys.isActive()) return;
+    element.play().catch(() => retryOnGesture(scene, attempt));
   };
+  if (scene.sound.locked) {
+    scene.sound.once(Phaser.Sound.Events.UNLOCKED, attempt);
+    return;
+  }
+  attempt();
+}
 
-  // Fires exactly when Phaser wraps playback back to the start — the natural
-  // point to start fading back in. setVolume(0) first covers the (rare) case
-  // where the fade-out tween above hasn't quite finished landing on 0 yet.
-  sound.on(Phaser.Sound.Events.LOOPED, () => {
-    if (!sound.isPlaying) return;
-    sound.setVolume(0);
-    scene.tweens.add({ targets: sound, volume: trackVolume, duration: LOOP_FADE_MS, ease: 'Linear' });
-    scheduleFadeOut(); // re-arm for the next loop
-  });
-
-  scheduleFadeOut();
+function retryOnGesture(scene: Phaser.Scene, retry: () => void): void {
+  const once = (): void => {
+    window.removeEventListener('pointerdown', once);
+    window.removeEventListener('keydown', once);
+    if (scene.sys.isActive()) retry();
+  };
+  window.addEventListener('pointerdown', once);
+  window.addEventListener('keydown', once);
 }

@@ -21,6 +21,6 @@ export default defineConfig({
   },
   test: {
     environment: 'node',
-    include: ['src/**/*.test.ts', 'game-server/**/*.test.ts'],
+    include: ['src/**/*.test.ts', 'game-server/**/*.test.ts', 'sprite-server/**/*.test.ts'],
   },
 });
