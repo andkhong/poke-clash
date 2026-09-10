@@ -166,7 +166,9 @@ function soundtrackContentType(file: string): string {
 }
 
 const server = createServer((req, res) => {
-  const url = decodeURIComponent(req.url ?? '');
+  // Path only: sheet URLs carry a cache-busting ?v= tag (see
+  // src/render/sprites/pmdSheetUrl.ts) that the routes below must ignore.
+  const url = decodeURIComponent(new URL(req.url ?? '/', 'http://localhost').pathname);
 
   if (url === '/' || url === '/health') {
     res.writeHead(200, { 'Content-Type': 'text/plain' }).end('pmd sprite server ok');
