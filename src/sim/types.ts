@@ -130,6 +130,11 @@ export interface PokemonInstance {
   targetInstanceId: string | null;
   lastRetargetMs: number;
   wanderWaypoint?: Vec2;
+  /** Consecutive ms this Pokémon has spent steering toward wanderWaypoint
+   * without making real headway (blocked by a neighbor or a wall) — see
+   * WANDER_STUCK_REPICK_MS and movement.ts's trackWanderHeadway(). Unset or
+   * 0 whenever it isn't currently walking a wander leg. */
+  wanderStuckMs?: number;
 
   /** Milliseconds remaining before this Pokémon may act (attack) again. */
   actionCooldownMs: number;

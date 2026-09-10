@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { SimulationEngine } from './engine';
 import type { SpeciesData } from './matchSetup';
 import type { MoveDefinition } from './types';
-import { COMBAT_START_DELAY_MS, TICK_MS } from './constants';
+import { ARENA_HEIGHT, ARENA_WIDTH, COMBAT_START_DELAY_MS, TICK_MS } from './constants';
 import { distance } from './movement';
 
 const FIXTURE_MOVES: MoveDefinition[] = [
@@ -87,10 +87,29 @@ describe('SimulationEngine full match', () => {
     expect(events.some((e) => e.type === 'milestone' && e.kind === 'matchEnd')).toBe(true);
   });
 
-  it('emits a finalTwo milestone when the roster drops to 2 in a larger match', () => {
-    const engine = runFullMatch(7, [1, 2, 3, 4, 5, 6]);
-    const events = engine.getEventsSince(0);
-    expect(events.some((e) => e.type === 'milestone' && e.kind === 'finalTwo')).toBe(true);
+  it('emits a finalTwo milestone exactly when a larger match passes through a roster of 2', () => {
+    // Whether the roster ever actually *sits* at exactly 2 is seed-dependent:
+    // a spread move (or two faints landing on the same tick) can take it
+    // straight from 3 to 1, and then there's no final-two moment to announce
+    // at all. So derive the expectation from each match's own faint timeline
+    // rather than pinning one seed, whose outcome shifts with any change to
+    // the order the sim draws from its RNG.
+    let sawFinalTwo = false;
+    for (let seed = 1; seed <= 8; seed++) {
+      const engine = runFullMatch(seed, [1, 2, 3, 4, 5, 6]);
+      const events = engine.getEventsSince(0);
+      const faintTicks = [...new Set(events.filter((e) => e.type === 'fainted').map((e) => e.atMs))].sort((a, b) => a - b);
+      let living = 6;
+      let passedThroughTwo = false;
+      for (const atMs of faintTicks) {
+        living -= events.filter((e) => e.type === 'fainted' && e.atMs === atMs).length;
+        if (living === 2) passedThroughTwo = true;
+      }
+      const emitted = events.some((e) => e.type === 'milestone' && e.kind === 'finalTwo');
+      expect(emitted).toBe(passedThroughTwo);
+      sawFinalTwo ||= emitted;
+    }
+    expect(sawFinalTwo).toBe(true); // sanity: the sample actually exercised the milestone
   });
 
   it('lets nobody attack another Pokémon until COMBAT_START_DELAY_MS after the intro ends', () => {
@@ -511,6 +530,62 @@ describe('SimulationEngine full match', () => {
     expect(fixmanderMoves.length).toBeGreaterThan(0); // sanity: it actually attacked at least once
     for (const e of fixmanderMoves) {
       expect(e.type === 'moveUsed' && e.moveId).toBe(1);
+    }
+  });
+});
+
+describe('cold-open wander in a packed spawn', () => {
+  it('never reads as spinning: facing changes only a handful of times per Pokémon even with 16 oversized bodies overlapping at spawn', () => {
+    // Mirrors the Legendaries preset on the portrait arena — 16 Pokémon at
+    // the sprite-size cap (collision radius ~95px) on a spawn circle whose
+    // neighbor spacing (~113px) is far less than a pair's combined radii
+    // (~190px), so everyone starts the battle overlapping their neighbors.
+    // Repicking a wander waypoint on every collision (the old behavior) gave
+    // each of them a brand-new random heading nearly every tick here — 20+
+    // facing flips per Pokémon over the 3s cold-open, 40 for the unluckiest.
+    const OVERSIZED_RADIUS = 95;
+    const species: Record<number, SpeciesData> = Object.fromEntries(
+      Object.values(FIXTURE_SPECIES).map((s) => [s.id, { ...s, collisionRadius: OVERSIZED_RADIUS }])
+    );
+    const speciesIds = Array.from({ length: 16 }, (_, i) => (i % 6) + 1);
+
+    for (const seed of [1, 2, 3]) {
+      const engine = new SimulationEngine(
+        { level: 100, speciesIds, arena: { width: ARENA_WIDTH, height: ARENA_HEIGHT }, shiny: false },
+        species,
+        moveLookup,
+        seed
+      );
+      const state = engine.getState();
+      while (state.elapsedMs < state.introDurationMs) engine.tick(TICK_MS);
+
+      const facingChanges = new Map<string, number>();
+      const lastFacing = new Map<string, string>();
+      for (const id of state.livingOrder) {
+        facingChanges.set(id, 0);
+        lastFacing.set(id, state.pokemon[id].facing);
+      }
+      const coldOpenEndMs = state.elapsedMs + COMBAT_START_DELAY_MS;
+      while (state.elapsedMs < coldOpenEndMs) {
+        engine.tick(TICK_MS);
+        for (const id of state.livingOrder) {
+          const facing = state.pokemon[id].facing;
+          if (facing !== lastFacing.get(id)) {
+            facingChanges.set(id, facingChanges.get(id)! + 1);
+            lastFacing.set(id, facing);
+          }
+        }
+      }
+
+      const counts = [...facingChanges.values()];
+      const average = counts.reduce((sum, c) => sum + c, 0) / counts.length;
+      // A real wander leg or two, plus at most a couple of stuck give-ups —
+      // nowhere near the tick-by-tick churn that reads as spinning.
+      expect(Math.max(...counts)).toBeLessThanOrEqual(6);
+      expect(average).toBeLessThanOrEqual(3);
+      // Sanity: they're genuinely walking off in their own directions, not
+      // frozen in the formation.
+      expect(counts.some((c) => c > 0)).toBe(true);
     }
   });
 });

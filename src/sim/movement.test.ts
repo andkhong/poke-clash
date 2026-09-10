@@ -1,7 +1,22 @@
 import { describe, expect, it } from 'vitest';
-import { distance, pickWanderWaypoint, resolveCollisions, steerToward, velocityToFacing } from './movement';
+import {
+  distance,
+  pickWanderWaypoint,
+  resolveCollisions,
+  steerToward,
+  trackWanderHeadway,
+  velocityToFacing,
+} from './movement';
 import { createRng } from './rng';
-import { ARENA_TOP_PADDING, RED_ZONE_RIGHT_FRACTION, getRedZoneInsets } from './constants';
+import {
+  ARENA_TOP_PADDING,
+  RED_ZONE_RIGHT_FRACTION,
+  TICK_MS,
+  WANDER_SPEED,
+  WANDER_STUCK_REPICK_MS,
+  WANDER_TURN_AWAY_MIN_RAD,
+  getRedZoneInsets,
+} from './constants';
 import type { FacingDirection, PokemonInstance } from './types';
 
 function makeCollider(id: string, x: number, y: number, collisionRadius: number): PokemonInstance {
@@ -268,5 +283,95 @@ describe('pickWanderWaypoint', () => {
     const points = Array.from({ length: 10 }, () => pickWanderWaypoint(rng, arena, from));
     const uniqueX = new Set(points.map((p) => Math.round(p.x)));
     expect(uniqueX.size).toBeGreaterThan(1);
+  });
+
+  it('turns at least WANDER_TURN_AWAY_MIN_RAD off the heading it was blocked on when one is given', () => {
+    const rng = createRng(9);
+    const from = { x: 450, y: 975 };
+    const blockedHeading = { x: 1, y: 0 }; // was walking due east into something
+    const trials = 300;
+    let tooCloseToBlocked = 0;
+    for (let i = 0; i < trials; i++) {
+      const wp = pickWanderWaypoint(rng, arena, from, blockedHeading);
+      const angle = Math.atan2(wp.y - from.y, wp.x - from.x); // 0 = east
+      if (Math.abs(angle) < WANDER_TURN_AWAY_MIN_RAD - 1e-9) tooCloseToBlocked++;
+    }
+    // Only the out-of-attempts fallback (a clamped candidate whose direction
+    // shifted in the clamp) could ever land inside the cone — vanishingly
+    // rare from the open middle of the arena.
+    expect(tooCloseToBlocked / trials).toBeLessThan(0.01);
+  });
+});
+
+describe('trackWanderHeadway', () => {
+  const waypoint = { x: 1000, y: 500 };
+  const seekSpeed = WANDER_SPEED;
+
+  function wanderer(x: number, y: number): PokemonInstance {
+    const p = makeCollider('w', x, y, 40);
+    p.wanderWaypoint = { ...waypoint };
+    return p;
+  }
+
+  it('keeps the waypoint while real headway is being made, even if a shove knocked it partly off course', () => {
+    const p = wanderer(500, 500);
+    const tickStart = { x: 500, y: 500 };
+    // A full tick's walk east, plus a sideways shove from a neighbor.
+    p.position = { x: 500 + WANDER_SPEED * (TICK_MS / 1000), y: 500 + 30 };
+    expect(trackWanderHeadway(p, tickStart, seekSpeed, TICK_MS)).toBeNull();
+    expect(p.wanderWaypoint).toEqual(waypoint);
+    expect(p.wanderStuckMs).toBe(0);
+  });
+
+  it('abandons the waypoint only after WANDER_STUCK_REPICK_MS of getting nowhere, reporting the blocked heading', () => {
+    const p = wanderer(500, 500);
+    const pinned = { x: 500, y: 500 };
+    const ticksToGiveUp = Math.ceil(WANDER_STUCK_REPICK_MS / TICK_MS);
+    for (let i = 0; i < ticksToGiveUp - 1; i++) {
+      expect(trackWanderHeadway(p, pinned, seekSpeed, TICK_MS)).toBeNull();
+      expect(p.wanderWaypoint).toEqual(waypoint); // still committed
+    }
+    const blocked = trackWanderHeadway(p, pinned, seekSpeed, TICK_MS);
+    expect(blocked).not.toBeNull();
+    expect(blocked!.x).toBeCloseTo(1, 6); // unit vector toward where it was trying to go
+    expect(blocked!.y).toBeCloseTo(0, 6);
+    expect(p.wanderWaypoint).toBeUndefined();
+    expect(p.wanderStuckMs).toBe(0);
+  });
+
+  it('resets the stuck clock the moment headway resumes, so brief bumps never add up to a give-up', () => {
+    const p = wanderer(500, 500);
+    const pinned = { x: 500, y: 500 };
+    const almost = Math.ceil(WANDER_STUCK_REPICK_MS / TICK_MS) - 1;
+    for (let i = 0; i < almost; i++) trackWanderHeadway(p, pinned, seekSpeed, TICK_MS);
+    expect(p.wanderStuckMs).toBeGreaterThan(0);
+    // One clean tick of progress...
+    p.position = { x: 500 + WANDER_SPEED * (TICK_MS / 1000), y: 500 };
+    expect(trackWanderHeadway(p, pinned, seekSpeed, TICK_MS)).toBeNull();
+    expect(p.wanderStuckMs).toBe(0);
+    // ...and it takes a whole fresh WANDER_STUCK_REPICK_MS of being pinned
+    // again before it would give up.
+    const nowPinned = { ...p.position };
+    for (let i = 0; i < almost; i++) {
+      expect(trackWanderHeadway(p, nowPinned, seekSpeed, TICK_MS)).toBeNull();
+    }
+    expect(p.wanderWaypoint).toEqual(waypoint);
+  });
+
+  it('does not mistake the deliberate arrival slowdown near the waypoint for being blocked', () => {
+    // 20px out: steerToward halves the speed there, so a tick only covers
+    // ~4.5px unobstructed — 2px of that must still count as headway.
+    const p = wanderer(980, 500);
+    const tickStart = { x: 980, y: 500 };
+    p.position = { x: 982, y: 500 };
+    expect(trackWanderHeadway(p, tickStart, seekSpeed, TICK_MS)).toBeNull();
+    expect(p.wanderStuckMs).toBe(0);
+  });
+
+  it('is a no-op (and clears the stuck clock) when there is no waypoint to judge against', () => {
+    const p = makeCollider('w', 500, 500, 40);
+    p.wanderStuckMs = 300;
+    expect(trackWanderHeadway(p, { x: 500, y: 500 }, seekSpeed, TICK_MS)).toBeNull();
+    expect(p.wanderStuckMs).toBe(0);
   });
 });

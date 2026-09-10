@@ -19,6 +19,7 @@ import {
   pickWanderWaypoint,
   resolveCollisions,
   steerToward,
+  trackWanderHeadway,
   WANDER_MOVE_SPEED,
 } from './movement';
 import { chooseMove, findSelfBuffMove, retaliate, updateTargeting } from './ai';
@@ -117,22 +118,30 @@ export class SimulationEngine implements EngineLike {
     const positions = new Map<string, Vec2>();
     for (const id of livingIds) positions.set(id, { ...this.state.pokemon[id].position });
     const neighbors = buildNeighborListFromPositions(livingIds, positions, this.state.pokemon);
+    const speedMult = isAggressivePhase(nowMs) ? AGGRESSIVE_SPEED_MULTIPLIER : 1;
 
+    const wanderers: string[] = [];
     for (const id of livingIds) {
       const self = this.state.pokemon[id];
       if (self.currentHp <= 0) continue;
       updateTargeting(self, this.state, positions, nowMs, this.rng);
-      this.stepMovement(self, positions, neighbors);
+      if (this.stepMovement(self, positions, neighbors, speedMult)) wanderers.push(id);
+      else self.wanderStuckMs = 0;
     }
 
-    // Same reasoning as applyMovement's own wall case (see stepMovement): a
-    // wandering Pokémon hard-shoved apart from another one here has no memory
-    // of that either, so its stale waypoint would just steer it straight back
-    // into the same spot next tick instead of heading off differently.
-    const collided = resolveCollisions(livingIds, this.state.pokemon, this.state.arena);
-    for (const id of collided) {
+    resolveCollisions(livingIds, this.state.pokemon, this.state.arena);
+
+    // Only now — with every position-changing pass for this tick done — can a
+    // wander leg's headway be judged. A Pokémon that's been getting nowhere
+    // for a while gives up on that waypoint and picks a replacement that
+    // turns it away from whatever was blocking it; being jostled while still
+    // making progress is left alone entirely (see trackWanderHeadway).
+    for (const id of wanderers) {
       const self = this.state.pokemon[id];
-      if (self.aiState === 'wander') self.wanderWaypoint = undefined;
+      const blockedHeading = trackWanderHeadway(self, positions.get(id)!, WANDER_MOVE_SPEED * speedMult, TICK_MS);
+      if (blockedHeading) {
+        self.wanderWaypoint = pickWanderWaypoint(this.rng, this.state.arena, self.position, blockedHeading);
+      }
     }
 
     for (const id of livingIds) {
@@ -151,18 +160,21 @@ export class SimulationEngine implements EngineLike {
     this.checkMilestones(nowMs);
   }
 
+  /** Returns true when this Pokémon spent the tick walking a wander leg
+   * (steering toward its wanderWaypoint) — the one case stepOnce has to
+   * follow up on after collisions are resolved, see trackWanderHeadway. */
   private stepMovement(
     self: PokemonInstance,
     positions: ReadonlyMap<string, Vec2>,
-    neighbors: ReturnType<typeof buildNeighborListFromPositions>
-  ): void {
+    neighbors: ReturnType<typeof buildNeighborListFromPositions>,
+    speedMult: number
+  ): boolean {
     if (self.aiState === 'incapacitated') {
       self.velocity = { x: 0, y: 0 };
-      return;
+      return false;
     }
 
-    const speedMult = isAggressivePhase(this.state.elapsedMs) ? AGGRESSIVE_SPEED_MULTIPLIER : 1;
-
+    let walkingWanderLeg = false;
     if (self.postAttackHoldMs > 0) {
       // Hold perfectly still (separation-only, same as 'attack' below) until
       // the render's whole attack-visual window (pose/label/sound — see
@@ -184,8 +196,10 @@ export class SimulationEngine implements EngineLike {
       const selfPos = positions.get(self.instanceId) ?? self.position;
       if (!self.wanderWaypoint || distance(selfPos, self.wanderWaypoint) < 12) {
         self.wanderWaypoint = pickWanderWaypoint(this.rng, this.state.arena, selfPos);
+        self.wanderStuckMs = 0;
       }
       steerToward(self, self.wanderWaypoint, WANDER_MOVE_SPEED * speedMult, neighbors);
+      walkingWanderLeg = true;
     } else if (self.aiState === 'chase' && self.targetInstanceId) {
       const target = this.state.pokemon[self.targetInstanceId];
       const targetPos = positions.get(target.instanceId) ?? target.position;
@@ -195,15 +209,8 @@ export class SimulationEngine implements EngineLike {
       steerToward(self, self.position, 0, neighbors);
     }
 
-    const hitWall = applyMovement(self, TICK_MS, this.state.arena);
-    // Wandering straight into the arena boundary — steerToward() has no
-    // memory of last tick's motion, so without this it would just keep
-    // re-aiming at the same (unreachable, through-the-wall) waypoint forever
-    // instead of heading off in a new direction. See applyMovement's own
-    // comment. Only 'wander' uses wanderWaypoint at all — chase/attack steer
-    // at a live target/itself every tick regardless, so there's nothing stale
-    // to clear for them.
-    if (hitWall && self.aiState === 'wander') self.wanderWaypoint = undefined;
+    applyMovement(self, TICK_MS, this.state.arena);
+    return walkingWanderLeg;
   }
 
   private maybeAct(self: PokemonInstance, nowMs: number): void {

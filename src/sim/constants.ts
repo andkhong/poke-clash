@@ -197,6 +197,34 @@ export const SLEEP_MAX_TURNS = 3;
 export const WANDER_SPEED = 180; // px/s (3x)
 export const CHASE_SPEED = 270; // px/s (3x)
 export const ARRIVAL_SLOWDOWN_RADIUS = 40;
+
+/**
+ * A wandering Pokémon commits to its current waypoint even while being
+ * jostled — bumped by a neighbor, shoved apart by resolveCollisions(), or
+ * squeezed against a wall — and only gives up on it after this long (ms) of
+ * making no real headway toward it. Repicking the instant a collision
+ * happens (the old behavior) meant a Pokémon packed into a crowd got a brand
+ * new random direction every single tick for as long as it kept touching
+ * anyone, and since facing follows the seek direction, that read as spinning
+ * in place. Worst right at battle start with a roster of large species (the
+ * Legendaries preset: 16 max-size sprites whose combined collision radii
+ * don't fit on the spawn circle at all), where everyone is overlapping
+ * everyone for the first second or so. Half a second is long enough that the
+ * hard collision push has usually already slid the two apart by itself.
+ */
+export const WANDER_STUCK_REPICK_MS = 500;
+/** Headway toward the waypoint over one tick below this fraction of what an
+ * unobstructed walk would have covered counts as "no real headway" for
+ * WANDER_STUCK_REPICK_MS's purposes. Sliding past a neighbor at a shallow
+ * angle still makes plenty of headway and isn't stuck; pressing head-on into
+ * one (or a wall) makes none. */
+export const WANDER_STUCK_HEADWAY_FRACTION = 0.25;
+/** When a stuck Pokémon finally gives up on a waypoint, its replacement is
+ * picked at least this far (radians) off the heading it was blocked on, so
+ * it visibly turns away from whatever it walked into rather than having a
+ * 50/50 chance of picking another direction straight back into it. */
+export const WANDER_TURN_AWAY_MIN_RAD = Math.PI / 3;
+
 export const ARENA_PADDING = 48;
 /**
  * Extra-tall clamp for the arena's top edge only — reserves a strip at the
