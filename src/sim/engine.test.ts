@@ -5,11 +5,13 @@ import type { MoveDefinition } from './types';
 import {
   ARENA_HEIGHT,
   ARENA_WIDTH,
-  ATTACK_DEFERRED_RETRY_MS,
+  ATTACK_DEFERRED_RETRY_MAX_MS,
+  ATTACK_DEFERRED_RETRY_MIN_MS,
   ATTACK_GAP_MS,
   BURN_CHIP_FRACTION,
   COMBAT_START_DELAY_MS,
   FREEZE_MAX_TURNS,
+  MATCH_TIME_LIMIT_MS,
   MAX_ACTION_COOLDOWN_MS,
   MAX_SIMULTANEOUS_ATTACKS,
   POISON_CHIP_FRACTION,
@@ -303,30 +305,39 @@ describe('SimulationEngine full match', () => {
     }
   });
 
-  it('splits the roster into teamA/teamB by spawn order and ends the match as soon as one whole side is wiped out', () => {
-    const engine = new SimulationEngine(
-      { level: 100, speciesIds: [1, 2, 3, 4, 5, 6], arena: { width: 960, height: 1600 }, shiny: false, teams: { size: 3 } },
-      FIXTURE_SPECIES,
-      moveLookup,
-      5
-    );
-    const pokemonList = Object.values(engine.getState().pokemon);
-    expect(pokemonList.slice(0, 3).every((p) => p.team === 'teamA')).toBe(true);
-    expect(pokemonList.slice(3).every((p) => p.team === 'teamB')).toBe(true);
+  it('splits the roster into teamA/teamB by spawn order and, when a match finishes by knockout, ends it as soon as one whole side is wiped out', () => {
+    let sawKnockoutFinish = false;
+    for (let seed = 1; seed <= 8; seed++) {
+      const engine = new SimulationEngine(
+        { level: 100, speciesIds: [1, 2, 3, 4, 5, 6], arena: { width: 960, height: 1600 }, shiny: false, teams: { size: 3 } },
+        FIXTURE_SPECIES,
+        moveLookup,
+        seed
+      );
+      const pokemonList = Object.values(engine.getState().pokemon);
+      expect(pokemonList.slice(0, 3).every((p) => p.team === 'teamA')).toBe(true);
+      expect(pokemonList.slice(3).every((p) => p.team === 'teamB')).toBe(true);
 
-    const maxSteps = Math.ceil(95_000 / TICK_MS);
-    for (let i = 0; i < maxSteps; i++) {
-      if (engine.getState().phase === 'complete') break;
-      engine.tick(TICK_MS);
+      const maxSteps = Math.ceil(95_000 / TICK_MS);
+      for (let i = 0; i < maxSteps; i++) {
+        if (engine.getState().phase === 'complete') break;
+        engine.tick(TICK_MS);
+      }
+      const state = engine.getState();
+      expect(state.phase).toBe('complete');
+      expect([...state.winnerInstanceIds].sort()).toEqual([...state.livingOrder].sort());
+      // The 90s hard cap legitimately ends a match with both sides still
+      // standing (shared win — see forceMatchEnd); only a knockout finish
+      // can say anything about wipe-out timing.
+      if (state.elapsedMs >= MATCH_TIME_LIMIT_MS) continue;
+      sawKnockoutFinish = true;
+      // Whoever's left standing must all be from the same side — the match
+      // must never end mid-fight with two teams alive, nor linger after one
+      // side hits zero.
+      const survivingTeams = new Set(state.livingOrder.map((id) => state.pokemon[id].team));
+      expect(survivingTeams.size).toBeLessThanOrEqual(1);
     }
-    const state = engine.getState();
-    expect(state.phase).toBe('complete');
-    // Whoever's left standing (if anyone) must all be from the same side —
-    // the match should never end mid-fight with two teams still alive, nor
-    // linger after one side hits zero.
-    const survivingTeams = new Set(state.livingOrder.map((id) => state.pokemon[id].team));
-    expect(survivingTeams.size).toBeLessThanOrEqual(1);
-    expect([...state.winnerInstanceIds].sort()).toEqual([...state.livingOrder].sort());
+    expect(sawKnockoutFinish).toBe(true); // sanity: the sample actually exercised the wipe-out rule
   });
 
   it('holds the attacker still (bar incidental separation jitter) through its post-attack recovery window, then sends it off on a fresh wander leg instead of resuming a stale waypoint', () => {
@@ -764,6 +775,43 @@ describe('cold-open wander in a packed spawn', () => {
   });
 });
 
+describe('roster spread during a fight', () => {
+  it('keeps a full 16-Pokémon brawl spread across the arena instead of clumped at its center', () => {
+    // Samples every living Pokémon every tick from combat start until the
+    // roster thins to a duel, on the real portrait arena: what fraction of
+    // those samples sit within 300px of the arena center. A uniform spread
+    // over the playable area puts ~29% there; the old cast-from-position
+    // wander pick plus cooldown-cut legs measured ~63% on real rosters, and
+    // the first single-slot attack gate build ~96% (everyone hovering over
+    // one central scrum). Open-space waypoints and legs walked to their end
+    // bring it to roughly 40%. The bound is loose enough not to flake on
+    // fixture-vs-real-data differences while still failing hard if the
+    // center-seeking behavior ever creeps back.
+    const CENTER_RADIUS = 300;
+    const speciesIds = Array.from({ length: 16 }, (_, i) => (i % 6) + 1);
+    const arena = { width: ARENA_WIDTH, height: ARENA_HEIGHT };
+    const center = { x: arena.width / 2, y: arena.height / 2 };
+    let samples = 0;
+    let nearCenter = 0;
+    for (const seed of [1, 2, 3]) {
+      const engine = new SimulationEngine({ level: 50, speciesIds, arena, shiny: false }, FIXTURE_SPECIES, moveLookup, seed);
+      const state = engine.getState();
+      const combatStartMs = state.introDurationMs + COMBAT_START_DELAY_MS;
+      for (let i = 0; i < Math.ceil(95_000 / TICK_MS); i++) {
+        if (state.phase === 'complete' || state.livingOrder.length < 3) break;
+        engine.tick(TICK_MS);
+        if (state.elapsedMs < combatStartMs) continue;
+        for (const id of state.livingOrder) {
+          samples += 1;
+          if (distance(state.pokemon[id].position, center) < CENTER_RADIUS) nearCenter += 1;
+        }
+      }
+    }
+    expect(samples).toBeGreaterThan(1000); // sanity: a real stretch of fighting was sampled
+    expect(nearCenter / samples).toBeLessThan(0.5);
+  });
+});
+
 describe('arena-wide attack gate', () => {
   type MoveUsed = Extract<SimEvent, { type: 'moveUsed' }>;
 
@@ -895,11 +943,14 @@ describe('arena-wide attack gate', () => {
   it("never lets a Pokémon that was KO'd earlier in the same tick still get its attack off", () => {
     // Two one-shot glass cannons, wandering off in a tiny arena so they close
     // in symmetrically and both come off cooldown in range on the very same
-    // tick — the gate happily offers both a slot. The first to fire KOs the
-    // other, and the other (at 0 HP, but still in livingOrder until
-    // sweepFaints) must be skipped, not allowed a posthumous mutual KO that
-    // leaves the match with no winner. The old one-Pokémon-at-a-time action
-    // loop got this for free; the collect-then-fire gate has to re-check.
+    // tick. The first to fire KOs the other, and the other (at 0 HP, but
+    // still in livingOrder until sweepFaints) must be skipped, not allowed a
+    // posthumous mutual KO that leaves the match with no winner. The old
+    // one-Pokémon-at-a-time action loop got this for free; the
+    // collect-then-fire gate has to re-check. With MAX_SIMULTANEOUS_ATTACKS
+    // at 1 the slot itself already stops the second fire, so this mostly
+    // guards the re-check for any future cap above 1 — it did catch a real
+    // no-winner match when the cap was 2.
     const GLASS_CANNON = { hp: 1, atk: 255, def: 5, spa: 5, spd: 5, spe: 100 };
     const species: Record<number, SpeciesData> = {
       11: { id: 11, name: 'Fixcannon A', types: ['normal'], baseStats: GLASS_CANNON, movePool: [1], collisionRadius: 40 },
@@ -967,7 +1018,8 @@ describe('arena-wide attack gate', () => {
         // Any other positive cooldown on a Pokémon still in 'attack' must have
         // been set this very tick (updateTargeting would have wandered it
         // otherwise) — i.e. it was deferred.
-        expect(p.actionCooldownMs).toBe(ATTACK_DEFERRED_RETRY_MS);
+        expect(p.actionCooldownMs).toBeGreaterThanOrEqual(ATTACK_DEFERRED_RETRY_MIN_MS);
+        expect(p.actionCooldownMs).toBeLessThanOrEqual(ATTACK_DEFERRED_RETRY_MAX_MS);
         deferrals += 1;
         deferredNow.add(id);
       }

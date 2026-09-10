@@ -44,84 +44,144 @@ export function buildNeighborListFromPositions(
   }));
 }
 
-/** Minimum distance (px) a new wander waypoint must be from the Pokémon's
- * current position. A fully position-independent uniform-random point can
- * land close by chance, and with only a few seconds of guaranteed wander
- * time before combat is allowed to lock in, an unlucky short pick barely
- * moves anyone out of the tightly-packed spawn circle. Picking a random
- * direction plus a random distance in [MIN, MIN+RANGE] instead guarantees
- * every leg is a real trek across the arena while staying fully random. */
+/** Distance window (px) a new wander waypoint must fall in from the
+ * Pokémon's current position. The minimum makes every leg a real trek
+ * rather than a shuffle: with only a few seconds of guaranteed wander time
+ * before combat is allowed to lock in, an unlucky short pick barely moves
+ * anyone out of the tightly-packed spawn circle. The maximum bounds how long
+ * a leg takes to walk (see updateTargeting in ai.ts — a leg is now walked to
+ * its end before the Pokémon looks for a fight again, so an unbounded pick
+ * across the full portrait arena could take it out of the action for 8s). */
 const MIN_WANDER_DISTANCE = 400;
-const WANDER_DISTANCE_RANGE = 500;
+const MAX_WANDER_DISTANCE = 900;
+/** How close to its waypoint a wandering Pokémon has to get for the leg to
+ * count as walked — the same threshold updateTargeting (ai.ts) uses to
+ * decide the leg is over and stepMovement (engine.ts) uses to start the
+ * next one. */
+export const WANDER_ARRIVAL_DISTANCE = 12;
 
-/** Clamps a point to the arena's playable bounds — ARENA_PADDING's small
- * fixed edge buffer on the left/right/bottom (absent a red zone, that's the
- * whole story on those three sides), plus the red zone's own per-side
- * reservation (see getRedZoneInsets) added on top of it on a portrait/mobile
- * arena, so recorded footage never hides a Pokémon behind Instagram's own
- * Story-viewer UI. The top edge instead takes whichever of ARENA_TOP_PADDING
- * (our own HUD's reservation) or the red zone's top inset is bigger, not
- * both added together — both are just "how far down from y=0 is off
- * limits," so a Pokémon clear of the larger one is already clear of the
- * smaller one too; adding them would reserve the same strip twice over.
- * Shared by every call site that needs to keep a position (or a candidate
- * one) inside the arena, so the boundary can only ever be defined in one
- * place. */
-export function clampToArenaBounds(pos: Vec2, arena: ArenaBounds): Vec2 {
+/** The playable rectangle a Pokémon (or a candidate waypoint) is confined
+ * to — ARENA_PADDING's small fixed edge buffer on the left/right/bottom
+ * (absent a red zone, that's the whole story on those three sides), plus the
+ * red zone's own per-side reservation (see getRedZoneInsets) added on top of
+ * it on a portrait/mobile arena, so recorded footage never hides a Pokémon
+ * behind Instagram's own Story-viewer UI. The top edge instead takes
+ * whichever of ARENA_TOP_PADDING (our own HUD's reservation) or the red
+ * zone's top inset is bigger, not both added together — both are just "how
+ * far down from y=0 is off limits," so a Pokémon clear of the larger one is
+ * already clear of the smaller one too; adding them would reserve the same
+ * strip twice over. The single definition of the boundary: clampToArenaBounds
+ * and pickWanderWaypoint both derive from it. */
+export function getPlayableBounds(arena: ArenaBounds): { minX: number; maxX: number; minY: number; maxY: number } {
   const redZone = getRedZoneInsets(arena);
-  const topBound = Math.max(ARENA_TOP_PADDING, redZone.top);
   return {
-    x: Math.max(ARENA_PADDING + redZone.left, Math.min(arena.width - ARENA_PADDING - redZone.right, pos.x)),
-    y: Math.max(topBound, Math.min(arena.height - ARENA_PADDING - redZone.bottom, pos.y)),
+    minX: ARENA_PADDING + redZone.left,
+    maxX: arena.width - ARENA_PADDING - redZone.right,
+    minY: Math.max(ARENA_TOP_PADDING, redZone.top),
+    maxY: arena.height - ARENA_PADDING - redZone.bottom,
   };
 }
 
-/** A raw random angle/distance cast from right at (or near) a wall lands
- * out-of-bounds about as often as not — clamping that back onto the
- * boundary (see clampToArenaBounds) tends to produce another point sitting
- * on that very same wall, since only the axis that overshot gets pulled in
- * while the other rides along it unchanged. steerToward() then aims straight
- * at that new point, which is a walk *along* the wall rather than away from
- * it — repeat that a few legs in a row (each new pick has the same ~50/50
- * odds) and it reads as sliding along the wall instead of redirecting into
- * the arena. Sized so that even with `avoidHeading` (below) rejecting a
- * third of all directions on top of the wall rejections, running out of
- * attempts stays rare. */
-const MAX_WANDER_PICK_ATTEMPTS = 12;
+/** Clamps a point to the arena's playable bounds — see getPlayableBounds. */
+export function clampToArenaBounds(pos: Vec2, arena: ArenaBounds): Vec2 {
+  const b = getPlayableBounds(arena);
+  return {
+    x: Math.max(b.minX, Math.min(b.maxX, pos.x)),
+    y: Math.max(b.minY, Math.min(b.maxY, pos.y)),
+  };
+}
 
-/** `avoidHeading`, when given, is the direction the Pokémon was just blocked
+/** How many uniform-random points pickWanderWaypoint draws before settling
+ * for its best fallback. Each draw is rejected if it's outside the
+ * MIN_/MAX_WANDER_DISTANCE window from the Pokémon (from the middle of the
+ * portrait arena the minimum alone rules out a good half of the playable
+ * area) or inside the `avoidHeading` cone, so a dozen keeps running dry
+ * rare while bounding the work per pick. */
+const MAX_WANDER_PICK_ATTEMPTS = 12;
+/** How many acceptable draws pickWanderWaypoint compares for open space
+ * before choosing. Best-of-a-few is what makes a crowd drift apart without
+ * anyone visibly beelining for the emptiest corner — one draw would ignore
+ * the crowd entirely, many would make every Pokémon pick the same lonely
+ * spot. */
+const WANDER_SPREAD_CANDIDATES = 3;
+
+/**
+ * Picks the destination for a new wander leg: a uniform-random point
+ * anywhere in the playable arena between MIN_ and MAX_WANDER_DISTANCE away,
+ * and — when `others` (everyone else's positions) is given — the most open
+ * of a few such draws, judged by distance to the nearest other Pokémon.
+ *
+ * Uniform over the arena, rather than the earlier random-angle-and-distance
+ * cast from the Pokémon's own position, because that cast was quietly
+ * center-seeking: from anywhere near a wall most directions leave the arena
+ * and got re-rolled, so the surviving picks pointed back inward, and from
+ * the middle of the narrow portrait arena only near-vertical casts fit at
+ * all. Every leg trended toward the middle band, and a match's whole
+ * roster ended up milling around the center. A uniform point has no such
+ * pull (if anything the minimum-distance exclusion leaves *more* candidates
+ * for a Pokémon near a wall than one in the middle, a gentle outward
+ * lean), and on top of that the open-space preference actively eases a
+ * crowd apart — together with legs being walked to their end (see
+ * updateTargeting in ai.ts) this is what makes the roster spread across the
+ * whole arena between exchanges instead of clumping.
+ *
+ * `avoidHeading`, when given, is the direction the Pokémon was just blocked
  * walking in (see trackWanderHeadway) — candidates within
  * WANDER_TURN_AWAY_MIN_RAD of it are rejected so the new leg visibly turns
- * away from whatever it walked into. */
-export function pickWanderWaypoint(rng: Rng, arena: ArenaBounds, from: Vec2, avoidHeading?: Vec2): Vec2 {
-  const avoid = avoidHeading ? normalize(avoidHeading) : undefined;
+ * away from whatever it walked into. If every draw is rejected (a tiny
+ * arena, where nothing is MIN_WANDER_DISTANCE away), the farthest draw that
+ * at least turned away is used, so this can never fail to return a point.
+ */
+export function pickWanderWaypoint(
+  rng: Rng,
+  arena: ArenaBounds,
+  from: Vec2,
+  avoidHeading?: Vec2,
+  others?: readonly Vec2[]
+): Vec2 {
+  const bounds = getPlayableBounds(arena);
+  const normalizedAvoid = avoidHeading ? normalize(avoidHeading) : undefined;
+  const avoid = normalizedAvoid && (normalizedAvoid.x !== 0 || normalizedAvoid.y !== 0) ? normalizedAvoid : undefined;
   const avoidCosThreshold = Math.cos(WANDER_TURN_AWAY_MIN_RAD);
-  // Retry with a fresh random angle whenever the cast needed clamping at
-  // all, keeping only a pick that lands fully in-bounds unmodified — that
-  // makes heading back into the open arena the common case instead of a
-  // coin flip. Falls through to the old clamp-whatever-you-get behavior only
-  // if every attempt still needed it (a very small arena, or boxed into a
-  // corner), so this can never spin or fail to return a value. That fallback
-  // still prefers a candidate that at least turned away over one that
-  // didn't, so running out of attempts doesn't quietly send the Pokémon
-  // straight back into whatever it was stuck on.
-  let fallback: Vec2 | undefined;
+
+  const acceptable: Vec2[] = [];
+  let fallback: { point: Vec2; dist: number; turnsAway: boolean } | undefined;
   for (let attempt = 0; attempt < MAX_WANDER_PICK_ATTEMPTS; attempt++) {
-    const angle = rng() * Math.PI * 2;
-    const dist = MIN_WANDER_DISTANCE + rng() * WANDER_DISTANCE_RANGE;
-    const dirX = Math.cos(angle);
-    const dirY = Math.sin(angle);
-    const candidate = { x: from.x + dirX * dist, y: from.y + dirY * dist };
-    const turnsAway = !avoid || (avoid.x === 0 && avoid.y === 0) || dirX * avoid.x + dirY * avoid.y <= avoidCosThreshold;
-    if (!turnsAway) {
-      fallback ??= candidate;
+    const candidate = {
+      x: bounds.minX + rng() * (bounds.maxX - bounds.minX),
+      y: bounds.minY + rng() * (bounds.maxY - bounds.minY),
+    };
+    const dist = distance(from, candidate);
+    const dir = normalize({ x: candidate.x - from.x, y: candidate.y - from.y });
+    const turnsAway = !avoid || dir.x * avoid.x + dir.y * avoid.y <= avoidCosThreshold;
+    if (dist < MIN_WANDER_DISTANCE || dist > MAX_WANDER_DISTANCE || !turnsAway) {
+      // Turning away outranks distance for the fallback — running out of
+      // attempts must never quietly send the Pokémon straight back into
+      // whatever it was stuck on.
+      if (!fallback || (turnsAway && !fallback.turnsAway) || (turnsAway === fallback.turnsAway && dist > fallback.dist)) {
+        fallback = { point: candidate, dist, turnsAway };
+      }
       continue;
     }
-    fallback = candidate;
-    const clamped = clampToArenaBounds(candidate, arena);
-    if (clamped.x === candidate.x && clamped.y === candidate.y) return candidate;
+    if (!others) return candidate;
+    acceptable.push(candidate);
+    if (acceptable.length >= WANDER_SPREAD_CANDIDATES) break;
   }
-  return clampToArenaBounds(fallback ?? from, arena);
+
+  // Without `others` the first acceptable draw was already returned above,
+  // so reaching here with an empty list means every draw was rejected.
+  if (!others || acceptable.length === 0) return fallback?.point ?? clampToArenaBounds(from, arena);
+  let best = acceptable[0];
+  let bestClearance = -Infinity;
+  for (const candidate of acceptable) {
+    let clearance = Infinity;
+    for (const other of others) clearance = Math.min(clearance, distance(candidate, other));
+    if (clearance > bestClearance) {
+      bestClearance = clearance;
+      best = candidate;
+    }
+  }
+  return best;
 }
 
 /**

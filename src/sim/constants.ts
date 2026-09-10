@@ -160,22 +160,36 @@ export const POST_ATTACK_HOLD_MS = 1200;
  * after each one finishes, and never lets the same Pokémon fire twice in a
  * row while anyone else could take the turn instead — so at most
  * MAX_SIMULTANEOUS_ATTACKS Pokémon are ever held still attacking, and
- * everyone else keeps moving.
+ * everyone else keeps moving. When several Pokémon are ready for the same
+ * slot, the fastest (effective Speed stat) goes first, mainline-style.
+ *
+ * Note the throughput this implies: one attack per POST_ATTACK_HOLD_MS +
+ * ATTACK_GAP_MS (1.5s) arena-wide at most, i.e. ~60 attacks in a 90s
+ * match — a 16-Pokémon roster needs on the order of 70-80 landed attacks
+ * to get down to a single winner, so big rosters now routinely reach
+ * MATCH_TIME_LIMIT_MS with co-winners unless damage is tuned up to match.
  */
-export const MAX_SIMULTANEOUS_ATTACKS = 2;
+export const MAX_SIMULTANEOUS_ATTACKS = 1;
 /** Once any in-flight attack completes, no new attack may start until this
  * much later — a short breath between one attack ending and the next one
- * (or the next pair, if both slots came free) beginning. */
+ * beginning. */
 export const ATTACK_GAP_MS = 300;
-/** A Pokémon that's ready to attack but turned away by the gate (every slot
+/** A Pokémon that's ready to attack but turned away by the gate (the slot's
  * taken, or it was the last one to attack) doesn't stand in place waiting
- * for a slot — it's put on this short cooldown, which sends it off on a
- * fresh wander leg (see ai.ts's updateTargeting) before it re-evaluates its
- * target and tries again. Keeps blocked Pokémon visibly moving instead of
- * piling up motionless around their targets. The one exception is the
- * post-attack gap (ATTACK_GAP_MS): that's short enough to just wait out in
- * place. */
-export const ATTACK_DEFERRED_RETRY_MS = 500;
+ * for a slot — it's put on a cooldown drawn from this range, which sends it
+ * off on a fresh wander leg (see ai.ts's updateTargeting) before it
+ * re-evaluates its target and tries again. Keeps blocked Pokémon visibly
+ * moving instead of piling up motionless around their targets, and sized
+ * like a real post-attack cooldown rather than a quick bounce: a half-second
+ * leg (the first cut) only carried a Pokémon ~90px before it turned straight
+ * back into the same fight, so with one slot arena-wide the whole roster
+ * hovered over its targets and the match collapsed into one clump at the
+ * arena center. A leg this long actually clears the crowd (see also
+ * pickWanderWaypoint's open-space preference in movement.ts). The one
+ * exception is the post-attack gap (ATTACK_GAP_MS): that's short enough to
+ * just wait out in place. */
+export const ATTACK_DEFERRED_RETRY_MIN_MS = 1000;
+export const ATTACK_DEFERRED_RETRY_MAX_MS = 2000;
 
 export const BASE_ACTION_COOLDOWN_MS = 1600;
 /** The real floor on how soon *anyone* can attack again, no matter how fast —

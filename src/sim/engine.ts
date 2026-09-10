@@ -22,6 +22,7 @@ import {
   resolveCollisions,
   steerToward,
   trackWanderHeadway,
+  WANDER_ARRIVAL_DISTANCE,
   WANDER_MOVE_SPEED,
 } from './movement';
 import { chooseMove, findSelfBuffMove, retaliate, updateTargeting } from './ai';
@@ -39,7 +40,8 @@ import { STRUGGLE_MOVE, STRUGGLE_MOVE_ID, STRUGGLE_RECOIL_FRACTION } from './str
 import {
   AGGRESSIVE_COOLDOWN_MULTIPLIER,
   AGGRESSIVE_SPEED_MULTIPLIER,
-  ATTACK_DEFERRED_RETRY_MS,
+  ATTACK_DEFERRED_RETRY_MAX_MS,
+  ATTACK_DEFERRED_RETRY_MIN_MS,
   ATTACK_GAP_MS,
   BASELINE_SPEED,
   BASE_ACTION_COOLDOWN_MS,
@@ -157,7 +159,13 @@ export class SimulationEngine implements EngineLike {
       const self = this.state.pokemon[id];
       const blockedHeading = trackWanderHeadway(self, positions.get(id)!, WANDER_MOVE_SPEED * speedMult, TICK_MS);
       if (blockedHeading) {
-        self.wanderWaypoint = pickWanderWaypoint(this.rng, this.state.arena, self.position, blockedHeading);
+        self.wanderWaypoint = pickWanderWaypoint(
+          this.rng,
+          this.state.arena,
+          self.position,
+          blockedHeading,
+          this.otherPositions(id, positions)
+        );
       }
     }
 
@@ -207,8 +215,14 @@ export class SimulationEngine implements EngineLike {
       steerToward(self, self.position, 0, neighbors);
     } else if (self.aiState === 'wander') {
       const selfPos = positions.get(self.instanceId) ?? self.position;
-      if (!self.wanderWaypoint || distance(selfPos, self.wanderWaypoint) < 12) {
-        self.wanderWaypoint = pickWanderWaypoint(this.rng, this.state.arena, selfPos);
+      if (!self.wanderWaypoint || distance(selfPos, self.wanderWaypoint) < WANDER_ARRIVAL_DISTANCE) {
+        self.wanderWaypoint = pickWanderWaypoint(
+          this.rng,
+          this.state.arena,
+          selfPos,
+          undefined,
+          this.otherPositions(self.instanceId, positions)
+        );
         self.wanderStuckMs = 0;
       }
       steerToward(self, self.wanderWaypoint, WANDER_MOVE_SPEED * speedMult, neighbors);
@@ -226,15 +240,30 @@ export class SimulationEngine implements EngineLike {
     return walkingWanderLeg;
   }
 
+  /** Everyone else's tick-start position — what pickWanderWaypoint judges a
+   * candidate leg's open space against, so a new wander leg eases the
+   * Pokémon away from the crowd rather than deeper into it. */
+  private otherPositions(selfId: string, positions: ReadonlyMap<string, Vec2>): Vec2[] {
+    const others: Vec2[] = [];
+    for (const [id, pos] of positions) if (id !== selfId) others.push(pos);
+    return others;
+  }
+
   /**
    * Everyone's "may I act this tick?" pass, run through the arena-wide
    * attack gate (see MAX_SIMULTANEOUS_ATTACKS in constants.ts). Rather than
    * letting each Pokémon fire the instant its own cooldown clears — which in
    * livingOrder means a low spawn index always wins a contested slot — every
-   * Pokémon that's ready is collected first, then offered the free slots in
-   * order of who has gone longest without attacking (ties keep spawn order;
-   * Array.prototype.sort is stable). Real attacks are offered slots before
-   * opportunistic chase-buffs, so a buff never crowds out a hit.
+   * Pokémon that's ready is collected first into this tick's attack queue,
+   * then offered the free slot(s) fastest first (effective Speed, so
+   * paralysis and stat stages count), with ties going to whoever has gone
+   * longest without attacking and then spawn order (Array.prototype.sort is
+   * stable). The queue is rebuilt every tick from whoever is actually in
+   * position to attack right now, so a Pokémon that faints — or wanders off
+   * while deferred — simply isn't in it any more; an attack that already
+   * fired is untouched by its attacker fainting afterwards (its slot runs
+   * out on its own, see settleAttackGate). Real attacks are offered slots
+   * before opportunistic chase-buffs, so a buff never crowds out a hit.
    */
   private stepActions(livingIds: readonly string[], nowMs: number): void {
     const attackers: PokemonInstance[] = [];
@@ -276,7 +305,9 @@ export class SimulationEngine implements EngineLike {
     // self check is what stops a mutual same-tick KO — the old one-at-a-time
     // loop skipped a just-KO'd Pokémon for free, and without this two
     // finalists could take each other out in one tick and leave no winner.
-    attackers.sort((a, b) => (a.lastAttackAtMs ?? -1) - (b.lastAttackAtMs ?? -1));
+    const speedOf = (p: PokemonInstance) =>
+      getEffectiveStat(p.computedStats, p.statStages, 'spe', p.status === 'paralysis' ? 'paralysis' : null);
+    attackers.sort((a, b) => speedOf(b) - speedOf(a) || (a.lastAttackAtMs ?? -1) - (b.lastAttackAtMs ?? -1));
     for (const self of attackers) {
       if (self.currentHp <= 0) continue;
       const verdict = this.attackGateVerdict(self, nowMs);
@@ -356,14 +387,18 @@ export class SimulationEngine implements EngineLike {
   }
 
   /** Turned away by the gate: rather than standing motionless next to its
-   * target until a slot frees, put it on a short cooldown — updateTargeting
+   * target until a slot frees, put it on a cooldown — updateTargeting
    * (ai.ts) reads any positive cooldown as "wander this off", and its
    * justBecameAvailable trigger re-evaluates the target when that clears —
-   * so it visibly moves on and comes back for another try. Same fresh-leg
-   * reasoning as resetCooldown for clearing the stale waypoint. Under
-   * MatchConfig.disableWander this simply holds ground for the same span. */
+   * so it visibly moves on and comes back for another try. Randomized
+   * (ATTACK_DEFERRED_RETRY_MIN_MS..MAX_MS) so a crowd of deferred Pokémon
+   * doesn't all turn around in lockstep and re-converge on the same tick.
+   * Same fresh-leg reasoning as resetCooldown for clearing the stale
+   * waypoint. Under MatchConfig.disableWander this simply holds ground for
+   * the same span. */
   private deferAttack(self: PokemonInstance): void {
-    self.actionCooldownMs = ATTACK_DEFERRED_RETRY_MS;
+    self.actionCooldownMs =
+      ATTACK_DEFERRED_RETRY_MIN_MS + this.rng() * (ATTACK_DEFERRED_RETRY_MAX_MS - ATTACK_DEFERRED_RETRY_MIN_MS);
     self.wanderWaypoint = undefined;
   }
 

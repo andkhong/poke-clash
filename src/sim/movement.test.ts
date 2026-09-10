@@ -285,6 +285,33 @@ describe('pickWanderWaypoint', () => {
     expect(uniqueX.size).toBeGreaterThan(1);
   });
 
+  it('leans toward open space when given everyone else\'s positions, without ever ignoring the distance window', () => {
+    // A crowd parked in the top third of the arena: legs picked with that
+    // crowd in view should land in the emptier bottom half far more often
+    // than not, and every pick still has to be a real trek away from `from`.
+    const rng = createRng(11);
+    const from = { x: 450, y: 700 };
+    const crowd = Array.from({ length: 8 }, (_, i) => ({ x: 200 + i * 60, y: 450 + (i % 3) * 40 }));
+    const trials = 300;
+    let landedInEmptierHalf = 0;
+    let outsideWindow = 0;
+    for (let i = 0; i < trials; i++) {
+      const wp = pickWanderWaypoint(rng, arena, from, undefined, crowd);
+      const d = distance(from, wp);
+      if (d < 400 - 1e-6 || d > 900 + 1e-6) outsideWindow++;
+      if (wp.y > arena.height / 2) landedInEmptierHalf++;
+    }
+    // Only the every-draw-rejected fallback can land outside the window —
+    // from this spot roughly half the arena is acceptable, so a dozen
+    // straight misses is a once-in-a-thousand event, not a pattern.
+    expect(outsideWindow / trials).toBeLessThan(0.01);
+    // From y=700, roughly half the acceptable ring is above the midline and
+    // half below — with no crowd in view that'd be ~50/50. With the crowd
+    // sitting on the upper half's side, the open-space preference should
+    // tip it decisively.
+    expect(landedInEmptierHalf / trials).toBeGreaterThan(0.85);
+  });
+
   it('turns at least WANDER_TURN_AWAY_MIN_RAD off the heading it was blocked on when one is given', () => {
     const rng = createRng(9);
     const from = { x: 450, y: 975 };
