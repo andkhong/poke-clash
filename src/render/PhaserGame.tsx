@@ -54,7 +54,17 @@ export function PhaserGame({ engine, highlightInstanceId = null, onStageRectChan
       backgroundColor: '#1a1a1a',
       scale: {
         mode: Phaser.Scale.FIT,
-        autoCenter: Phaser.Scale.CENTER_BOTH,
+        // The container below centres the canvas with flexbox; Phaser must
+        // not also centre it. Its CENTER_BOTH works by writing margin-left/
+        // top onto the canvas, and flexbox then centres the canvas *plus*
+        // those margins — so a letterboxed canvas (the portrait arena on a
+        // desktop-wide page) landed half the letterbox off-centre, and the
+        // HUD overlay (positioned from the canvas's measured rect, see
+        // reportStageRect) drifted with it whenever Phaser's periodic
+        // re-centre moved the canvas without resizing it: roster/HP bars
+        // sitting off to one side, the bottom-right buttons pushed out of
+        // the frame's clipped area.
+        autoCenter: Phaser.Scale.NO_CENTER,
       },
       // No `scene` in the initial config — that form auto-boots the scene
       // immediately with no init data, which crashed init() reading
@@ -101,9 +111,16 @@ export function PhaserGame({ engine, highlightInstanceId = null, onStageRectChan
     const resizeObserver = new ResizeObserver(reportStageRect);
     resizeObserver.observe(game.canvas);
     resizeObserver.observe(container);
+    // Phaser's own re-fit (its ScaleManager polls the parent's size every
+    // half second, and answers window resizes) rewrites the canvas's style
+    // size; the observer above sees that too, but listening here as well
+    // costs nothing and keeps the overlay right even if a re-fit ever moves
+    // the canvas without changing its measured size.
+    game.scale.on(Phaser.Scale.Events.RESIZE, reportStageRect);
 
     return () => {
       resizeObserver.disconnect();
+      game.scale.off(Phaser.Scale.Events.RESIZE, reportStageRect);
       game.destroy(true);
       if (gameRef.current === game) gameRef.current = null;
     };

@@ -12,7 +12,7 @@ import spriteIndexData from '../data/generated/spriteIndex.json';
 import { PokemonSprite } from '../render/sprites/PokemonSprite';
 import { preloadPokeballAsset } from '../render/sprites/pokeballAsset';
 import { pmdSpriteIndexUrl } from '../render/sprites/pmdSheetUrl';
-import { createArenaBackground, preloadArenaTileset } from '../render/tileset/arenaBackground';
+import { createTiledArenaBackground, preloadArenaTileset } from '../render/tileset/arenaBackground';
 import { frameDurationMs, playAnimation, type AnimationHandle } from '../render/vfx/anim/AnimPlayer';
 import { animationScaleFor } from '../render/vfx/anim/geometry';
 import { playFallbackFlash } from '../render/vfx/anim/fallbackFlash';
@@ -156,7 +156,7 @@ export class ReviewScene extends Phaser.Scene {
   }
 
   create(): void {
-    createArenaBackground(this, REVIEW_STAGE_WIDTH, WORLD_HEIGHT);
+    createTiledArenaBackground(this, REVIEW_STAGE_WIDTH, WORLD_HEIGHT);
     this.cameras.main.setBackgroundColor('#1a1a1a');
     this.cameras.main.setScroll(0, WORLD_TOP);
     installMasterLimiter(this);

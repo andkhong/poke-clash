@@ -15,7 +15,7 @@ import { broadcast } from './sse';
 import { ROOM_MODES, roomCapacityForMode } from '../src/net/protocol';
 import { CHAT_LOG_LIMIT, CHAT_MAX_LENGTH } from '../src/net/chat';
 import { hasPmdSprite, listAllSpecies } from '../src/data/loader';
-import { TICK_MS } from '../src/sim/constants';
+import { ARENA_HEIGHT, ARENA_WIDTH, DESKTOP_ARENA_HEIGHT, DESKTOP_ARENA_WIDTH, TICK_MS } from '../src/sim/constants';
 
 // Broadcasting to nobody is already a no-op, but mocking lets the chat tests
 // assert that a posted message actually goes out as a `chat` frame.
@@ -210,5 +210,48 @@ describe('roomManager chat', () => {
 
     const next = postChat(room, seat(room), 'new session');
     expect(next.ok && first.ok && next.message.id > first.message.id).toBe(true);
+  });
+});
+
+describe('roomManager arena', () => {
+  const portrait = { width: ARENA_WIDTH, height: ARENA_HEIGHT };
+  const wide = { width: DESKTOP_ARENA_WIDTH, height: DESKTOP_ARENA_HEIGHT };
+
+  beforeEach(() => {
+    vi.useFakeTimers();
+  });
+
+  afterEach(() => {
+    vi.clearAllTimers();
+    vi.useRealTimers();
+  });
+
+  it('defaults a room with no creator choice (the pre-seeded ones) to the portrait arena, and reports it in the summary', () => {
+    expect(toRoomSummary(createRoom('classic')).arena).toEqual(portrait);
+    expect(toRoomSummary(createRoom('classic', wide)).arena).toEqual(wide);
+  });
+
+  it("takes the session-opening joiner's arena, so a pre-seeded room can be played wide", () => {
+    const room = createRoom('classic');
+    expect(joinRoom(room, wide).ok).toBe(true);
+    expect(toRoomSummary(room).arena).toEqual(wide);
+
+    vi.advanceTimersByTime(ROOM_COUNTDOWN_MS);
+    expect(room.phase).toBe('battle');
+    expect(room.engine?.getState().arena).toEqual(wide);
+  });
+
+  it('ignores the arena of anyone joining after the countdown has started, and of a join that names none', () => {
+    const room = createRoom('classic', wide);
+    expect(joinRoom(room).ok).toBe(true); // no choice given — keeps the creator's
+    expect(toRoomSummary(room).arena).toEqual(wide);
+    expect(joinRoom(room, portrait).ok).toBe(true); // second seat — too late to reshape
+    expect(toRoomSummary(room).arena).toEqual(wide);
+  });
+
+  it("lets a later joiner's choice replace the creator's only by opening the session first", () => {
+    const room = createRoom('classic', wide);
+    expect(joinRoom(room, portrait).ok).toBe(true);
+    expect(toRoomSummary(room).arena).toEqual(portrait);
   });
 });

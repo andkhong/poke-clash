@@ -48,9 +48,10 @@ interface RoomState {
   /** Boss Mode only — chosen once at battle start; nobody picks it, so it
    * isn't a PlayerSlot. Null outside 'battle'/'complete'. */
   bossSpeciesId: number | null;
-  /** Set once at room creation from whoever created it (see createRoom) —
-   * defaults to the portrait constant for the server's own boot-time
-   * pre-seeded rooms, which have no client to ask. */
+  /** Set at room creation from whoever created it (see createRoom) —
+   * defaulting to the portrait constant for the server's own boot-time
+   * pre-seeded rooms, which have no client to ask — and reshaped by the
+   * first player to join each session (see joinRoom). */
   arena: ArenaBounds;
   countdownEndsAtMs: number | null;
   engine: SimulationEngine | null;
@@ -141,6 +142,7 @@ export function toRoomSummary(room: RoomState): RoomSummary {
     mode: room.mode,
     phase: room.phase,
     slots,
+    arena: room.arena,
     countdownEndsAtMs: room.countdownEndsAtMs,
     bossSpeciesName: room.bossSpeciesId !== null ? (speciesNameById.get(room.bossSpeciesId) ?? null) : null,
     capacity: roomCapacityForMode(room.mode),
@@ -151,7 +153,14 @@ export function getHelloPayload(room: RoomState): HelloPayload {
   return { room: toRoomSummary(room), engineState: room.engine ? room.engine.getState() : null, chatLog: room.chatLog };
 }
 
-export function joinRoom(room: RoomState): { ok: true; playerId: string } | { ok: false; error: 'room_full' | 'room_not_joinable' } {
+/** Seats a player. `arena` is the joiner's own arena choice (see
+ * JoinRoomRequest.arena): it becomes the room's arena only when this join
+ * is the one that opens a session (the room was idle), so the player who
+ * gets a room going decides the shape everyone in it plays on — a
+ * pre-seeded room, or one created earlier with a different choice, would
+ * otherwise silently hold onto a shape nobody in the current session asked
+ * for. Later joiners, and joins with no arena given, leave it alone. */
+export function joinRoom(room: RoomState, arena?: ArenaBounds): { ok: true; playerId: string } | { ok: false; error: 'room_full' | 'room_not_joinable' } {
   if (room.phase !== 'idle' && room.phase !== 'countdown') {
     return { ok: false, error: 'room_not_joinable' };
   }
@@ -162,6 +171,7 @@ export function joinRoom(room: RoomState): { ok: true; playerId: string } | { ok
   slot.playerId = playerId;
 
   if (room.phase === 'idle') {
+    if (arena) room.arena = arena;
     room.phase = 'countdown';
     room.countdownEndsAtMs = Date.now() + ROOM_COUNTDOWN_MS;
     room.countdownTimer = setTimeout(() => startBattle(room), ROOM_COUNTDOWN_MS);

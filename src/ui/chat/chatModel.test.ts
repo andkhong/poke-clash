@@ -25,6 +25,7 @@ function roomWith(speciesNames: Array<string | null>): RoomSummary {
     countdownEndsAtMs: null,
     bossSpeciesName: null,
     capacity: speciesNames.length,
+    arena: { width: 900, height: 1950 },
   };
 }
 

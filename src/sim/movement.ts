@@ -5,6 +5,7 @@ import {
   ARENA_TOP_PADDING,
   ARRIVAL_SLOWDOWN_RADIUS,
   CHASE_SPEED,
+  getFenceInsets,
   getRedZoneInsets,
   SEPARATION_INFLUENCE_MULTIPLIER,
   SEPARATION_STRENGTH,
@@ -61,24 +62,29 @@ const MAX_WANDER_DISTANCE = 900;
 export const WANDER_ARRIVAL_DISTANCE = 12;
 
 /** The playable rectangle a Pokémon (or a candidate waypoint) is confined
- * to — ARENA_PADDING's small fixed edge buffer on the left/right/bottom
- * (absent a red zone, that's the whole story on those three sides), plus the
- * red zone's own per-side reservation (see getRedZoneInsets) added on top of
- * it on a portrait/mobile arena, so recorded footage never hides a Pokémon
- * behind Instagram's own Story-viewer UI. The top edge instead takes
- * whichever of ARENA_TOP_PADDING (our own HUD's reservation) or the red
- * zone's top inset is bigger, not both added together — both are just "how
- * far down from y=0 is off limits," so a Pokémon clear of the larger one is
- * already clear of the smaller one too; adding them would reserve the same
- * strip twice over. The single definition of the boundary: clampToArenaBounds
- * and pickWanderWaypoint both derive from it. */
+ * to. Its outer line is the arena's own edge on a portrait/mobile arena,
+ * and the fence drawn around the pitch on a landscape/desktop one (see
+ * getFenceInsets) — an invisible wall along the visible one, so nobody ever
+ * walks through it. Inside that line sits ARENA_PADDING's small fixed
+ * buffer on the left/right/bottom (absent a red zone, that's the whole
+ * story on those three sides), plus the red zone's own per-side reservation
+ * (see getRedZoneInsets) added on top of it on a portrait arena, so
+ * recorded footage never hides a Pokémon behind Instagram's own
+ * Story-viewer UI. The top edge instead takes whichever of ARENA_TOP_PADDING
+ * (our own HUD's reservation), the red zone's top inset, or the fence's top
+ * line plus the buffer is lowest on screen, not all of them added together
+ * — each is just "how far down from y=0 is off limits," so a Pokémon clear
+ * of the largest one is already clear of the others too; adding them would
+ * reserve the same strip twice over. The single definition of the boundary:
+ * clampToArenaBounds and pickWanderWaypoint both derive from it. */
 export function getPlayableBounds(arena: ArenaBounds): { minX: number; maxX: number; minY: number; maxY: number } {
   const redZone = getRedZoneInsets(arena);
+  const fence = getFenceInsets(arena);
   return {
-    minX: ARENA_PADDING + redZone.left,
-    maxX: arena.width - ARENA_PADDING - redZone.right,
-    minY: Math.max(ARENA_TOP_PADDING, redZone.top),
-    maxY: arena.height - ARENA_PADDING - redZone.bottom,
+    minX: fence.left + ARENA_PADDING + redZone.left,
+    maxX: arena.width - fence.right - ARENA_PADDING - redZone.right,
+    minY: Math.max(ARENA_TOP_PADDING, redZone.top, fence.top + ARENA_PADDING),
+    maxY: arena.height - fence.bottom - ARENA_PADDING - redZone.bottom,
   };
 }
 

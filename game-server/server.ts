@@ -2,7 +2,7 @@ import { createServer, type IncomingMessage, type ServerResponse } from 'node:ht
 import { createRoom, getHelloPayload, getRoom, joinRoom, listRooms, pickSpecies, postChat, toRoomSummary } from './roomManager';
 import { subscribe } from './sse';
 import { BadRequestError, readJsonBody, sendJson } from './httpUtil';
-import type { ApiErrorBody, ChatRequest, ChatResponse, CreateRoomRequest, PickSpeciesRequest } from '../src/net/protocol';
+import type { ApiErrorBody, ChatRequest, ChatResponse, CreateRoomRequest, JoinRoomRequest, PickSpeciesRequest } from '../src/net/protocol';
 import { isRoomMode } from '../src/net/protocol';
 import type { ArenaBounds } from '../src/sim/types';
 
@@ -39,8 +39,9 @@ function isInteger(value: unknown): value is number {
   return typeof value === 'number' && Number.isInteger(value);
 }
 
-/** CreateRoomRequest.arena, validated: absent (the server's default shape)
- * or a pair of integer sides within bounds. */
+/** CreateRoomRequest.arena / JoinRoomRequest.arena, validated: absent (the
+ * server's default shape / leave the room's alone) or a pair of integer
+ * sides within bounds. */
 function parseArena(value: unknown): ArenaBounds | undefined {
   if (value === undefined) return undefined;
   if (typeof value !== 'object' || value === null) throw new BadRequestError('invalid_arena');
@@ -91,7 +92,8 @@ async function handle(req: IncomingMessage, res: ServerResponse): Promise<void> 
       notFound(res, 'room not found');
       return;
     }
-    const result = joinRoom(room);
+    const body = await readJsonBody<JoinRoomRequest>(req);
+    const result = joinRoom(room, parseArena(body.arena));
     if (!result.ok) {
       sendJson(res, 409, { error: result.error } satisfies ApiErrorBody);
       return;

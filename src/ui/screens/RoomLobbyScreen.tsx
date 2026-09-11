@@ -3,8 +3,11 @@ import { hasPmdSprite, listAllSpecies } from '../../data/loader';
 import type { RoomSlotSummary, RoomSummary } from '../../net/protocol';
 import { teamSizeForMode } from '../../net/protocol';
 import { useCountdown } from '../../net/useCountdown';
+import { resolveMatchArena } from '../../app/config';
 import { SpeciesPicker } from '../components/SpeciesPicker';
 import { ChatPanel, type ChatPanelProps } from '../chat/ChatPanel';
+import { useWideArenaPreference } from '../hooks/useWideArenaPreference';
+import { describeArenaShape } from '../arenaShape';
 import { TEAM_A_COLOR_CSS, teamColorCss } from '../teamColors';
 
 interface RoomLobbyScreenProps {
@@ -28,6 +31,14 @@ export function RoomLobbyScreen({ room, playerId, onJoin, onPick, chat }: RoomLo
   const canJoin = playerId === null && room.slots.some((s) => s.playerId === null);
   const teamSize = teamSizeForMode(room.mode);
 
+  // The room's arena is whatever the session-opening join set (see
+  // JoinRoomRequest.arena) — so an idle room's shape is still up for grabs,
+  // and a viewer whose own choice differs is told the first seat decides.
+  const roomArena = describeArenaShape(room.arena);
+  const [wideArena] = useWideArenaPreference();
+  const myArena = describeArenaShape(resolveMatchArena(wideArena));
+  const joinFirstSwitchesArena = room.phase === 'idle' && canJoin && myArena.wide !== roomArena.wide;
+
   return (
     <div style={{ width: '100%', height: '100%', boxSizing: 'border-box', display: 'flex' }}>
       <div style={containerStyle}>
@@ -36,7 +47,13 @@ export function RoomLobbyScreen({ room, playerId, onJoin, onPick, chat }: RoomLo
             ← BACK
           </button>
           <h1 style={{ fontSize: 16, letterSpacing: 1, margin: 0, flex: 1 }}>{room.name}</h1>
+          <span style={arenaTag(roomArena.wide)}>{roomArena.label}</span>
         </div>
+        {joinFirstSwitchesArena && (
+          <p style={statusText}>
+            Nobody's seated yet — joining first switches this room to the {myArena.wide ? 'wide' : 'portrait'} arena.
+          </p>
+        )}
 
         {room.mode === 'boss' && <p style={bossBanner}>👹 BOSS MODE — your party of 4 vs. one amplified boss</p>}
         {teamSize !== null && (
@@ -198,6 +215,20 @@ const sectionLabel: CSSProperties = {
   letterSpacing: 1,
   opacity: 0.7,
 };
+
+function arenaTag(wide: boolean): CSSProperties {
+  return {
+    fontSize: 9,
+    fontWeight: 'bold',
+    letterSpacing: 1,
+    whiteSpace: 'nowrap',
+    color: wide ? '#ffd700' : '#bbb',
+    background: wide ? 'rgba(255,215,0,0.16)' : 'rgba(255,255,255,0.06)',
+    border: `1px solid ${wide ? '#ffd700' : 'rgba(255,255,255,0.2)'}`,
+    borderRadius: 3,
+    padding: '2px 6px',
+  };
+}
 
 const youTag: CSSProperties = {
   fontSize: 10,

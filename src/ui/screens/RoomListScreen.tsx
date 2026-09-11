@@ -4,6 +4,7 @@ import { teamSizeForMode } from '../../net/protocol';
 import { useCountdown } from '../../net/useCountdown';
 import { IS_MOBILE_DEVICE, resolveMatchArena } from '../../app/config';
 import { useWideArenaPreference } from '../hooks/useWideArenaPreference';
+import { describeArenaShape } from '../arenaShape';
 import { TEAM_A_COLOR_CSS } from '../teamColors';
 
 const POLL_INTERVAL_MS = 2000;
@@ -86,7 +87,7 @@ export function RoomListScreen() {
             🖥️ Wide Arena {wideArena ? 'ON' : 'OFF'}
           </button>
           <p style={{ margin: 0, fontSize: 10, opacity: 0.5, textAlign: 'center' }}>
-            Applies to rooms you create below — everyone in the room plays on it.
+            Applies to rooms you create, and to any open room you're the first to join — everyone in it plays on that arena.
           </p>
         </div>
       )}
@@ -127,6 +128,7 @@ function RoomRow({ room }: { room: RoomSummary }) {
           🛡️ {teamSize}v{teamSize}
         </span>
       )}
+      {describeArenaShape(room.arena).wide && <span style={wideTag}>{describeArenaShape(room.arena).label}</span>}
       <span style={{ fontSize: 10, opacity: 0.7 }}>{PHASE_LABEL[room.phase]}</span>
       <span style={{ fontSize: 10, opacity: 0.7 }}>
         {filled}/{room.capacity}
@@ -234,6 +236,16 @@ function wideArenaToggle(active: boolean): CSSProperties {
     cursor: 'pointer',
   };
 }
+
+const wideTag: CSSProperties = {
+  fontSize: 9,
+  fontWeight: 'bold',
+  color: '#ffd700',
+  background: 'rgba(255,215,0,0.16)',
+  border: '1px solid #ffd700',
+  borderRadius: 3,
+  padding: '2px 6px',
+};
 
 const teamTag: CSSProperties = {
   fontSize: 9,

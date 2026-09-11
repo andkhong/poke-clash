@@ -1,12 +1,17 @@
 import Phaser from 'phaser';
 import { ARENA_TOP_PADDING, isMobileArena } from '../../sim/constants';
 
-// The arena floor. A portrait (mobile) arena shows one of the route images
-// in map-assets/ at the repo root, scaled to cover the arena and centred (a
-// sliver of each side is cropped, since the images are a little wider than
-// the 900x1950 arena). A landscape (desktop) arena still gets the tiled
-// ground below: cropped swatches from a CC0 tileset ("Top Down Grass, Beach
-// and Water Tileset", OpenGameArt) repeated via TileSprite, with a
+// The arena floor: one of the hand-made map images in map-assets/ at the
+// repo root, scaled to cover the arena and centred. A portrait (mobile)
+// arena shows a route image (a sliver of each side is cropped, since it's a
+// little wider than the 900x1950 arena); a landscape (desktop) arena shows
+// the fenced pitch in wide-background.jpg, whose 16:9 matches the desktop
+// arena exactly so nothing is cropped — the fence in that image is the
+// playable area's border, which the sim enforces from the same measurements
+// (see constants.ts's WIDE_ARENA_MAP / getFenceInsets). The move-review
+// stage (and either arena, should its image fail to load) gets the tiled
+// ground instead: cropped swatches from a CC0 tileset ("Top Down Grass,
+// Beach and Water Tileset", OpenGameArt) repeated via TileSprite, with a
 // procedural rock border.
 
 /** Route images for the portrait arena. A match shows the first entry; to
@@ -17,6 +22,14 @@ const PORTRAIT_MAPS = [
   { key: 'map-1', url: new URL('../../../map-assets/map-1.jpeg', import.meta.url).href },
 ] as const;
 
+/** The landscape arena's floor — see WIDE_ARENA_MAP in constants.ts before
+ * swapping this for another image: the fence border there is measured off
+ * this one. */
+const LANDSCAPE_MAP = {
+  key: 'wide-background',
+  url: new URL('../../../map-assets/wide-background.jpg', import.meta.url).href,
+} as const;
+
 const KEYS = {
   dirt: 'tileset-dirt',
   grass: 'tileset-grass',
@@ -26,15 +39,24 @@ export function preloadArenaTileset(scene: Phaser.Scene): void {
   scene.load.image(KEYS.dirt, new URL('./assets/dirt_swatch.png', import.meta.url).href);
   scene.load.image(KEYS.grass, new URL('./assets/grass_swatch.png', import.meta.url).href);
   for (const map of PORTRAIT_MAPS) scene.load.image(map.key, map.url);
+  scene.load.image(LANDSCAPE_MAP.key, LANDSCAPE_MAP.url);
 }
 
+/** A match arena's floor: the map image for its shape, or the tiled ground
+ * if that image didn't load. */
 export function createArenaBackground(scene: Phaser.Scene, width: number, height: number): void {
-  const portraitMap = PORTRAIT_MAPS[0];
-  if (isMobileArena({ width, height }) && scene.textures.exists(portraitMap.key)) {
-    drawCoverImage(scene, portraitMap.key, width, height);
+  const map = isMobileArena({ width, height }) ? PORTRAIT_MAPS[0] : LANDSCAPE_MAP;
+  if (scene.textures.exists(map.key)) {
+    drawCoverImage(scene, map.key, width, height);
     return;
   }
+  createTiledArenaBackground(scene, width, height);
+}
 
+/** The tiled dirt/grass ground with a rock border — the move-review stage's
+ * floor (see ReviewScene), and the fallback for a match arena whose map
+ * image is missing. */
+export function createTiledArenaBackground(scene: Phaser.Scene, width: number, height: number): void {
   scene.add.tileSprite(0, 0, width, height, KEYS.dirt).setOrigin(0, 0).setDepth(-100);
 
   const grassW = width * 0.34;
@@ -48,7 +70,9 @@ export function createArenaBackground(scene: Phaser.Scene, width: number, height
 }
 
 /** Draws the image centred on the arena, scaled up just enough to cover it;
- * whatever overflows the arena on the long side is outside the camera. */
+ * whatever overflows the arena on the long side is outside the camera. The
+ * same placement getFenceInsets (constants.ts) assumes when it maps the
+ * wide map's fence into arena coordinates — keep the two in step. */
 function drawCoverImage(scene: Phaser.Scene, key: string, width: number, height: number): void {
   const source = scene.textures.get(key).getSourceImage();
   const scale = Math.max(width / source.width, height / source.height);

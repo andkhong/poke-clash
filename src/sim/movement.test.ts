@@ -1,6 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import {
+  applyMovement,
   distance,
+  getPlayableBounds,
   pickWanderWaypoint,
   resolveCollisions,
   steerToward,
@@ -9,12 +11,15 @@ import {
 } from './movement';
 import { createRng } from './rng';
 import {
+  ARENA_PADDING,
   ARENA_TOP_PADDING,
-  RED_ZONE_RIGHT_FRACTION,
+  DESKTOP_ARENA_HEIGHT,
+  DESKTOP_ARENA_WIDTH,
   TICK_MS,
   WANDER_SPEED,
   WANDER_STUCK_REPICK_MS,
   WANDER_TURN_AWAY_MIN_RAD,
+  getFenceInsets,
   getRedZoneInsets,
 } from './constants';
 import type { FacingDirection, PokemonInstance } from './types';
@@ -187,6 +192,60 @@ describe('resolveCollisions', () => {
   });
 });
 
+describe('wide arena fence (getPlayableBounds / applyMovement)', () => {
+  const desktopArena = { width: DESKTOP_ARENA_WIDTH, height: DESKTOP_ARENA_HEIGHT };
+
+  it('draws the playable rectangle just inside the fence line on a landscape arena', () => {
+    const fence = getFenceInsets(desktopArena);
+    expect(fence.left).toBeGreaterThan(0);
+    expect(fence.right).toBeGreaterThan(0);
+    expect(fence.bottom).toBeGreaterThan(0);
+    expect(getPlayableBounds(desktopArena)).toEqual({
+      minX: fence.left + ARENA_PADDING,
+      maxX: desktopArena.width - fence.right - ARENA_PADDING,
+      minY: Math.max(ARENA_TOP_PADDING, fence.top + ARENA_PADDING),
+      maxY: desktopArena.height - fence.bottom - ARENA_PADDING,
+    });
+  });
+
+  it('stops a Pokémon walking through each side of the fence', () => {
+    const bounds = getPlayableBounds(desktopArena);
+    const centre = { x: desktopArena.width / 2, y: desktopArena.height / 2 };
+    const cases: Array<{ velocity: { x: number; y: number }; expected: { x: number; y: number } }> = [
+      { velocity: { x: -5000, y: 0 }, expected: { x: bounds.minX, y: centre.y } },
+      { velocity: { x: 5000, y: 0 }, expected: { x: bounds.maxX, y: centre.y } },
+      { velocity: { x: 0, y: -5000 }, expected: { x: centre.x, y: bounds.minY } },
+      { velocity: { x: 0, y: 5000 }, expected: { x: centre.x, y: bounds.maxY } },
+    ];
+    for (const { velocity, expected } of cases) {
+      const p = makeCollider('p', centre.x, centre.y, 40);
+      p.velocity = velocity;
+      applyMovement(p, 1000, desktopArena); // a full second at wall-crossing speed
+      expect(p.position).toEqual(expected);
+    }
+  });
+
+  it('keeps a Pokémon shoved by a collision inside the fence too', () => {
+    const bounds = getPlayableBounds(desktopArena);
+    const a = makeCollider('a', bounds.minX, 540, 30);
+    const b = makeCollider('b', bounds.minX + 15, 540, 30); // overlap would push `a` through the left fence
+    resolveCollisions(['a', 'b'], { a, b }, desktopArena);
+    expect(a.position.x).toBeGreaterThanOrEqual(bounds.minX);
+  });
+
+  it('leaves the portrait arena untouched — no fence there', () => {
+    const arena = { width: 900, height: 1950 };
+    expect(getFenceInsets(arena)).toEqual({ top: 0, right: 0, bottom: 0, left: 0 });
+    const redZone = getRedZoneInsets(arena);
+    expect(getPlayableBounds(arena)).toEqual({
+      minX: ARENA_PADDING + redZone.left,
+      maxX: arena.width - ARENA_PADDING - redZone.right,
+      minY: Math.max(ARENA_TOP_PADDING, redZone.top),
+      maxY: arena.height - ARENA_PADDING - redZone.bottom,
+    });
+  });
+});
+
 describe('pickWanderWaypoint', () => {
   const arena = { width: 900, height: 1950 };
 
@@ -226,22 +285,29 @@ describe('pickWanderWaypoint', () => {
     }
   });
 
-  it('applies no red-zone reservation on a landscape (desktop) arena', () => {
+  it('keeps every pick inside the fence on a landscape (desktop) arena, which has no red zone', () => {
     const rng = createRng(5);
-    const desktopArena = { width: 1920, height: 1080 };
-    const from = { x: 960, y: 540 };
-    const redZone = getRedZoneInsets(desktopArena);
-    expect(redZone).toEqual({ top: 0, right: 0, bottom: 0, left: 0 });
-    let sawNearRightEdge = false;
-    for (let i = 0; i < 200; i++) {
+    const desktopArena = { width: DESKTOP_ARENA_WIDTH, height: DESKTOP_ARENA_HEIGHT };
+    const from = { x: desktopArena.width / 2, y: desktopArena.height / 2 };
+    expect(getRedZoneInsets(desktopArena)).toEqual({ top: 0, right: 0, bottom: 0, left: 0 });
+    const fence = getFenceInsets(desktopArena);
+    const EPSILON = 1e-6;
+    const near = 60; // within this of a wall counts as having reached it
+    const reached = { left: false, right: false, top: false, bottom: false };
+    for (let i = 0; i < 400; i++) {
       const wp = pickWanderWaypoint(rng, desktopArena, from);
-      expect(wp.x).toBeLessThanOrEqual(desktopArena.width - 48 + 1e-6);
-      if (wp.x > desktopArena.width - 48 - desktopArena.width * RED_ZONE_RIGHT_FRACTION) sawNearRightEdge = true;
+      expect(wp.x).toBeGreaterThanOrEqual(fence.left + ARENA_PADDING - EPSILON);
+      expect(wp.x).toBeLessThanOrEqual(desktopArena.width - fence.right - ARENA_PADDING + EPSILON);
+      expect(wp.y).toBeGreaterThanOrEqual(Math.max(ARENA_TOP_PADDING, fence.top + ARENA_PADDING) - EPSILON);
+      expect(wp.y).toBeLessThanOrEqual(desktopArena.height - fence.bottom - ARENA_PADDING + EPSILON);
+      if (wp.x < fence.left + ARENA_PADDING + near) reached.left = true;
+      if (wp.x > desktopArena.width - fence.right - ARENA_PADDING - near) reached.right = true;
+      if (wp.y < Math.max(ARENA_TOP_PADDING, fence.top + ARENA_PADDING) + near) reached.top = true;
+      if (wp.y > desktopArena.height - fence.bottom - ARENA_PADDING - near) reached.bottom = true;
     }
-    // Confirms the loose upper bound above isn't just trivially true — some
-    // picks really do land in what would've been the red zone on a portrait
-    // arena, proving the desktop arena genuinely imposes no such reservation.
-    expect(sawNearRightEdge).toBe(true);
+    // Confirms the bounds above aren't just loosely true — picks really do
+    // use the whole fenced-in area right up to each wall.
+    expect(reached).toEqual({ left: true, right: true, top: true, bottom: true });
   });
 
   it('stays within the padded arena bounds even when the pick would overshoot', () => {

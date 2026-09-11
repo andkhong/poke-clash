@@ -68,20 +68,74 @@ export const RED_ZONE_BOTTOM_FRACTION = 0.11;
 export const RED_ZONE_LEFT_FRACTION = 0.07;
 export const RED_ZONE_RIGHT_FRACTION = 0.07;
 
-export interface RedZoneInsets {
+/** A per-edge reservation measured inward from the arena's own edges. */
+export interface EdgeInsets {
   top: number;
   right: number;
   bottom: number;
   left: number;
 }
+export type RedZoneInsets = EdgeInsets;
 
-export function getRedZoneInsets(arena: ArenaBounds): RedZoneInsets {
-  if (!isMobileArena(arena)) return { top: 0, right: 0, bottom: 0, left: 0 };
+const NO_INSETS: EdgeInsets = { top: 0, right: 0, bottom: 0, left: 0 };
+
+export function getRedZoneInsets(arena: ArenaBounds): EdgeInsets {
+  if (!isMobileArena(arena)) return NO_INSETS;
   return {
     top: arena.height * RED_ZONE_TOP_FRACTION,
     right: arena.width * RED_ZONE_RIGHT_FRACTION,
     bottom: arena.height * RED_ZONE_BOTTOM_FRACTION,
     left: arena.width * RED_ZONE_LEFT_FRACTION,
+  };
+}
+
+/**
+ * The landscape (desktop) arena's floor is a single image,
+ * map-assets/wide-background.jpg — a fenced-in pitch with woods around it —
+ * drawn scaled up to cover the arena (see render/tileset/arenaBackground.ts's
+ * drawCoverImage). The fence is the playable area's border: nothing may
+ * walk through it, so the sim needs to know where it is. `fence` is the
+ * inner face of the fence rails/posts in the image's own pixels, read off
+ * the 1200x675 source: the left rail at x≈220, the top rail at y≈72 with
+ * its posts reaching down to y≈88, the bottom rail at y≈575 with its posts
+ * starting at y≈565, and on the right the upper run of fence at x≈953 —
+ * the lower run past the dirt path's gap sits further out (x≈982), but one
+ * straight line at the nearer run keeps everyone inside both. The left
+ * side's paddock (behind the gate, x≈95-220) and that right-hand path are
+ * outside the border. Only meaningful for a landscape arena — the portrait
+ * arena draws a different map and keeps its fixed ARENA_PADDING edge buffer
+ * + red zone (getRedZoneInsets).
+ */
+export const WIDE_ARENA_MAP = {
+  width: 1200,
+  height: 675,
+  fence: { left: 224, top: 88, right: 948, bottom: 565 },
+} as const;
+
+/**
+ * How far in from each of a landscape arena's edges the wide map's fence
+ * line falls (see WIDE_ARENA_MAP), i.e. the border a Pokémon is kept
+ * inside — zero on every side of a portrait arena, which has no fence.
+ * Mirrors the renderer's cover-scaling exactly (the image scaled up
+ * uniformly until it covers the arena, then centred), so the sim's border
+ * is the drawn fence whatever the arena's size: the desktop arena and its
+ * Custom Battle "Small"/"Tiny" scalings (app/config.ts's
+ * buildArenaSizeOptions) are all the image's own 16:9, so nothing is
+ * cropped and each inset is just the image's proportionally; any other
+ * landscape shape crops the image's long side, and an edge whose fence
+ * lands off-arena in that crop is clamped to the arena edge itself.
+ */
+export function getFenceInsets(arena: ArenaBounds): EdgeInsets {
+  if (isMobileArena(arena)) return NO_INSETS;
+  const { width, height, fence } = WIDE_ARENA_MAP;
+  const scale = Math.max(arena.width / width, arena.height / height);
+  const offsetX = (arena.width - width * scale) / 2;
+  const offsetY = (arena.height - height * scale) / 2;
+  return {
+    left: Math.max(0, offsetX + fence.left * scale),
+    top: Math.max(0, offsetY + fence.top * scale),
+    right: Math.max(0, arena.width - (offsetX + fence.right * scale)),
+    bottom: Math.max(0, arena.height - (offsetY + fence.bottom * scale)),
   };
 }
 
@@ -294,6 +348,10 @@ export const WANDER_STUCK_HEADWAY_FRACTION = 0.25;
  * 50/50 chance of picking another direction straight back into it. */
 export const WANDER_TURN_AWAY_MIN_RAD = Math.PI / 3;
 
+/** Fixed buffer between a Pokémon's position and the playable area's edge —
+ * the arena's own edge on a portrait arena, the wide map's fence line (see
+ * getFenceInsets) on a landscape one. Sized to about a typical sprite's
+ * collision radius so its body stops at the line rather than its centre. */
 export const ARENA_PADDING = 48;
 /**
  * Extra-tall clamp for the arena's top edge only — reserves a strip at the

@@ -60,6 +60,11 @@ export interface RoomSummary {
   mode: RoomMode;
   phase: RoomPhase;
   slots: RoomSlotSummary[];
+  /** The arena the room's current match runs on, or its next one will —
+   * see CreateRoomRequest.arena / JoinRoomRequest.arena for who sets it.
+   * Shown in the lobby and room list so nobody is surprised by the shape
+   * once the battle starts. */
+  arena: { width: number; height: number };
   countdownEndsAtMs: number | null;
   /** Only meaningful once phase is 'battle'/'complete' in a boss-mode room. */
   bossSpeciesName: string | null;
@@ -74,9 +79,21 @@ export interface CreateRoomRequest {
    * resolveMatchArena — mobile devices are hard-locked to the portrait
    * arena, desktop browsers can opt into the wide one) — since the sim is
    * server-authoritative and shared by everyone in the room (one arena per
-   * match, not per viewer), only whoever creates a room gets any say in its
-   * shape. Omitted for the server's own boot-time pre-seeded rooms, which
-   * have no client to ask. */
+   * match, not per viewer), a room has exactly one shape at a time. This
+   * sets its initial shape; JoinRoomRequest.arena can reshape it at the
+   * start of each session. Omitted for the server's own boot-time
+   * pre-seeded rooms, which have no client to ask. */
+  arena?: { width: number; height: number };
+}
+
+export interface JoinRoomRequest {
+  /** The joining client's own chosen arena (see CreateRoomRequest.arena).
+   * Honoured only by the join that opens a session — the first seat taken
+   * in an idle room, the one that starts the countdown — so whoever gets a
+   * room going decides its shape for everyone in it, whether the room was
+   * one of the server's pre-seeded ones or created by someone else earlier
+   * with a different choice. Later joiners' preferences are ignored: the
+   * lobby shows the room's arena (RoomSummary.arena) before they sit down. */
   arena?: { width: number; height: number };
 }
 

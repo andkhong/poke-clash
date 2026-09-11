@@ -8,6 +8,10 @@ interface RoomConnectionHandlers {
   onBattleComplete: (payload: BattleCompletePayload) => void;
   onLobbyReset: (room: RoomSummary) => void;
   onChat: (message: ChatMessage) => void;
+  /** The stream dropped or never opened (server down, unknown room id) —
+   * EventSource keeps retrying on its own, so this is a hint to show, not
+   * something to act on; a later `hello` means it recovered. */
+  onError?: () => void;
 }
 
 /** Thin EventSource wrapper around one room's SSE stream. EventSource's
@@ -26,6 +30,7 @@ export class RoomConnection {
     this.on('battleComplete', handlers.onBattleComplete);
     this.on('lobbyReset', handlers.onLobbyReset);
     this.on('chat', handlers.onChat);
+    if (handlers.onError) this.source.addEventListener('error', handlers.onError);
   }
 
   private on<T>(event: string, handler: (payload: T) => void): void {

@@ -1,13 +1,15 @@
 import { useEffect, useRef, useState, type CSSProperties } from 'react';
 import { RoomConnection } from '../../net/RoomConnection';
 import { RemoteSimEngine } from '../../net/RemoteSimEngine';
-import type { ChatMessage, ChatRequest, RoomSummary } from '../../net/protocol';
+import type { ChatMessage, ChatRequest, JoinRoomRequest, RoomSummary } from '../../net/protocol';
 import type { SimState } from '../../sim/types';
+import { resolveMatchArena } from '../../app/config';
 import { createSimStore, type SimStore } from '../state/simStore';
 import { ChatSidebar } from '../chat/ChatSidebar';
 import type { ChatPanelProps } from '../chat/ChatPanel';
 import { appendChatMessage, CHAT_SIDEBAR_MEDIA_QUERY } from '../chat/chatModel';
 import { useMediaQuery } from '../hooks/useMediaQuery';
+import { useWideArenaPreference } from '../hooks/useWideArenaPreference';
 import { MatchScreen } from './MatchScreen';
 import { RoomLobbyScreen } from './RoomLobbyScreen';
 
@@ -37,6 +39,12 @@ export function RoomScreen({ roomId }: RoomScreenProps) {
   // Plain state is enough for chat: even a full room mashing quick reactions
   // is a few renders a second, well under the HUD's own 10 Hz refresh.
   const [chatLog, setChatLog] = useState<ChatMessage[]>([]);
+  // The stream failed to (re)open — shown instead of a bare "Connecting…"
+  // that would otherwise sit there forever for a dead server or a stale
+  // room link, with no way out. EventSource retries by itself; a `hello`
+  // clears this.
+  const [connectionError, setConnectionError] = useState(false);
+  const [wideArena] = useWideArenaPreference();
   const engineRef = useRef<RemoteSimEngine | null>(null);
   // The SSE handlers below are created once per roomId (see the effect's dep
   // array) and read this instead of the `playerId` state directly, so a join
@@ -52,10 +60,12 @@ export function RoomScreen({ roomId }: RoomScreenProps) {
     setStore(null);
     setHighlightInstanceId(null);
     setChatLog([]);
+    setConnectionError(false);
     engineRef.current = null;
 
     const conn = new RoomConnection(roomId, {
       onHello(payload) {
+        setConnectionError(false);
         setRoom(payload.room);
         // Replaced wholesale, not merged: hello arrives on every EventSource
         // (re)connect and the server's backlog is the authority on what was
@@ -94,6 +104,9 @@ export function RoomScreen({ roomId }: RoomScreenProps) {
       onChat(message) {
         setChatLog((log) => appendChatMessage(log, message));
       },
+      onError() {
+        setConnectionError(true);
+      },
     });
 
     return () => conn.close();
@@ -113,7 +126,16 @@ export function RoomScreen({ roomId }: RoomScreenProps) {
   }, [room, playerId, roomId]);
 
   const handleJoin = () => {
-    fetch(`/api/rooms/${roomId}/join`, { method: 'POST' })
+    // My own arena choice rides along: if this join is what gets the room
+    // going, the room takes it (see JoinRoomRequest.arena) — so the Wide
+    // Arena toggle applies to a pre-seeded room too, not only to rooms I
+    // created myself.
+    const body: JoinRoomRequest = { arena: resolveMatchArena(wideArena) };
+    fetch(`/api/rooms/${roomId}/join`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    })
       .then((res) =>
         res.json().then((data: { playerId?: string }) => {
           if (!res.ok || !data.playerId) return; // room filled/started first — stay a spectator, JOIN stays available
@@ -171,12 +193,22 @@ export function RoomScreen({ roomId }: RoomScreenProps) {
   return (
     <div style={containerStyle}>
       <div style={mainRegionStyle}>
-        {!room && <p style={loadingText}>Connecting…</p>}
+        {!room && (
+          <div style={connectingStyle}>
+            <button onClick={() => (window.location.hash = '#/rooms')} style={backButton}>
+              ← BACK
+            </button>
+            <p style={{ margin: 0, textAlign: 'center' }}>
+              {connectionError ? 'Can’t reach this room — is the multiplayer server running? Retrying…' : 'Connecting…'}
+            </p>
+          </div>
+        )}
         {room && store && inMatch && (
           <MatchScreen
             store={store}
             onExit={() => (window.location.hash = '#/rooms')}
             showEndMatchControl={false}
+            leaveControlLabel="LEAVE ROOM"
             completeButtonLabel="BACK TO ROOMS"
             highlightInstanceId={highlightInstanceId}
             chat={sidebar ? undefined : chat}
@@ -205,14 +237,29 @@ const mainRegionStyle: CSSProperties = {
   position: 'relative',
 };
 
-const loadingText: CSSProperties = {
+const connectingStyle: CSSProperties = {
   width: '100%',
   height: '100%',
-  margin: 0,
+  boxSizing: 'border-box',
+  padding: 24,
   display: 'flex',
+  flexDirection: 'column',
   alignItems: 'center',
   justifyContent: 'center',
+  gap: 16,
   fontFamily: 'monospace',
+  fontSize: 13,
   color: '#eee',
   background: '#20242c',
+};
+
+const backButton: CSSProperties = {
+  fontSize: 11,
+  fontFamily: 'monospace',
+  padding: '5px 10px',
+  borderRadius: 5,
+  border: '1px solid rgba(255,255,255,0.2)',
+  background: 'rgba(255,255,255,0.05)',
+  color: '#ddd',
+  cursor: 'pointer',
 };

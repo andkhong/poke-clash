@@ -18,6 +18,13 @@ interface MatchScreenProps {
   onExit: () => void;
   /** Multiplayer spectators can't force-end a server-run match. */
   showEndMatchControl?: boolean;
+  /** Multiplayer: a small, always-present way out of a match that's still
+   * running (calls `onExit`, same as the post-match button) — nobody in a
+   * room can end a server-run match, but anyone can leave it, and without
+   * this the only exit was the post-match button, which shows for just the
+   * few seconds before the room resets to its lobby. Sits where solo play's
+   * END MATCH control does; solo play leaves this unset. */
+  leaveControlLabel?: string;
   completeButtonLabel?: string;
   /** The instance id of the Pokémon the current multiplayer player picked, if any — rendered with a highlight ring. */
   highlightInstanceId?: string | null;
@@ -32,6 +39,7 @@ export function MatchScreen({
   store,
   onExit,
   showEndMatchControl = true,
+  leaveControlLabel,
   completeButtonLabel = 'NEW MATCH',
   highlightInstanceId = null,
   chat,
@@ -95,6 +103,12 @@ export function MatchScreen({
                 style={{ ...endMatchButtonStyle, pointerEvents: 'auto' }}
               >
                 END MATCH
+              </button>
+            )}
+
+            {state.phase !== 'complete' && leaveControlLabel && (
+              <button onClick={onExit} style={{ ...endMatchButtonStyle, pointerEvents: 'auto' }}>
+                {leaveControlLabel}
               </button>
             )}
 
