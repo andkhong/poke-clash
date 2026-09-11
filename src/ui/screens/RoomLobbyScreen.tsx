@@ -65,25 +65,31 @@ export function RoomLobbyScreen({ room, playerId, onJoin, onPick, chat }: RoomLo
           </p>
         )}
 
-        {room.phase === 'idle' && <p style={statusText}>Waiting for the first player to join…</p>}
+        {room.phase === 'idle' && !room.autoPlay && <p style={statusText}>Waiting for the first player to join…</p>}
         {room.phase === 'countdown' && <p style={statusText}>Starting in {Math.ceil(remainingMs / 1000)}s…</p>}
 
-        {teamSize === null ? (
-          <SlotList slots={room.slots} playerId={playerId} />
-        ) : (
-          <div style={{ width: '100%', maxWidth: 420, display: 'flex', gap: 12 }}>
-            <TeamSlotColumn
-              label="Team A"
-              slots={room.slots.filter((s) => s.team === 'teamA')}
-              playerId={playerId}
-            />
-            <TeamSlotColumn
-              label="Team B"
-              slots={room.slots.filter((s) => s.team === 'teamB')}
-              playerId={playerId}
-            />
-          </div>
-        )}
+        {/* The always-on showcase room auto-fills every seat right as its
+            battle starts (see roomManager's startAutoPlayCycle/startBattle) —
+            between rounds every slot is briefly empty, so showing "Open
+            seat" here would read as an invitation to join a room nobody can
+            ever join. */}
+        {!room.autoPlay &&
+          (teamSize === null ? (
+            <SlotList slots={room.slots} playerId={playerId} />
+          ) : (
+            <div style={{ width: '100%', maxWidth: 420, display: 'flex', gap: 12 }}>
+              <TeamSlotColumn
+                label="Team A"
+                slots={room.slots.filter((s) => s.team === 'teamA')}
+                playerId={playerId}
+              />
+              <TeamSlotColumn
+                label="Team B"
+                slots={room.slots.filter((s) => s.team === 'teamB')}
+                playerId={playerId}
+              />
+            </div>
+          ))}
 
         {chat && (
           <section style={{ width: '100%', maxWidth: 420, display: 'flex', flexDirection: 'column', gap: 6 }}>
