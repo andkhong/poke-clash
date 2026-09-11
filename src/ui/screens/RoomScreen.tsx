@@ -102,7 +102,7 @@ export function RoomScreen({ roomId, embedded = false }: RoomScreenProps) {
         engineRef.current?.applyServerUpdate(payload.state, payload.events);
       },
       onBattleComplete(payload) {
-        engineRef.current?.applyServerUpdate(payload.finalState, []);
+        engineRef.current?.applyServerUpdate(payload.finalState, payload.events);
       },
       onLobbyReset(summary) {
         setRoom(summary);

@@ -371,7 +371,13 @@ function registerRoomTickLoop(room: RoomState): void {
 
     if (room.phase === 'battle' && engine.getState().phase === 'complete') {
       room.phase = 'complete';
-      broadcast(room.id, 'battleComplete', { finalState: engine.getState() });
+      // The broadcastTimer below is about to be cancelled — flush whatever
+      // it hasn't gotten to yet (the finishing move, the faint, the
+      // matchEnd milestone, all generated on this same tick) onto
+      // battleComplete itself, or they're lost for good.
+      const events = engine.getEventsSince(room.lastBroadcastSeq);
+      if (events.length > 0) room.lastBroadcastSeq = events[events.length - 1].seq;
+      broadcast(room.id, 'battleComplete', { finalState: engine.getState(), events });
       if (room.simTimer) clearInterval(room.simTimer);
       if (room.broadcastTimer) clearInterval(room.broadcastTimer);
       room.simTimer = null;

@@ -1,7 +1,4 @@
-import { useRef } from 'react';
 import type { SimState } from '../../sim/types';
-
-const FINAL_TWO_BANNER_MS = 2600;
 
 interface BannerOverlayProps {
   state: SimState;
@@ -26,39 +23,35 @@ function formatWinnerText(names: string[]): string {
   return `${upper.slice(0, 2).join(', ')} & ${upper.length - 2} MORE WIN!`;
 }
 
-/** Derives all three match-flow banners ("WHO WILL WIN?" / "FINAL TWO" /
- * "<WINNER> WINS!") straight from state.phase + state.elapsedMs rather than
- * consuming the sim event log — simpler, and idempotent under React
- * StrictMode's double-render since it never mutates shared state. */
+/** Derives both match-flow banners ("PLACE YOUR BETS?" / "<WINNER> WINS!")
+ * straight from state.phase rather than consuming the sim event log —
+ * simpler, and idempotent under React StrictMode's double-render since it
+ * never mutates shared state. There's no "FINAL TWO" banner: it used to fire
+ * at the same dead-center spot as the other two, which just added noise over
+ * an arena already down to its last two Pokémon. */
 export function BannerOverlay({ state, overrideText }: BannerOverlayProps) {
-  const finalTwoStartRef = useRef<number | null>(null);
-  if (state.phase === 'finalTwo' && finalTwoStartRef.current === null) {
-    finalTwoStartRef.current = state.elapsedMs;
-  }
-
   let text: string | null = overrideText ?? null;
   if (text === null) {
     if (state.phase === 'intro') {
-      text = 'WHO WILL WIN?';
+      text = 'PLACE YOUR BETS?';
     } else if (state.phase === 'complete' && state.winnerInstanceIds.length > 0) {
       text = formatWinnerText(state.winnerInstanceIds.map((id) => state.pokemon[id].name));
-    } else if (
-      state.phase === 'finalTwo' &&
-      finalTwoStartRef.current !== null &&
-      state.elapsedMs - finalTwoStartRef.current < FINAL_TWO_BANNER_MS
-    ) {
-      text = 'FINAL TWO';
     }
   }
 
   if (!text) return null;
+
+  // The winner's own victory pose (see engine.ts's completeMatch) teleports
+  // it to dead-center — the same spot every other banner uses — so that one
+  // banner alone sits higher, clear of the sprite, instead of covering it.
+  const topPosition = state.phase === 'complete' ? '18%' : '44%';
 
   return (
     <div
       style={{
         position: 'absolute',
         left: '50%',
-        top: '44%',
+        top: topPosition,
         transform: 'translate(-50%, -50%)',
         pointerEvents: 'none',
       }}

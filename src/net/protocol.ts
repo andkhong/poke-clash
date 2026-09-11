@@ -136,6 +136,13 @@ export interface StateUpdatePayload {
 
 export interface BattleCompletePayload {
   finalState: SimState;
+  /** Events generated on the same tick the match ended (the finishing
+   * move, the KO'd Pokémon's faint, the matchEnd milestone) — the periodic
+   * stateUpdate broadcast is cancelled the instant completion is detected
+   * (see game-server/roomManager.ts's registerRoomTickLoop), so without
+   * these riding along on battleComplete itself, the finishing blow's
+   * animation and the loser's faint would never reach a spectator. */
+  events: SimEvent[];
 }
 
 export interface ListRoomsResponse {

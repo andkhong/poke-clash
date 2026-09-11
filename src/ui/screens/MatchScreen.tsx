@@ -7,6 +7,7 @@ import type { StageRect } from '../../render/PhaserGame';
 // above is erased at build time, so it doesn't pull the module in.
 const PhaserGame = lazy(() => import('../../render/PhaserGame').then((m) => ({ default: m.PhaserGame })));
 import { RosterPanel } from '../hud/RosterPanel';
+import { MatchTimer } from '../hud/MatchTimer';
 import { BannerOverlay } from '../hud/BannerOverlay';
 import { ChatOverlay, type ChatOverlayProps } from '../chat/ChatOverlay';
 import { useSimSnapshot } from '../hooks/useSimSnapshot';
@@ -105,6 +106,7 @@ export function MatchScreen({
             }}
           >
             <div style={{ position: 'absolute', top: 0, left: 0, right: 0 }}>
+              <MatchTimer state={state} />
               <RosterPanel state={state} />
             </div>
 
