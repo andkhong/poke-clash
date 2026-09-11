@@ -1,4 +1,4 @@
-import type { BattleCompletePayload, BattleStartPayload, HelloPayload, RoomSummary, StateUpdatePayload } from './protocol';
+import type { BattleCompletePayload, BattleStartPayload, ChatMessage, HelloPayload, RoomSummary, StateUpdatePayload } from './protocol';
 
 interface RoomConnectionHandlers {
   onHello: (payload: HelloPayload) => void;
@@ -7,6 +7,7 @@ interface RoomConnectionHandlers {
   onStateUpdate: (payload: StateUpdatePayload) => void;
   onBattleComplete: (payload: BattleCompletePayload) => void;
   onLobbyReset: (room: RoomSummary) => void;
+  onChat: (message: ChatMessage) => void;
 }
 
 /** Thin EventSource wrapper around one room's SSE stream. EventSource's
@@ -24,6 +25,7 @@ export class RoomConnection {
     this.on('stateUpdate', handlers.onStateUpdate);
     this.on('battleComplete', handlers.onBattleComplete);
     this.on('lobbyReset', handlers.onLobbyReset);
+    this.on('chat', handlers.onChat);
   }
 
   private on<T>(event: string, handler: (payload: T) => void): void {

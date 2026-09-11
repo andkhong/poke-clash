@@ -1,8 +1,10 @@
-import { createServer, type ServerResponse } from 'node:http';
-import { createRoom, getHelloPayload, getRoom, joinRoom, listRooms, pickSpecies, toRoomSummary } from './roomManager';
+import { createServer, type IncomingMessage, type ServerResponse } from 'node:http';
+import { createRoom, getHelloPayload, getRoom, joinRoom, listRooms, pickSpecies, postChat, toRoomSummary } from './roomManager';
 import { subscribe } from './sse';
-import { readJsonBody, sendJson } from './httpUtil';
-import type { ApiErrorBody, CreateRoomRequest, PickSpeciesRequest } from '../src/net/protocol';
+import { BadRequestError, readJsonBody, sendJson } from './httpUtil';
+import type { ApiErrorBody, ChatRequest, ChatResponse, CreateRoomRequest, PickSpeciesRequest } from '../src/net/protocol';
+import { isRoomMode } from '../src/net/protocol';
+import type { ArenaBounds } from '../src/sim/types';
 
 const PORT = Number(process.env.GAME_SERVER_PORT ?? 4311);
 // Keeps the previously-requested "4 rooms by default" while making Boss
@@ -19,13 +21,36 @@ createRoom('team2');
 const ID_SEGMENT = '[A-Za-z0-9_-]+';
 const JOIN_RE = new RegExp(`^/api/rooms/(${ID_SEGMENT})/join$`);
 const PICK_RE = new RegExp(`^/api/rooms/(${ID_SEGMENT})/pick$`);
+const CHAT_RE = new RegExp(`^/api/rooms/(${ID_SEGMENT})/chat$`);
 const STREAM_RE = new RegExp(`^/api/rooms/(${ID_SEGMENT})/stream$`);
 
 function notFound(res: ServerResponse, message = 'not found'): void {
   sendJson(res, 404, { error: message } satisfies ApiErrorBody);
 }
 
-const server = createServer(async (req, res) => {
+/** Bounds on a client-supplied arena side (px). The real shapes are
+ * 900x1950, 1920x1080 and the custom-battle scale-downs of those; anything
+ * outside this is a broken client, and a non-finite value would put NaN
+ * positions into a sim every subscriber then receives. */
+const MIN_ARENA_SIDE = 200;
+const MAX_ARENA_SIDE = 8192;
+
+function isInteger(value: unknown): value is number {
+  return typeof value === 'number' && Number.isInteger(value);
+}
+
+/** CreateRoomRequest.arena, validated: absent (the server's default shape)
+ * or a pair of integer sides within bounds. */
+function parseArena(value: unknown): ArenaBounds | undefined {
+  if (value === undefined) return undefined;
+  if (typeof value !== 'object' || value === null) throw new BadRequestError('invalid_arena');
+  const { width, height } = value as { width?: unknown; height?: unknown };
+  const sideOk = (side: unknown): side is number => isInteger(side) && side >= MIN_ARENA_SIDE && side <= MAX_ARENA_SIDE;
+  if (!sideOk(width) || !sideOk(height)) throw new BadRequestError('invalid_arena');
+  return { width, height };
+}
+
+async function handle(req: IncomingMessage, res: ServerResponse): Promise<void> {
   const url = req.url ?? '';
   const method = req.method ?? 'GET';
 
@@ -52,7 +77,9 @@ const server = createServer(async (req, res) => {
 
   if (method === 'POST' && url === '/api/rooms') {
     const body = await readJsonBody<CreateRoomRequest>(req);
-    const room = createRoom(body.mode ?? 'classic', body.arena);
+    const mode = body.mode ?? 'classic';
+    if (!isRoomMode(mode)) throw new BadRequestError('invalid_mode');
+    const room = createRoom(mode, parseArena(body.arena));
     sendJson(res, 201, { room: toRoomSummary(room) });
     return;
   }
@@ -81,12 +108,33 @@ const server = createServer(async (req, res) => {
       return;
     }
     const body = await readJsonBody<PickSpeciesRequest>(req);
+    if (typeof body.playerId !== 'string' || !isInteger(body.speciesId)) throw new BadRequestError('invalid_request');
     const result = pickSpecies(room, body.playerId, body.speciesId);
     if (!result.ok) {
       sendJson(res, 400, { error: result.error } satisfies ApiErrorBody);
       return;
     }
     sendJson(res, 200, { room: toRoomSummary(room) });
+    return;
+  }
+
+  const chatMatch = CHAT_RE.exec(url);
+  if (method === 'POST' && chatMatch) {
+    const room = getRoom(chatMatch[1]);
+    if (!room) {
+      notFound(res, 'room not found');
+      return;
+    }
+    const body = await readJsonBody<ChatRequest>(req);
+    if (typeof body.playerId !== 'string' || typeof body.text !== 'string') throw new BadRequestError('invalid_request');
+    const result = postChat(room, body.playerId, body.text);
+    if (!result.ok) {
+      // 429 for the rate limit so a client can tell "slow down" apart from
+      // "that was malformed" by status alone.
+      sendJson(res, result.error === 'rate_limited' ? 429 : 400, { error: result.error } satisfies ApiErrorBody);
+      return;
+    }
+    sendJson(res, 200, { message: result.message } satisfies ChatResponse);
     return;
   }
 
@@ -111,6 +159,25 @@ const server = createServer(async (req, res) => {
   }
 
   notFound(res);
+}
+
+// Every rejection from the async handler is answered here — an unhandled
+// one would exit the Node process (and, in production, the whole container:
+// entrypoint.sh stops everything when any server dies), so a single
+// malformed request must never get that far.
+const server = createServer((req, res) => {
+  handle(req, res).catch((error: unknown) => {
+    if (res.headersSent) {
+      res.end();
+      return;
+    }
+    if (error instanceof BadRequestError) {
+      sendJson(res, error.status, { error: error.message } satisfies ApiErrorBody);
+      return;
+    }
+    console.error('[game-server] error serving', req.method, req.url, error);
+    sendJson(res, 500, { error: 'internal_error' } satisfies ApiErrorBody);
+  });
 });
 
 server.listen(PORT, () => {

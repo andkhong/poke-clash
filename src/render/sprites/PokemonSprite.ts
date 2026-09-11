@@ -897,6 +897,18 @@ export class PokemonSprite {
     };
   }
 
+  /** Jumps the smoothed render position straight to the sim's — for a frame
+   * gap too large to glide across (a tab back from the background, see
+   * ArenaScene's SNAP_TO_SIM_AFTER_MS). Deliberately overrides a position
+   * lock: an attack visual that was in progress when the frames stopped is
+   * stale by now, and holding its attacker where it stood before the gap
+   * just means a long glide once the lock releases. */
+  snapToSimPosition(position: Vec2): void {
+    if (!this.hasRevealed) return;
+    this.renderPos.x = position.x;
+    this.renderPos.y = position.y;
+  }
+
   /** Where this sprite is currently drawn (its smoothed render position,
    * before any animation offset) — the live anchor a move animation tracks
    * so a projectile follows a target that keeps walking (see

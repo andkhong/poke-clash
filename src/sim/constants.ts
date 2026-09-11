@@ -95,7 +95,7 @@ export function getRedZoneInsets(arena: ArenaBounds): RedZoneInsets {
  * after 3 minutes" failsafe that was tuned for a much longer match length.
  */
 export const AGGRESSION_TRIGGER_MS = 45_000;
-export const MATCH_TIME_LIMIT_MS = 90_000;
+export const MATCH_TIME_LIMIT_MS = 120_000;
 
 export function isAggressivePhase(elapsedMs: number): boolean {
   return elapsedMs >= AGGRESSION_TRIGGER_MS;
@@ -211,7 +211,7 @@ export const BASELINE_SPEED = 100;
 /** A landed priority move shortens the user's *next* cooldown by this fraction. */
 export const PRIORITY_COOLDOWN_DISCOUNT = 0.25;
 /** Applied to movement speed and inversely to action cooldown once aggressive. */
-export const AGGRESSIVE_SPEED_MULTIPLIER = 1.6;
+export const AGGRESSIVE_SPEED_MULTIPLIER = 2.0;
 export const AGGRESSIVE_COOLDOWN_MULTIPLIER = 0.55;
 
 export const STATUS_TICK_INTERVAL_MS = 1000;

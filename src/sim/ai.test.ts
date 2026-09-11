@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { chooseMove, pickWeightedRandomTarget, updateTargeting } from './ai';
+import { chooseMove, findSelfBuffMove, pickWeightedRandomTarget, updateTargeting } from './ai';
 import { createRng } from './rng';
 import { AGGRO_RADIUS, COMBAT_START_DELAY_MS, ENGAGE_RANGE, NO_WANDER_AGGRO_RADIUS, SELF_KO_MOVE_HP_FRACTION, TICK_MS } from './constants';
 import { STRUGGLE_MOVE_ID } from './struggle';
@@ -380,5 +380,44 @@ describe('chooseMove — self-KO moves (MoveDefinition.userFaints)', () => {
     const picks = new Set<number>();
     for (let seed = 1; seed <= 40; seed++) picks.add(chooseMove(self, createRng(seed)));
     expect(picks).toEqual(new Set([1, 2]));
+  });
+});
+
+describe('findSelfBuffMove — a buff that can no longer raise anything is skipped', () => {
+  const swordsDance: MoveDefinition = {
+    id: 14,
+    name: 'Swords Dance',
+    type: 'normal',
+    category: 'status',
+    power: null,
+    accuracy: null,
+    pp: 20,
+    priority: 0,
+    targeting: 'self',
+    effect: { kind: 'statStage', target: 'self', statChanges: { atk: 2 }, chance: 100 },
+  };
+  const lookup = (id: number): MoveDefinition | undefined => (id === 14 ? swordsDance : undefined);
+  const slots = () => [{ moveId: 14, ppRemaining: 10, ppMax: 20 }];
+
+  it('offers the buff while the stat it raises is still under its cap', () => {
+    const self = makePokemon('self', 'a', 0, 0, { moves: slots() });
+    self.statStages.atk = 4;
+    expect(findSelfBuffMove(self, lookup)?.id).toBe(14);
+  });
+
+  it('withholds it once every stage it changes is already at its cap', () => {
+    // Otherwise it keeps spending PP and the arena-wide attack slot on a
+    // move that changes nothing, on every chase, for the rest of the match.
+    const self = makePokemon('self', 'a', 0, 0, { moves: slots() });
+    self.statStages.atk = 6;
+    expect(findSelfBuffMove(self, lookup)).toBeUndefined();
+  });
+
+  it('still offers a mixed buff while any one of its changes can land', () => {
+    const dragonDance: MoveDefinition = { ...swordsDance, id: 349, name: 'Dragon Dance', effect: { kind: 'statStage', target: 'self', statChanges: { atk: 1, spe: 1 }, chance: 100 } };
+    const self = makePokemon('self', 'a', 0, 0, { moves: [{ moveId: 349, ppRemaining: 10, ppMax: 20 }] });
+    self.statStages.atk = 6;
+    self.statStages.spe = 5;
+    expect(findSelfBuffMove(self, (id) => (id === 349 ? dragonDance : undefined))?.id).toBe(349);
   });
 });

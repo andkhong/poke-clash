@@ -68,3 +68,6 @@ data-pipeline/cache/
 *.log
 npm-debug.log*
 *.tsbuildinfo
+
+# Editor swap files (a .swp was once committed by accident)
+*.swp

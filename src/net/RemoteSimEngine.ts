@@ -1,5 +1,6 @@
 import type { EngineLike } from '../sim/engineLike';
 import type { SimEvent, SimState, Vec2 } from '../sim/types';
+import { eventsAfter } from '../sim/events';
 
 // Matches game-server's own broadcast cadence (HUD_REFRESH_INTERVAL_MS) — the
 // window position interpolation should span between two successive snapshots.
@@ -27,7 +28,7 @@ export class RemoteSimEngine implements EngineLike {
   }
 
   getEventsSince(seq: number): SimEvent[] {
-    return this.events.filter((e) => e.seq > seq);
+    return eventsAfter(this.events, seq);
   }
 
   // No-op: spectators have no authority over a server-run match.

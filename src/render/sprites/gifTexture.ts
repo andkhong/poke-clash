@@ -15,23 +15,33 @@ export interface LoadedGifAnimation {
 // decoding every frame ourselves and uploading each as a numbered sub-frame of
 // one tall CanvasTexture, then registering a Phaser animation over it. The
 // TextureManager lives on the Game instance (not the Scene), so once a species'
-// sprite is decoded it stays cached across scene restarts / future matches.
-const cache = new Map<string, Promise<LoadedGifAnimation | null>>();
+// sprite is decoded it stays cached across scene restarts within a match.
+// Each entry remembers which Game it decoded into: PhaserGame.tsx builds a
+// fresh Phaser.Game (and TextureManager) per match, so an entry from an
+// earlier match names a texture the new game doesn't have and must not be
+// handed out again.
+interface CacheEntry {
+  game: Phaser.Game;
+  promise: Promise<LoadedGifAnimation | null>;
+}
+
+const cache = new Map<string, CacheEntry>();
 
 export function loadGifAsAnimatedTexture(
   scene: Phaser.Scene,
   url: string,
   textureKey: string
 ): Promise<LoadedGifAnimation | null> {
+  const game = scene.sys.game;
   const cached = cache.get(textureKey);
-  if (cached) return cached;
+  if (cached && cached.game === game) return cached.promise;
 
   const promise = decodeAndRegister(scene, url, textureKey);
-  cache.set(textureKey, promise);
+  cache.set(textureKey, { game, promise });
   // Don't cache a failed decode — a transient network blip shouldn't permanently
   // poison this texture key for the rest of the session.
   promise.then((result) => {
-    if (!result) cache.delete(textureKey);
+    if (!result && cache.get(textureKey)?.promise === promise) cache.delete(textureKey);
   });
   return promise;
 }

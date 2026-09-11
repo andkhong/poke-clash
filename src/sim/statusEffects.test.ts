@@ -41,9 +41,34 @@ function makeInstance(overrides: Partial<PokemonInstance> = {}): PokemonInstance
 describe('status application', () => {
   it('cannot stack a second major status on top of an existing one', () => {
     const p = makeInstance({ status: 'burn' });
-    expect(canApplyStatus(p)).toBe(false);
+    expect(canApplyStatus(p, 'paralysis')).toBe(false);
     applyStatus(p, 'paralysis', fakeRng([0.5]));
     expect(p.status).toBe('burn');
+  });
+
+  it('respects the standard type immunities to each status', () => {
+    const cases: [PokemonInstance['types'], Parameters<typeof canApplyStatus>[1]][] = [
+      [['fire'], 'burn'],
+      [['electric'], 'paralysis'],
+      [['poison'], 'poison'],
+      [['steel', 'flying'], 'poison'],
+      [['ice'], 'freeze'],
+    ];
+    for (const [types, status] of cases) {
+      const p = makeInstance({ types });
+      expect(canApplyStatus(p, status), `${types.join('/')} vs ${status}`).toBe(false);
+      applyStatus(p, status, fakeRng([0.5]));
+      expect(p.status).toBeNull();
+    }
+  });
+
+  it('still lets a type take the statuses it is not immune to (and nothing is immune to sleep)', () => {
+    expect(canApplyStatus(makeInstance({ types: ['fire'] }), 'poison')).toBe(true);
+    expect(canApplyStatus(makeInstance({ types: ['electric'] }), 'burn')).toBe(true);
+    expect(canApplyStatus(makeInstance({ types: ['ice'] }), 'sleep')).toBe(true);
+    const p = makeInstance({ types: ['fire'] });
+    applyStatus(p, 'paralysis', fakeRng([0.5]));
+    expect(p.status).toBe('paralysis');
   });
 
   it('sleep sets a 1-3 turn counter', () => {

@@ -12,6 +12,7 @@ import type {
 import type { MoveLookup, SpeciesData } from './matchSetup';
 import { createMatch } from './matchSetup';
 import type { EngineLike } from './engineLike';
+import { eventsAfter } from './events';
 import { createRng, rngChance, type Rng } from './rng';
 import {
   applyMovement,
@@ -81,7 +82,7 @@ export class SimulationEngine implements EngineLike {
   }
 
   getEventsSince(seq: number): SimEvent[] {
-    return this.events.filter((e) => e.seq > seq);
+    return eventsAfter(this.events, seq);
   }
 
   /** Lets the UI end the match on demand (an "End Match" control) rather than
@@ -469,11 +470,6 @@ export class SimulationEngine implements EngineLike {
     primaryTarget: PokemonInstance | null,
     nowMs: number
   ): void {
-    if (moveId !== STRUGGLE_MOVE_ID) {
-      const slot = attacker.moves.find((m) => m.moveId === moveId);
-      if (slot) slot.ppRemaining = Math.max(0, slot.ppRemaining - 1);
-    }
-
     this.resetCooldown(attacker, move);
     // Every path through here — including a fully-paralyzed whiff below,
     // which still holds the attacker still for its whole hold window — is
@@ -484,6 +480,13 @@ export class SimulationEngine implements EngineLike {
     if (attacker.status === 'paralysis') {
       const gate = gateAction(attacker, this.rng);
       if (!gate.canAct) return;
+    }
+
+    // PP goes only once the move actually fires: a full-paralysis whiff above
+    // costs the turn (cooldown and slot) but, as in the games, no PP.
+    if (moveId !== STRUGGLE_MOVE_ID) {
+      const slot = attacker.moves.find((m) => m.moveId === moveId);
+      if (slot) slot.ppRemaining = Math.max(0, slot.ppRemaining - 1);
     }
 
     if (move.targeting === 'self') {
@@ -530,6 +533,12 @@ export class SimulationEngine implements EngineLike {
       if (target.aiState === 'wander' || !target.targetInstanceId) {
         retaliate(target, attacker.instanceId, nowMs);
       }
+      // A type-immune target (effectiveness 0 — Earthquake on a Flying type)
+      // is left untouched from here on: no damage, no thaw, and none of the
+      // move's secondary effect, which used to land regardless. The hit is
+      // still recorded as one so the renderer shows the attack connecting
+      // for "no effect".
+      if (result.effectiveness === 0) continue;
       if (result.damage > 0) {
         target.currentHp = Math.max(0, target.currentHp - result.damage);
         target.lastHitAtMs = nowMs;
@@ -544,6 +553,9 @@ export class SimulationEngine implements EngineLike {
     if (moveId === STRUGGLE_MOVE_ID) {
       const recoil = Math.max(1, Math.floor(attacker.maxHp * STRUGGLE_RECOIL_FRACTION));
       attacker.currentHp = Math.max(0, attacker.currentHp - recoil);
+      // Recoil that finishes the user off is its own doing — credited to
+      // itself, like applyUserFaint, not to whoever last hit it.
+      if (attacker.currentHp === 0) attacker.lastDamagedByInstanceId = attacker.instanceId;
     }
     this.applyUserFaint(move, attacker);
 
@@ -599,7 +611,7 @@ export class SimulationEngine implements EngineLike {
     const recipient = effect.target === 'self' ? attacker : target;
 
     if (effect.kind === 'statusInflict' && effect.status) {
-      if (canApplyStatus(recipient)) {
+      if (canApplyStatus(recipient, effect.status)) {
         applyStatus(recipient, effect.status, this.rng);
         // A Pokémon put to sleep/frozen while its cooldown happens to be at 0
         // (say, mid-wander) would otherwise take its first status turn on the
@@ -670,6 +682,8 @@ export class SimulationEngine implements EngineLike {
       const p = this.state.pokemon[id];
       if (p.currentHp <= 0) {
         anyFainted = true;
+        p.aiState = 'fainted';
+        p.velocity = { x: 0, y: 0 };
         this.state.eliminationOrder.push(id);
         this.events.push({
           seq: this.nextSeq(),

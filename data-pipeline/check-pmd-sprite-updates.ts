@@ -1,5 +1,5 @@
 import { execFileSync } from 'node:child_process';
-import { access, appendFile, mkdir, readFile, rm, writeFile } from 'node:fs/promises';
+import { access, mkdir, readFile, rm, writeFile } from 'node:fs/promises';
 import { PMD_SPRITE_INDEX_PATH, writePmdSpriteIndex } from './pmdSpriteIndexFiles';
 import {
   latestUpstreamChange,

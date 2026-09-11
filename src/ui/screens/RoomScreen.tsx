@@ -1,9 +1,13 @@
 import { useEffect, useRef, useState, type CSSProperties } from 'react';
 import { RoomConnection } from '../../net/RoomConnection';
 import { RemoteSimEngine } from '../../net/RemoteSimEngine';
-import type { RoomSummary } from '../../net/protocol';
+import type { ChatMessage, ChatRequest, RoomSummary } from '../../net/protocol';
 import type { SimState } from '../../sim/types';
 import { createSimStore, type SimStore } from '../state/simStore';
+import { ChatSidebar } from '../chat/ChatSidebar';
+import type { ChatPanelProps } from '../chat/ChatPanel';
+import { appendChatMessage, CHAT_SIDEBAR_MEDIA_QUERY } from '../chat/chatModel';
+import { useMediaQuery } from '../hooks/useMediaQuery';
 import { MatchScreen } from './MatchScreen';
 import { RoomLobbyScreen } from './RoomLobbyScreen';
 
@@ -30,6 +34,9 @@ export function RoomScreen({ roomId }: RoomScreenProps) {
   const [playerId, setPlayerId] = useState<string | null>(() => sessionStorage.getItem(playerIdStorageKey(roomId)));
   const [store, setStore] = useState<SimStore | null>(null);
   const [highlightInstanceId, setHighlightInstanceId] = useState<string | null>(null);
+  // Plain state is enough for chat: even a full room mashing quick reactions
+  // is a few renders a second, well under the HUD's own 10 Hz refresh.
+  const [chatLog, setChatLog] = useState<ChatMessage[]>([]);
   const engineRef = useRef<RemoteSimEngine | null>(null);
   // The SSE handlers below are created once per roomId (see the effect's dep
   // array) and read this instead of the `playerId` state directly, so a join
@@ -44,11 +51,16 @@ export function RoomScreen({ roomId }: RoomScreenProps) {
     setRoom(null);
     setStore(null);
     setHighlightInstanceId(null);
+    setChatLog([]);
     engineRef.current = null;
 
     const conn = new RoomConnection(roomId, {
       onHello(payload) {
         setRoom(payload.room);
+        // Replaced wholesale, not merged: hello arrives on every EventSource
+        // (re)connect and the server's backlog is the authority on what was
+        // said while this client was away.
+        setChatLog(payload.chatLog);
         if (payload.engineState) {
           const engine = new RemoteSimEngine(payload.engineState);
           engineRef.current = engine;
@@ -76,7 +88,11 @@ export function RoomScreen({ roomId }: RoomScreenProps) {
         setRoom(summary);
         setStore(null);
         setHighlightInstanceId(null);
+        setChatLog([]);
         engineRef.current = null;
+      },
+      onChat(message) {
+        setChatLog((log) => appendChatMessage(log, message));
       },
     });
 
@@ -119,21 +135,58 @@ export function RoomScreen({ roomId }: RoomScreenProps) {
     });
   };
 
+  const handleSendChat = async (text: string): Promise<string | null> => {
+    // Read from render scope, not playerIdRef — this runs on a tap, never
+    // from inside the once-per-room SSE closures the ref exists for.
+    if (playerId === null) return 'not_in_room';
+    try {
+      const res = await fetch(`/api/rooms/${roomId}/chat`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ playerId, text } satisfies ChatRequest),
+      });
+      if (res.ok) return null;
+      const body = (await res.json().catch(() => null)) as { error?: string } | null;
+      return body?.error ?? 'send_failed';
+    } catch {
+      return 'send_failed';
+    }
+  };
+
+  // Chat identity is the seat: "You" is whichever slot holds my playerId, and
+  // only a seated player may send (spectators read along). Both fall out of
+  // `room` + `playerId` each render, so the stale-playerId cleanup effect
+  // above keeps them right after a room reset too.
+  // (Guarded on playerId first: an open seat's playerId is null too, so a
+  // bare `s.playerId === playerId` would hand a spectator the first empty seat.)
+  const mySlotIndex = playerId === null ? null : (room?.slots.find((s) => s.playerId === playerId)?.slotIndex ?? null);
+  const chat: ChatPanelProps = { messages: chatLog, mySlotIndex, room, canSend: mySlotIndex !== null, onSend: handleSendChat };
+
+  // One log, two presentations. Wide viewport: a stream-style chat column
+  // beside whatever this screen is showing (lobby or match). Narrow: the
+  // lobby embeds the panel inline and the match draws it over the arena.
+  const sidebar = useMediaQuery(CHAT_SIDEBAR_MEDIA_QUERY);
+  const inMatch = room !== null && store !== null && (room.phase === 'battle' || room.phase === 'complete');
+
   return (
     <div style={containerStyle}>
-      {!room && <p style={loadingText}>Connecting…</p>}
-      {room && store && (room.phase === 'battle' || room.phase === 'complete') && (
-        <MatchScreen
-          store={store}
-          onExit={() => (window.location.hash = '#/rooms')}
-          showEndMatchControl={false}
-          completeButtonLabel="BACK TO ROOMS"
-          highlightInstanceId={highlightInstanceId}
-        />
-      )}
-      {room && !(store && (room.phase === 'battle' || room.phase === 'complete')) && (
-        <RoomLobbyScreen room={room} playerId={playerId} onJoin={handleJoin} onPick={handlePick} />
-      )}
+      <div style={mainRegionStyle}>
+        {!room && <p style={loadingText}>Connecting…</p>}
+        {room && store && inMatch && (
+          <MatchScreen
+            store={store}
+            onExit={() => (window.location.hash = '#/rooms')}
+            showEndMatchControl={false}
+            completeButtonLabel="BACK TO ROOMS"
+            highlightInstanceId={highlightInstanceId}
+            chat={sidebar ? undefined : chat}
+          />
+        )}
+        {room && !inMatch && (
+          <RoomLobbyScreen room={room} playerId={playerId} onJoin={handleJoin} onPick={handlePick} chat={sidebar ? undefined : chat} />
+        )}
+      </div>
+      {room && sidebar && <ChatSidebar {...chat} />}
     </div>
   );
 }
@@ -142,6 +195,14 @@ const containerStyle: CSSProperties = {
   width: '100vw',
   height: '100dvh',
   overflow: 'hidden',
+  display: 'flex',
+};
+
+const mainRegionStyle: CSSProperties = {
+  flex: 1,
+  minWidth: 0,
+  height: '100%',
+  position: 'relative',
 };
 
 const loadingText: CSSProperties = {

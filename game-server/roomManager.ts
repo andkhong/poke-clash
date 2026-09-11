@@ -4,8 +4,9 @@ import { buildSpeciesMapForLevel, hasPmdSprite, listAllSpecies, moveLookup, pick
 import { ARENA_HEIGHT, ARENA_WIDTH, TICK_MS } from '../src/sim/constants';
 import { HUD_REFRESH_INTERVAL_MS } from '../src/ui/state/simStore';
 import type { ArenaBounds, MatchConfig } from '../src/sim/types';
-import type { BattleStartPayload, HelloPayload, RoomMode, RoomPhase, RoomSlotSummary, RoomSummary, RoomTeam } from '../src/net/protocol';
+import type { BattleStartPayload, ChatMessage, HelloPayload, RoomMode, RoomPhase, RoomSlotSummary, RoomSummary, RoomTeam } from '../src/net/protocol';
 import { roomCapacityForMode, teamSizeForMode } from '../src/net/protocol';
+import { CHAT_LOG_LIMIT, normalizeChatText } from '../src/net/chat';
 import { broadcast } from './sse';
 
 export const ROOM_COUNTDOWN_MS = 15_000;
@@ -15,6 +16,19 @@ export const MULTIPLAYER_LEVEL = 50;
 // Reuses the HUD's own refresh cadence rather than inventing a second
 // interval constant that could drift out of sync with it.
 const BROADCAST_INTERVAL_MS = HUD_REFRESH_INTERVAL_MS;
+
+/** Chat rate limit, per seated player: up to CHAT_BURST messages at once,
+ * then one more every CHAT_REFILL_MS. Generous enough for the quick-reaction
+ * chips (one tap each), tight enough that one seat can't flood a room. */
+export const CHAT_BURST = 4;
+export const CHAT_REFILL_MS = 1500;
+
+/** A lazy token bucket — nothing ticks; it's refilled from the clock whenever
+ * it's next consulted (see takeChatToken). */
+interface ChatBucket {
+  tokens: number;
+  lastRefillMs: number;
+}
 
 interface PlayerSlot {
   playerId: string | null;
@@ -41,6 +55,14 @@ interface RoomState {
   countdownEndsAtMs: number | null;
   engine: SimulationEngine | null;
   lastBroadcastSeq: number;
+  /** The last CHAT_LOG_LIMIT messages, oldest first — replayed to every new
+   * subscriber via HelloPayload, wiped by resetRoom. */
+  chatLog: ChatMessage[];
+  /** Never reset, even by resetRoom: a client that missed the lobbyReset
+   * frame still holds the old session's ids, and restarting at 1 would make
+   * its id-based dedupe silently drop the new session's first messages. */
+  nextChatId: number;
+  chatBuckets: Map<string, ChatBucket>;
   countdownTimer: ReturnType<typeof setTimeout> | null;
   simTimer: ReturnType<typeof setInterval> | null;
   broadcastTimer: ReturnType<typeof setInterval> | null;
@@ -84,6 +106,9 @@ export function createRoom(mode: RoomMode = 'classic', arena?: ArenaBounds) {
     countdownEndsAtMs: null,
     engine: null,
     lastBroadcastSeq: 0,
+    chatLog: [],
+    nextChatId: 1,
+    chatBuckets: new Map(),
     countdownTimer: null,
     simTimer: null,
     broadcastTimer: null,
@@ -123,7 +148,7 @@ export function toRoomSummary(room: RoomState): RoomSummary {
 }
 
 export function getHelloPayload(room: RoomState): HelloPayload {
-  return { room: toRoomSummary(room), engineState: room.engine ? room.engine.getState() : null };
+  return { room: toRoomSummary(room), engineState: room.engine ? room.engine.getState() : null, chatLog: room.chatLog };
 }
 
 export function joinRoom(room: RoomState): { ok: true; playerId: string } | { ok: false; error: 'room_full' | 'room_not_joinable' } {
@@ -158,6 +183,58 @@ export function pickSpecies(room: RoomState, playerId: string, speciesId: number
   slot.speciesId = speciesId;
   broadcast(room.id, 'roomUpdate', toRoomSummary(room));
   return { ok: true };
+}
+
+function takeChatToken(room: RoomState, playerId: string, nowMs: number): boolean {
+  let bucket = room.chatBuckets.get(playerId);
+  if (!bucket) {
+    bucket = { tokens: CHAT_BURST, lastRefillMs: nowMs };
+    room.chatBuckets.set(playerId, bucket);
+  }
+  const refills = Math.floor((nowMs - bucket.lastRefillMs) / CHAT_REFILL_MS);
+  if (refills > 0) {
+    bucket.tokens = Math.min(CHAT_BURST, bucket.tokens + refills);
+    // Once full, time stops accruing — otherwise a long quiet stretch would
+    // bank a partial refill and hand out the next token early.
+    bucket.lastRefillMs = bucket.tokens === CHAT_BURST ? nowMs : bucket.lastRefillMs + refills * CHAT_REFILL_MS;
+  }
+  if (bucket.tokens <= 0) return false;
+  bucket.tokens -= 1;
+  return true;
+}
+
+export type PostChatResult =
+  | { ok: true; message: ChatMessage }
+  | { ok: false; error: 'not_in_room' | 'invalid_message' | 'rate_limited' };
+
+/** Posts one chat line from a seated player and broadcasts it as a `chat`
+ * SSE event. No phase gate on purpose: a seat only exists from join until
+ * resetRoom wipes it 8 s after the match completes, so `not_in_room` already
+ * covers idle rooms, and the complete-phase hold is exactly when "GG"
+ * happens. Validation runs before the rate limiter so a rejected message
+ * doesn't burn any of the sender's budget. `nowMs` is injectable for tests. */
+export function postChat(room: RoomState, playerId: string, rawText: string, nowMs = Date.now()): PostChatResult {
+  const slotIndex = room.slots.findIndex((s) => s.playerId === playerId);
+  if (slotIndex === -1) return { ok: false, error: 'not_in_room' };
+  const text = normalizeChatText(rawText);
+  if (text === null) return { ok: false, error: 'invalid_message' };
+  if (!takeChatToken(room, playerId, nowMs)) return { ok: false, error: 'rate_limited' };
+
+  const slot = room.slots[slotIndex];
+  const message: ChatMessage = {
+    id: room.nextChatId,
+    slotIndex,
+    speciesId: slot.speciesId,
+    speciesName: slot.speciesId !== null ? (speciesNameById.get(slot.speciesId) ?? null) : null,
+    team: slot.team,
+    text,
+    sentAtMs: nowMs,
+  };
+  room.nextChatId += 1;
+  room.chatLog.push(message);
+  if (room.chatLog.length > CHAT_LOG_LIMIT) room.chatLog.splice(0, room.chatLog.length - CHAT_LOG_LIMIT);
+  broadcast(room.id, 'chat', message);
+  return { ok: true, message };
 }
 
 function startBattle(room: RoomState): void {
@@ -253,5 +330,7 @@ function resetRoom(room: RoomState): void {
   room.countdownEndsAtMs = null;
   room.engine = null;
   room.lastBroadcastSeq = 0;
+  room.chatLog = [];
+  room.chatBuckets.clear();
   broadcast(room.id, 'lobbyReset', toRoomSummary(room));
 }

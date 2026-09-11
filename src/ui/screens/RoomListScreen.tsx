@@ -7,7 +7,7 @@ import { useWideArenaPreference } from '../hooks/useWideArenaPreference';
 import { TEAM_A_COLOR_CSS } from '../teamColors';
 
 const POLL_INTERVAL_MS = 2000;
-const TEAM_MODES: RoomMode[] = ['team2', 'team3', 'team4', 'team8'];
+const TEAM_MODES: RoomMode[] = ['team2', 'team3', 'team4'];
 
 const PHASE_LABEL: Record<RoomPhase, string> = {
   idle: 'OPEN',

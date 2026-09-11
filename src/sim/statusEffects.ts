@@ -1,4 +1,4 @@
-import type { PokemonInstance, StatusCondition, SimEvent } from './types';
+import type { PokemonInstance, PokemonTypeName, StatusCondition, SimEvent } from './types';
 import type { Rng } from './rng';
 import { rngChance, rngIntInclusive } from './rng';
 import {
@@ -12,9 +12,24 @@ import {
   STATUS_TICK_INTERVAL_MS,
 } from './constants';
 
-/** A Pokémon can only carry one major status condition at a time (standard rule). */
-export function canApplyStatus(target: PokemonInstance): boolean {
-  return target.status === null;
+/** Types a status condition can never be put on (standard rules): Fire
+ * can't be burned, Electric paralyzed, Poison and Steel poisoned, Ice
+ * frozen. No type is immune to sleep. */
+const STATUS_TYPE_IMMUNITIES: Record<StatusCondition, readonly PokemonTypeName[]> = {
+  burn: ['fire'],
+  paralysis: ['electric'],
+  poison: ['poison', 'steel'],
+  freeze: ['ice'],
+  sleep: [],
+};
+
+/** A Pokémon can only carry one major status condition at a time (standard
+ * rule), and its own types may make it immune to this one outright — see
+ * STATUS_TYPE_IMMUNITIES. */
+export function canApplyStatus(target: PokemonInstance, status: StatusCondition): boolean {
+  if (target.status !== null) return false;
+  const immuneTypes = STATUS_TYPE_IMMUNITIES[status];
+  return !target.types.some((type) => immuneTypes.includes(type));
 }
 
 /** Sleep and freeze both take the Pokémon out of the fight entirely (see
@@ -28,7 +43,7 @@ export function applyStatus(
   status: StatusCondition,
   rng: Rng
 ): void {
-  if (!canApplyStatus(target)) return;
+  if (!canApplyStatus(target, status)) return;
   target.status = status;
   if (status === 'sleep') {
     target.statusTurnsRemaining = rngIntInclusive(rng, SLEEP_MIN_TURNS, SLEEP_MAX_TURNS);

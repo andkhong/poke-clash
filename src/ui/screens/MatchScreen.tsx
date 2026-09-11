@@ -8,6 +8,7 @@ import type { StageRect } from '../../render/PhaserGame';
 const PhaserGame = lazy(() => import('../../render/PhaserGame').then((m) => ({ default: m.PhaserGame })));
 import { RosterPanel } from '../hud/RosterPanel';
 import { BannerOverlay } from '../hud/BannerOverlay';
+import { ChatOverlay, type ChatOverlayProps } from '../chat/ChatOverlay';
 import { useSimSnapshot } from '../hooks/useSimSnapshot';
 import type { SimStore } from '../state/simStore';
 import { isMobileArena } from '../../sim/constants';
@@ -20,6 +21,11 @@ interface MatchScreenProps {
   completeButtonLabel?: string;
   /** The instance id of the Pokémon the current multiplayer player picked, if any — rendered with a highlight ring. */
   highlightInstanceId?: string | null;
+  /** Multiplayer room chat, drawn over the arena as a button + ticker +
+   * drawer (see ChatOverlay). Only for the narrow/mobile layout — on a wide
+   * viewport RoomScreen shows the chat as a sidebar beside this screen
+   * instead and passes nothing here. Solo Play has no chat at all. */
+  chat?: ChatOverlayProps;
 }
 
 export function MatchScreen({
@@ -28,6 +34,7 @@ export function MatchScreen({
   showEndMatchControl = true,
   completeButtonLabel = 'NEW MATCH',
   highlightInstanceId = null,
+  chat,
 }: MatchScreenProps) {
   const state = useSimSnapshot(store);
   // Phaser's FIT scaling can letterbox the canvas within this screen's full
@@ -96,6 +103,9 @@ export function MatchScreen({
                 {completeButtonLabel}
               </button>
             )}
+
+            {/* Last so its drawer paints above the roster panel and banners. */}
+            {chat && <ChatOverlay {...chat} />}
           </div>
         )}
       </div>
@@ -119,9 +129,12 @@ const mobileFrameStyle: CSSProperties = {
   background: '#000',
 };
 
+// Percent of the parent rather than vw: on a wide viewport RoomScreen places
+// a chat sidebar beside this screen, so the frame has to size to the arena
+// region it's actually given, not the whole window.
 const desktopFrameStyle: CSSProperties = {
   position: 'relative',
-  width: 'min(92vw, 1200px)',
+  width: 'min(92%, 1200px)',
   aspectRatio: '16 / 9',
   maxHeight: '92vh',
   background: '#000',

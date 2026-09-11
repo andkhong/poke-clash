@@ -44,6 +44,9 @@ const FIXTURE_MOVES: MoveDefinition[] = [
   { id: 12, name: 'Fixture Will-O-Wisp-ish', type: 'fire', category: 'status', power: null, accuracy: 100, pp: 15, priority: 0, targeting: 'enemy', effect: { kind: 'statusInflict', target: 'enemy', status: 'burn', chance: 100 } },
   // Takes its user down with it (see the self-KO tests below; species 11 knows only this).
   { id: 13, name: 'Fixture Explosion', type: 'normal', category: 'physical', power: 250, accuracy: 100, pp: 5, priority: 0, targeting: 'all-enemies-in-radius', userFaints: true },
+  // A damaging move with a secondary effect, of a type something is immune
+  // to (see the type-immune target test; species 13 knows only this).
+  { id: 14, name: 'Fixture Mud Shot-ish', type: 'ground', category: 'special', power: 55, accuracy: 100, pp: 15, priority: 0, targeting: 'enemy', effect: { kind: 'statStage', target: 'enemy', statChanges: { spe: -1 }, chance: 100 } },
 ];
 
 const movesById = new Map(FIXTURE_MOVES.map((m) => [m.id, m]));
@@ -65,6 +68,9 @@ const FIXTURE_SPECIES: Record<number, SpeciesData> = {
   // Fast and far too bulky to be knocked out by anything but its own Fixture
   // Explosion, the one move it knows (see the self-KO tests).
   11: { id: 11, name: 'Fixboom', types: ['normal'], baseStats: { hp: 200, atk: 80, def: 40, spa: 40, spd: 40, spe: 120 }, movePool: [13], collisionRadius: 40 },
+  // Immune to Ground (see the type-immune target test) and too bulky to go down.
+  12: { id: 12, name: 'Fixbird', types: ['flying'], baseStats: { hp: 150, atk: 50, def: 150, spa: 50, spd: 150, spe: 80 }, movePool: [1], collisionRadius: 40 },
+  13: { id: 13, name: 'Fixdirt', types: ['ground'], baseStats: { hp: 150, atk: 50, def: 150, spa: 90, spd: 150, spe: 70 }, movePool: [14], collisionRadius: 40 },
 };
 
 function runFullMatch(seed: number, speciesIds: number[]): SimulationEngine {
@@ -1109,5 +1115,87 @@ describe('self-KO moves (MoveDefinition.userFaints)', () => {
     expect(fixboom.currentHp).toBe(0);
     expect(state.phase).toBe('complete');
     expect(state.winnerInstanceIds).toEqual([fixiron.instanceId]);
+  });
+});
+
+describe('type-immune targets', () => {
+  it("lands nothing on a target the move's type can't affect — no damage and none of its secondary effect", () => {
+    // Fixdirt only knows a Ground move with a guaranteed Speed drop; Fixbird
+    // is Flying, so every use is a 0x hit that must leave it entirely alone.
+    const engine = new SimulationEngine(
+      {
+        level: 100,
+        speciesIds: [13, 12],
+        arena: { width: 500, height: 1000 },
+        shiny: false,
+        disableWander: true,
+        forcedMoveId: { 13: 14 },
+      },
+      FIXTURE_SPECIES,
+      moveLookup,
+      3
+    );
+    const attackerId = 'p0-13';
+    const victimId = 'p1-12';
+    const victim = engine.getState().pokemon[victimId];
+
+    for (let i = 0; i < Math.ceil(40_000 / TICK_MS); i++) {
+      engine.tick(TICK_MS);
+      expect(victim.statStages.spe).toBe(0);
+    }
+
+    const immuneHits = engine
+      .getEventsSince(0)
+      .filter((e): e is Extract<SimEvent, { type: 'moveUsed' }> => e.type === 'moveUsed' && e.attackerId === attackerId && !!e.hit[victimId]);
+    expect(immuneHits.length).toBeGreaterThan(0);
+    for (const e of immuneHits) {
+      expect(e.effectiveness[victimId]).toBe(0);
+      expect(e.damage[victimId]).toBe(0);
+    }
+    expect(victim.currentHp).toBe(victim.maxHp);
+  });
+});
+
+describe('full paralysis', () => {
+  it('costs the turn but not a PP, as in the games', () => {
+    // Fixolax is paralyzed from the start and pinned to Fixture Tackle; its
+    // opponent only ever Growls, so nothing else touches Fixolax's PP. Every
+    // executeMove (a real attack or a full-paralysis whiff) stamps
+    // lastAttackAtMs; only the real ones produce a moveUsed event.
+    let sawWhiff = false;
+    for (let seed = 1; seed <= 6 && !sawWhiff; seed++) {
+      const engine = new SimulationEngine(
+        {
+          level: 100,
+          speciesIds: [5, 6],
+          arena: { width: 500, height: 1000 },
+          shiny: false,
+          disableWander: true,
+          forcedMoveId: { 5: 1, 6: 4 },
+        },
+        FIXTURE_SPECIES,
+        moveLookup,
+        seed
+      );
+      const attackerId = 'p0-5';
+      const attacker = engine.getState().pokemon[attackerId];
+      attacker.status = 'paralysis';
+
+      let attempts = 0;
+      let lastStamp = attacker.lastAttackAtMs;
+      for (let i = 0; i < Math.ceil(60_000 / TICK_MS); i++) {
+        engine.tick(TICK_MS);
+        if (attacker.lastAttackAtMs !== lastStamp) {
+          attempts += 1;
+          lastStamp = attacker.lastAttackAtMs;
+        }
+      }
+      const fired = engine.getEventsSince(0).filter((e) => e.type === 'moveUsed' && e.attackerId === attackerId).length;
+      const slot = attacker.moves.find((m) => m.moveId === 1)!;
+      expect(attempts).toBeGreaterThan(0);
+      expect(slot.ppMax - slot.ppRemaining).toBe(fired);
+      if (attempts > fired) sawWhiff = true;
+    }
+    expect(sawWhiff).toBe(true); // the fixture actually exercised a whiff
   });
 });

@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "exportedAt": "2026-09-10T19:38:43.834Z",
+  "exportedAt": "2026-09-11T01:18:15.769Z",
   "marks": {
     "44": {
       "change": true,
@@ -231,6 +231,16 @@
       "verdictAt": "2026-09-10T18:07:21.179Z",
       "prefer": "pack"
     },
+    "591": {
+      "change": true,
+      "note": "This asset sheet has more. Use the diamond shards as the ray insted of the cloud",
+      "updatedAt": "2026-09-10T23:25:47.378Z"
+    },
+    "593": {
+      "change": true,
+      "note": "While the attacker is surrounding the targeted, the target should repeateldy display the damage animation. There is also an extra unused attack animation asset",
+      "updatedAt": "2026-09-10T23:29:10.894Z"
+    },
     "618": {
       "change": true,
       "note": "Use assets, remove the kanji characters at the end of the animation",
@@ -238,6 +248,11 @@
       "verdict": "approved",
       "verdictAt": "2026-09-10T18:49:26.331Z",
       "prefer": "pack"
+    },
+    "684": {
+      "change": false,
+      "note": "Not all the attack sprites are used.\n\nThere is a targeting sprite. It should be used",
+      "updatedAt": "2026-09-11T01:18:15.458Z"
     },
     "690": {
       "change": true,

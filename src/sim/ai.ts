@@ -1,4 +1,4 @@
-import type { MoveDefinition, PokemonInstance, SimState } from './types';
+import type { MoveDefinition, PokemonInstance, SimState, StageKey } from './types';
 import type { Rng } from './rng';
 import { rngPick, rngWeightedPick } from './rng';
 import { distance, WANDER_ARRIVAL_DISTANCE } from './movement';
@@ -217,7 +217,12 @@ export function chooseMove(self: PokemonInstance, rng: Rng, moves: (id: number) 
   return rngPick(rng, candidates.length > 0 ? candidates : usable).moveId;
 }
 
-/** Opportunistic self-buffing while chasing a spotted target, before it's in engage range (off the attack cooldown gate). */
+/** Opportunistic self-buffing while chasing a spotted target, before it's in
+ * engage range (off the attack cooldown gate). A move whose every stage
+ * change is already pinned at its cap (+6/-6) is passed over: using it would
+ * spend PP and an arena-wide attack slot (see MAX_SIMULTANEOUS_ATTACKS in
+ * constants.ts) on nothing, and a Pokémon that had reached +6 Attack kept
+ * Swords Dancing on every chase for the rest of the match. */
 export function findSelfBuffMove(
   self: PokemonInstance,
   moves: (id: number) => MoveDefinition | undefined
@@ -225,7 +230,19 @@ export function findSelfBuffMove(
   for (const slot of self.moves) {
     if (slot.ppRemaining <= 0) continue;
     const def = moves(slot.moveId);
-    if (def?.effect?.kind === 'statStage' && def.effect.target === 'self') return def;
+    if (def?.effect?.kind !== 'statStage' || def.effect.target !== 'self') continue;
+    if (canStillShiftStages(self, def.effect.statChanges)) return def;
   }
   return undefined;
+}
+
+/** Whether at least one of `statChanges` would actually move one of `self`'s
+ * stat stages, each clamped to -6..+6 (see engine.ts's applyMoveEffect). */
+function canStillShiftStages(self: PokemonInstance, statChanges: Partial<Record<StageKey, number>> | undefined): boolean {
+  if (!statChanges) return false;
+  for (const [key, delta] of Object.entries(statChanges) as [StageKey, number][]) {
+    const stage = self.statStages[key];
+    if ((delta > 0 && stage < 6) || (delta < 0 && stage > -6)) return true;
+  }
+  return false;
 }

@@ -2,7 +2,7 @@ import Phaser from 'phaser';
 import type { EngineLike } from '../../sim/engineLike';
 import type { SimState, Vec2 } from '../../sim/types';
 import { EventCursor } from '../../sim/events';
-import { MAX_SIMULTANEOUS_ATTACKS, POST_ATTACK_HOLD_MS } from '../../sim/constants';
+import { MATCH_TIME_LIMIT_MS, MAX_SIMULTANEOUS_ATTACKS, POST_ATTACK_HOLD_MS } from '../../sim/constants';
 import { STRUGGLE_MOVE, STRUGGLE_MOVE_ID } from '../../sim/struggle';
 import { PokemonSprite } from '../sprites/PokemonSprite';
 import { preloadArenaTileset, createArenaBackground } from '../tileset/arenaBackground';
@@ -64,7 +64,7 @@ interface QueuedAttack {
   hitTargets: AttackTargetSnapshot[];
 }
 
-/** Logs every moveUsed event as it's drained — unconditionally, before the
+/** Logs every moveUsed event as it's drained — in a dev build, before the
  * render's own attack-visual queue/dedup/drop logic (MAX_QUEUED_ATTACKS) ever
  * sees it, and using the same drain-time state QueuedAttack snapshots from,
  * so this is a ground-truth trace of attacker → target → damage that's
@@ -148,6 +148,23 @@ const MAX_QUEUED_ATTACKS = 16;
 // comment on damage being resolved regardless) — it just stops a stale replay
 // from looking like an attack that came from nowhere.
 const MAX_ATTACK_QUEUE_AGE_MS = 600;
+// The sim is driven by wall-clock time, not Phaser's frame delta. A
+// backgrounded tab gets no animation frames at all, and when they resume
+// Phaser's TimeStep replaces the huge gap with its last "sane" delta — so
+// on Phaser's delta the match silently paused for however long the tab was
+// hidden, despite PhaserGame.tsx neutralizing onHidden/onBlur so a match
+// keeps running like the ambient footage it's modeled on. The engine's
+// fixed-step accumulator (engine.ts's tick) replays the missed ticks on the
+// first frame back — a whole match's worth is tens of milliseconds of work —
+// and MAX_ATTACK_QUEUE_AGE_MS above already drops the visuals of attacks
+// that happened while nobody was watching. Capped at the match length,
+// since nothing past that can change the outcome.
+const MAX_SIM_CATCH_UP_MS = MATCH_TIME_LIMIT_MS;
+// A frame gap this long is a return from a hidden tab, not a hitch: every
+// sprite then snaps to where the sim now has it instead of gliding there at
+// MAX_POSITION_STEP_PER_FRAME (PokemonSprite.ts), which for a move across
+// the arena would take seconds and read as the roster sliding into place.
+const SNAP_TO_SIM_AFTER_MS = 1000;
 
 /** Owns the tick loop (drives engine.tick each frame) and renders whatever the
  * engine's SimState says is true — it never mutates simulation state itself. */
@@ -158,6 +175,8 @@ export class ArenaScene extends Phaser.Scene {
   private readonly sprites = new Map<string, PokemonSprite>();
   private readonly attackQueue: QueuedAttack[] = [];
   private activeAttackSlots = 0;
+  /** performance.now() at the last update — see MAX_SIM_CATCH_UP_MS. */
+  private lastWallClockMs = 0;
 
   constructor() {
     super('Arena');
@@ -227,17 +246,25 @@ export class ArenaScene extends Phaser.Scene {
     // to targets hot enough to need this — see mix.ts.
     installMasterLimiter(this);
     playBattleMusic(this);
+    this.lastWallClockMs = performance.now();
   }
 
-  update(_time: number, delta: number): void {
+  update(): void {
     if (!this.engine) return;
-    this.engine.tick(delta);
+    const wallNow = performance.now();
+    const wallDelta = Math.min(MAX_SIM_CATCH_UP_MS, Math.max(0, wallNow - this.lastWallClockMs));
+    this.lastWallClockMs = wallNow;
+    this.engine.tick(wallDelta);
     const state = this.engine.getState();
     const now = state.elapsedMs;
+    const snapToSim = wallDelta >= SNAP_TO_SIM_AFTER_MS;
 
     for (const id of state.livingOrder) {
       const pokemon = state.pokemon[id];
-      this.sprites.get(id)?.update(pokemon, pokemon.position.x, pokemon.position.y, now, state.pokemon);
+      const sprite = this.sprites.get(id);
+      if (!sprite) continue;
+      if (snapToSim) sprite.snapToSimPosition(pokemon.position);
+      sprite.update(pokemon, pokemon.position.x, pokemon.position.y, now, state.pokemon);
     }
 
     this.consumeEvents(state);
@@ -248,7 +275,7 @@ export class ArenaScene extends Phaser.Scene {
 
     for (const event of events) {
       if (event.type === 'moveUsed') {
-        logBattleEvent(event, state);
+        if (import.meta.env.DEV) logBattleEvent(event, state);
         this.enqueueAttack(event, state);
       } else if (event.type === 'fainted') {
         const sprite = this.sprites.get(event.instanceId);

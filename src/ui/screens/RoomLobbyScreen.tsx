@@ -4,6 +4,7 @@ import type { RoomSlotSummary, RoomSummary } from '../../net/protocol';
 import { teamSizeForMode } from '../../net/protocol';
 import { useCountdown } from '../../net/useCountdown';
 import { SpeciesPicker } from '../components/SpeciesPicker';
+import { ChatPanel, type ChatPanelProps } from '../chat/ChatPanel';
 import { TEAM_A_COLOR_CSS, teamColorCss } from '../teamColors';
 
 interface RoomLobbyScreenProps {
@@ -11,13 +12,19 @@ interface RoomLobbyScreenProps {
   playerId: string | null;
   onJoin: () => void;
   onPick: (speciesId: number) => void;
+  /** Room chat, shown inline under the seats. Only for the narrow/mobile
+   * layout — on a wide viewport RoomScreen shows it as a sidebar beside
+   * this screen instead and passes nothing here. */
+  chat?: ChatPanelProps;
 }
 
-export function RoomLobbyScreen({ room, playerId, onJoin, onPick }: RoomLobbyScreenProps) {
+export function RoomLobbyScreen({ room, playerId, onJoin, onPick, chat }: RoomLobbyScreenProps) {
   const remainingMs = useCountdown(room.countdownEndsAtMs);
   const allSpecies = useMemo(() => listAllSpecies().filter((s) => hasPmdSprite(s.id)), []);
 
-  const mySlot = room.slots.find((s) => s.playerId === playerId) ?? null;
+  // Guarded on playerId first — an open seat's playerId is null too, and
+  // matching one would show a spectator the species picker during countdown.
+  const mySlot = playerId === null ? null : (room.slots.find((s) => s.playerId === playerId) ?? null);
   const canJoin = playerId === null && room.slots.some((s) => s.playerId === null);
   const teamSize = teamSizeForMode(room.mode);
 
@@ -56,6 +63,13 @@ export function RoomLobbyScreen({ room, playerId, onJoin, onPick }: RoomLobbyScr
               playerId={playerId}
             />
           </div>
+        )}
+
+        {chat && (
+          <section style={{ width: '100%', maxWidth: 420, display: 'flex', flexDirection: 'column', gap: 6 }}>
+            <span style={sectionLabel}>CHAT</span>
+            <ChatPanel {...chat} listHeight={180} />
+          </section>
         )}
 
         {canJoin && (
@@ -177,6 +191,13 @@ function slotCardStyle(accentColor?: string): CSSProperties {
     background: 'rgba(255,255,255,0.05)',
   };
 }
+
+const sectionLabel: CSSProperties = {
+  fontSize: 11,
+  fontWeight: 'bold',
+  letterSpacing: 1,
+  opacity: 0.7,
+};
 
 const youTag: CSSProperties = {
   fontSize: 10,

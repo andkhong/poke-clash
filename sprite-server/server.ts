@@ -1,5 +1,5 @@
 import { createServer } from 'node:http';
-import { createReadStream } from 'node:fs';
+import { createReadStream, type ReadStream } from 'node:fs';
 import { readdir, stat } from 'node:fs/promises';
 import { extname, join } from 'node:path';
 import { parseFile } from 'music-metadata';
@@ -146,16 +146,29 @@ function serveFile(
         headers['Content-Range'] = `bytes ${range.start}-${range.end}/${info.size}`;
         headers['Content-Length'] = range.end - range.start + 1;
         res.writeHead(206, headers);
-        createReadStream(filePath, { start: range.start, end: range.end }).pipe(res);
+        pipeFile(createReadStream(filePath, { start: range.start, end: range.end }), res);
       } else {
         headers['Content-Length'] = info.size;
         res.writeHead(200, headers);
-        createReadStream(filePath).pipe(res);
+        pipeFile(createReadStream(filePath), res);
       }
     })
     .catch(() => {
       res.writeHead(404).end('not found');
     });
+}
+
+/** Streams a file into the response. A read error part-way (the file
+ * vanishing from the mirror mid-stream) ends the response rather than
+ * surfacing as an unhandled stream 'error', which would take the process
+ * down; a client that goes away releases the file handle straight away. */
+function pipeFile(stream: ReadStream, res: import('node:http').ServerResponse): void {
+  stream.on('error', () => {
+    if (!res.headersSent) res.writeHead(500);
+    res.end();
+  });
+  res.on('close', () => stream.destroy());
+  stream.pipe(res);
 }
 
 function soundtrackContentType(file: string): string {
@@ -168,7 +181,16 @@ function soundtrackContentType(file: string): string {
 const server = createServer((req, res) => {
   // Path only: sheet URLs carry a cache-busting ?v= tag (see
   // src/render/sprites/pmdSheetUrl.ts) that the routes below must ignore.
-  const url = decodeURIComponent(new URL(req.url ?? '/', 'http://localhost').pathname);
+  // A malformed percent-escape ("%E0%A4%A") makes decodeURIComponent throw,
+  // and an uncaught throw here would exit the process — and with it, in
+  // production, the whole container (see entrypoint.sh).
+  let url: string;
+  try {
+    url = decodeURIComponent(new URL(req.url ?? '/', 'http://localhost').pathname);
+  } catch {
+    res.writeHead(400).end('bad request');
+    return;
+  }
 
   if (url === '/' || url === '/health') {
     res.writeHead(200, { 'Content-Type': 'text/plain' }).end('pmd sprite server ok');

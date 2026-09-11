@@ -1,5 +1,5 @@
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
-import { getPokeApi, mapWithConcurrency } from './pokeapi';
+import { mapWithConcurrency } from './pokeapi';
 
 // Played when a Pokémon's Pokéball pops open (PokemonSprite's entrance
 // reveal). Downloaded (not hotlinked) into public/ so they're served as

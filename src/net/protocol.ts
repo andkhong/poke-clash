@@ -14,7 +14,14 @@ export type RoomPhase = 'idle' | 'countdown' | 'battle' | 'complete';
  * MatchConfig.teams) — teamSizeForMode()/roomCapacityForMode() below derive
  * everything mode-size-dependent (seat count, team split) from this one tag,
  * so nothing else needs a companion "team size" field to stay in sync. */
-export type RoomMode = 'classic' | 'boss' | 'team2' | 'team3' | 'team4' | 'team8';
+export type RoomMode = 'classic' | 'boss' | 'team2' | 'team3' | 'team4';
+
+/** Every RoomMode, for validating a client-supplied one (see game-server). */
+export const ROOM_MODES: readonly RoomMode[] = ['classic', 'boss', 'team2', 'team3', 'team4'];
+
+export function isRoomMode(value: unknown): value is RoomMode {
+  return typeof value === 'string' && (ROOM_MODES as readonly string[]).includes(value);
+}
 
 /** Which side a team-mode slot fights on; null for classic/boss rooms. */
 export type RoomTeam = 'teamA' | 'teamB';
@@ -25,7 +32,6 @@ export function teamSizeForMode(mode: RoomMode): number | null {
     case 'team2': return 2;
     case 'team3': return 3;
     case 'team4': return 4;
-    case 'team8': return 8;
     default: return null;
   }
 }
@@ -77,6 +83,10 @@ export interface CreateRoomRequest {
 export interface HelloPayload {
   room: RoomSummary;
   engineState: SimState | null;
+  /** The room's recent chat (see ChatMessage) — sent on every (re)connect so
+   * a late joiner or an EventSource auto-reconnect sees the same backlog
+   * everyone else does; the client replaces its log with this wholesale. */
+  chatLog: ChatMessage[];
 }
 
 export interface BattleStartPayload {
@@ -119,4 +129,32 @@ export interface PickSpeciesResponse {
 
 export interface ApiErrorBody {
   error: string;
+}
+
+/** One room chat line. The sender is identified by seat, never by playerId —
+ * a playerId doubles as that player's bearer token for seat-scoped actions
+ * (pick, chat), so it must never be broadcast to the whole room; the client
+ * works out "You" by comparing slotIndex against its own seat. speciesName /
+ * team are snapshotted at send time (a seat that hasn't picked yet is null,
+ * shown as "Seat N"), so a message stays attributable after the room resets
+ * and its slots are wiped. */
+export interface ChatMessage {
+  /** Per-room, strictly increasing, and never reset (see roomManager's
+   * resetRoom) — the client dedupes by it across SSE reconnects. */
+  id: number;
+  slotIndex: number;
+  speciesId: number | null;
+  speciesName: string | null;
+  team: RoomTeam | null;
+  text: string;
+  sentAtMs: number;
+}
+
+export interface ChatRequest {
+  playerId: string;
+  text: string;
+}
+
+export interface ChatResponse {
+  message: ChatMessage;
 }
