@@ -47,6 +47,16 @@ interface MatchScreenProps {
    * state is still frozen on the finished match (RoomScreen keeps the last
    * match's engine/store alive there instead of tearing the arena down). */
   bannerOverrideText?: string;
+  /** Multiplayer: how many connections are watching this room (see
+   * RoomSummary.viewerCount), shown as a pill at the bottom of the arena for
+   * the whole match. Left unset to show nothing — solo play, and the landing
+   * page's embedded showcase, whose panel draws its own badge. */
+  viewerCount?: number;
+  /** Whether the post-match button (`completeButtonLabel`) is offered at
+   * all. The landing page's embedded showcase room turns it off: the whole
+   * frame there is one "open this room" button, and a BACK TO ROOMS button
+   * inside it led to the room list from a page that never was a room. */
+  showCompleteControl?: boolean;
 }
 
 export function MatchScreen({
@@ -55,6 +65,8 @@ export function MatchScreen({
   showEndMatchControl = true,
   leaveControlLabel,
   completeButtonLabel = 'NEW MATCH',
+  viewerCount,
+  showCompleteControl = true,
   highlightInstanceId = null,
   chat,
   onCanvasReady,
@@ -138,10 +150,16 @@ export function MatchScreen({
               </button>
             )}
 
-            {state.phase === 'complete' && (
+            {state.phase === 'complete' && showCompleteControl && (
               <button onClick={onExit} style={{ ...completeButtonStyle, pointerEvents: 'auto' }}>
                 {completeButtonLabel}
               </button>
+            )}
+
+            {viewerCount !== undefined && (
+              <div style={viewerCountStyle(state.phase === 'complete' && showCompleteControl)}>
+                {viewerCount} viewer{viewerCount === 1 ? '' : 's'}
+              </div>
             )}
 
             {/* Last so its drawer paints above the roster panel and banners. */}
@@ -208,6 +226,30 @@ const endMatchButtonStyle: CSSProperties = {
   borderRadius: 5,
   cursor: 'pointer',
 };
+
+// Bottom-center: the one edge spot free in both layouts during a match
+// (chat's CHAT button holds bottom-left on mobile, END MATCH / LEAVE ROOM
+// bottom-right). Once the match is over the centered post-match button
+// takes that spot, so the pill moves up to sit just above it.
+function viewerCountStyle(abovePostMatchButton: boolean): CSSProperties {
+  return {
+    position: 'absolute',
+    bottom: abovePostMatchButton ? 'calc(max(28px, env(safe-area-inset-bottom)) + 50px)' : 'max(16px, env(safe-area-inset-bottom))',
+    left: '50%',
+    transform: 'translateX(-50%)',
+    padding: '3px 8px',
+    fontSize: 11,
+    fontFamily: 'monospace',
+    fontWeight: 'bold',
+    letterSpacing: 0.5,
+    color: '#fff',
+    background: 'rgba(40,44,52,0.85)',
+    border: '1px solid rgba(255,255,255,0.15)',
+    borderRadius: 3,
+    pointerEvents: 'none',
+    whiteSpace: 'nowrap',
+  };
+}
 
 const completeButtonStyle: CSSProperties = {
   position: 'absolute',

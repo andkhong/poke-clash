@@ -452,10 +452,15 @@ export class PokemonSprite {
     this.hpBarFill.setVisible(true);
     this.hasRevealed = true;
     playCry(this.scene, this.speciesId);
-    playSparkleReveal(this.scene, targetPos.x, targetPos.y, this.shiny);
+    // Both sparkles center on the body, not on the container's origin: that
+    // origin is at the feet (the body's origin sits at 0.75 of its height,
+    // see onPmdSpritesReady), so bursting there put the twinkle around the
+    // legs and the ground under them rather than around the Pokémon.
+    playSparkleReveal(this.scene, targetPos.x, targetPos.y - this.bodyCenterLift(), this.shiny);
     if (this.shiny) {
       this.shinyAura = createShinyAura(this.scene, this.targetOnScreenSize);
       this.container.add(this.shinyAura);
+      this.positionShinyAura();
     }
 
     this.container.setScale(0.5);
@@ -721,6 +726,7 @@ export class PokemonSprite {
 
     this.updateFacing(pokemon, allPokemon, nowMs);
     this.updateHpBar(pokemon);
+    this.positionShinyAura();
     this.updateStatusBox(pokemon);
     this.updateStatusVfx(pokemon);
     this.updateHitFlash(pokemon, nowMs, allPokemon);
@@ -1085,6 +1091,14 @@ export class PokemonSprite {
     return this.facingToward(pokemon.position, attacker.position);
   }
 
+  /** Keeps the shiny aura centered on the body. Re-done every frame, like
+   * the HP bar, because the body can arrive (or swap tiers) after the aura
+   * was created at the reveal, and its center moves with its size. */
+  private positionShinyAura(): void {
+    if (!this.shinyAura) return;
+    this.shinyAura.setPosition(0, -this.bodyCenterLift());
+  }
+
   private updateHpBar(pokemon: PokemonInstance): void {
     const y = this.bottomOfBodyY() + HP_BAR_GAP;
     this.hpBarBg.y = y;
@@ -1216,13 +1230,23 @@ export class PokemonSprite {
   private playStatusAnimation(status: Exclude<StatusCondition, 'sleep'>): number | null {
     const loaded = getLoadedCommonAnimation(this.scene, STATUS_COMMON_ANIMATIONS[status]);
     if (!loaded) return null;
-    const anchor = (): Vec2 => ({ x: this.container.x, y: this.container.y });
+    // Anchored on the body's center, exactly as the arena anchors every
+    // move animation (see getAnimAnchor and ArenaScene): the pack draws its
+    // status effects around the battler spot, and this container's origin
+    // is at the feet, so anchoring on it put Paralysis's sparks (and every
+    // other status) a quarter of a body too low. Read off the container
+    // rather than renderPos so the effect rides along with a dodge hop;
+    // depth-sorted by the feet like the body itself.
+    const anchor = (): Vec2 => ({ x: this.container.x, y: this.container.y - this.bodyCenterLift() });
+    const depth = (): number => this.container.y;
     this.statusAnimation = playAnimation({
       scene: this.scene,
       data: loaded.data,
       sheetKey: loaded.sheetKey,
       getAttacker: anchor,
       getTarget: anchor,
+      getAttackerDepth: depth,
+      getTargetDepth: depth,
       scale: animationScaleFor(this.targetOnScreenSize),
       msPerFrame: frameDurationMs(playableFrameCount(loaded.data.frames), Number.POSITIVE_INFINITY, STATUS_ANIM_PLAYBACK_SPEED),
       onComplete: () => {

@@ -11,7 +11,7 @@ export const TICK_MS = 1000 / TICK_RATE_HZ;
  * (see matchSetup.ts's circlePosition — index 0..N-1 already runs clockwise
  * from the top), then pops open to reveal the Pokémon. Pokémon hold their
  * spawn-circle formation (no movement/actions) for the whole intro, under the
- * "PLACE YOUR BETS?" banner. Both the sim (gating movement) and the renderer
+ * "PLACE YOUR BETS!" banner. Both the sim (gating movement) and the renderer
  * (staggering each ball's drop) derive timing from this one formula so they
  * never drift out of sync.
  */

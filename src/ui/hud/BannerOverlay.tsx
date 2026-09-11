@@ -23,7 +23,7 @@ function formatWinnerText(names: string[]): string {
   return `${upper.slice(0, 2).join(', ')} & ${upper.length - 2} MORE WIN!`;
 }
 
-/** Derives both match-flow banners ("PLACE YOUR BETS?" / "<WINNER> WINS!")
+/** Derives both match-flow banners ("PLACE YOUR BETS!" / "<WINNER> WINS!")
  * straight from state.phase rather than consuming the sim event log —
  * simpler, and idempotent under React StrictMode's double-render since it
  * never mutates shared state. There's no "FINAL TWO" banner: it used to fire
@@ -33,7 +33,7 @@ export function BannerOverlay({ state, overrideText }: BannerOverlayProps) {
   let text: string | null = overrideText ?? null;
   if (text === null) {
     if (state.phase === 'intro') {
-      text = 'PLACE YOUR BETS?';
+      text = 'PLACE YOUR BETS!';
     } else if (state.phase === 'complete' && state.winnerInstanceIds.length > 0) {
       text = formatWinnerText(state.winnerInstanceIds.map((id) => state.pokemon[id].name));
     }

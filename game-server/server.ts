@@ -11,7 +11,7 @@ import {
   setThumbnail,
   toRoomSummary,
 } from './roomManager';
-import { subscribe } from './sse';
+import { broadcast, subscribe } from './sse';
 import { BadRequestError, readJsonBody, readRawBody, sendJson } from './httpUtil';
 import type { ApiErrorBody, ChatRequest, ChatResponse, CreateRoomRequest, JoinRoomRequest, PickSpeciesRequest } from '../src/net/protocol';
 import { isRoomMode } from '../src/net/protocol';
@@ -179,6 +179,13 @@ async function handle(req: IncomingMessage, res: ServerResponse): Promise<void> 
     res.socket?.setNoDelay(true);
     res.write(`event: hello\ndata: ${JSON.stringify(getHelloPayload(room))}\n\n`);
     subscribe(room.id, req, res);
+    // RoomSummary.viewerCount is read off the subscriber set, so everyone
+    // watching learns of a viewer arriving or leaving the moment it happens
+    // (the match HUD shows it live), not only when a seat or the phase next
+    // changes. sse.ts's own close listener runs first (registered inside
+    // subscribe), so the count broadcast here already excludes the leaver.
+    broadcast(room.id, 'roomUpdate', toRoomSummary(room));
+    req.on('close', () => broadcast(room.id, 'roomUpdate', toRoomSummary(room)));
     return;
   }
 

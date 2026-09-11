@@ -268,6 +268,8 @@ export function RoomScreen({ roomId, embedded = false }: RoomScreenProps) {
             captureFrames={!room.autoPlay}
             chat={sidebar ? undefined : chat}
             bannerOverrideText={postMatchCountdownLabel}
+            viewerCount={embedded ? undefined : room.viewerCount}
+            showCompleteControl={!embedded}
           />
         )}
         {room && !inMatch && (
