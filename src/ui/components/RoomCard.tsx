@@ -3,7 +3,7 @@ import type { RoomPhase, RoomSummary } from '../../net/protocol';
 import { teamSizeForMode } from '../../net/protocol';
 import { useCountdown } from '../../net/useCountdown';
 import { describeArenaShape } from '../arenaShape';
-import { TEAM_A_COLOR_CSS } from '../teamColors';
+import { ACCENT, DESTRUCTIVE, PRIMARY, PRIMARY_TEXT, SECONDARY, TEXT, YELLOW, accentAlpha, secondaryAlpha, yellowAlpha } from '../theme';
 
 const PHASE_LABEL: Record<RoomPhase, string> = {
   idle: 'OPEN',
@@ -72,7 +72,7 @@ const cardStyle: CSSProperties = {
   gap: 6,
   padding: 0,
   fontFamily: 'monospace',
-  color: '#ddd',
+  color: TEXT,
   background: 'transparent',
   border: 'none',
   cursor: 'pointer',
@@ -116,8 +116,8 @@ function phasePillStyle(phase: RoomPhase): CSSProperties {
     letterSpacing: 0.5,
     padding: '2px 6px',
     borderRadius: 3,
-    color: phase === 'battle' ? '#fff' : '#20242c',
-    background: phase === 'battle' ? '#e05050' : 'rgba(255,255,255,0.85)',
+    color: phase === 'battle' ? '#fff' : TEXT,
+    background: phase === 'battle' ? DESTRUCTIVE : 'rgba(255,255,255,0.85)',
   };
 }
 
@@ -141,8 +141,8 @@ const countdownPillStyle: CSSProperties = {
   fontWeight: 'bold',
   padding: '2px 6px',
   borderRadius: 3,
-  color: '#20242c',
-  background: '#e0b030',
+  color: PRIMARY_TEXT,
+  background: PRIMARY,
 };
 
 const captionStyle: CSSProperties = {
@@ -169,9 +169,9 @@ const tagRowStyle: CSSProperties = {
 const bossTag: CSSProperties = {
   fontSize: 9,
   fontWeight: 'bold',
-  color: '#e0b030',
-  background: 'rgba(224,176,48,0.16)',
-  border: '1px solid #e0b030',
+  color: ACCENT,
+  background: accentAlpha(0.16),
+  border: `1px solid ${ACCENT}`,
   borderRadius: 3,
   padding: '2px 6px',
 };
@@ -179,9 +179,9 @@ const bossTag: CSSProperties = {
 const teamTag: CSSProperties = {
   fontSize: 9,
   fontWeight: 'bold',
-  color: TEAM_A_COLOR_CSS,
-  background: 'rgba(74,157,224,0.14)',
-  border: `1px solid ${TEAM_A_COLOR_CSS}`,
+  color: SECONDARY,
+  background: secondaryAlpha(0.14),
+  border: `1px solid ${SECONDARY}`,
   borderRadius: 3,
   padding: '2px 6px',
 };
@@ -189,9 +189,9 @@ const teamTag: CSSProperties = {
 const wideTag: CSSProperties = {
   fontSize: 9,
   fontWeight: 'bold',
-  color: '#ffd700',
-  background: 'rgba(255,215,0,0.16)',
-  border: '1px solid #ffd700',
+  color: YELLOW,
+  background: yellowAlpha(0.16),
+  border: `1px solid ${YELLOW}`,
   borderRadius: 3,
   padding: '2px 6px',
 };

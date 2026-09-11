@@ -5,7 +5,7 @@ import { IS_MOBILE_DEVICE, resolveMatchArena } from '../../app/config';
 import { useWideArenaPreference } from '../hooks/useWideArenaPreference';
 import { FeaturedRoomPanel } from '../components/FeaturedRoomPanel';
 import { RoomCard } from '../components/RoomCard';
-import { TEAM_A_COLOR_CSS } from '../teamColors';
+import { ACCENT, BG, DESTRUCTIVE, FONT_MONO, PRIMARY, PRIMARY_TEXT, SECONDARY, TEXT, TEXT_MUTED, accentAlpha, secondaryAlpha, textAlpha } from '../theme';
 
 // Reuses the in-battle Pokéball sprite (see pokeballAsset.ts) as the title
 // mark — same URL-import trick Phaser's loader uses, since this project has
@@ -136,9 +136,9 @@ const containerStyle: CSSProperties = {
   alignItems: 'center',
   gap: 20,
   padding: '20px 16px calc(24px + env(safe-area-inset-bottom))',
-  fontFamily: 'monospace',
-  color: '#eee',
-  background: '#20242c',
+  fontFamily: FONT_MONO,
+  color: TEXT,
+  background: BG,
 };
 
 const headerStyle: CSSProperties = {
@@ -170,9 +170,9 @@ const soloPlayButton: CSSProperties = {
   fontFamily: 'monospace',
   fontWeight: 'bold',
   letterSpacing: 0.5,
-  color: '#e0b030',
+  color: PRIMARY,
   background: 'transparent',
-  border: '1px solid #e0b030',
+  border: `1px solid ${PRIMARY}`,
   borderRadius: 6,
   cursor: 'pointer',
 };
@@ -180,7 +180,7 @@ const soloPlayButton: CSSProperties = {
 const errorText: CSSProperties = {
   margin: 0,
   fontSize: 12,
-  color: '#e06060',
+  color: DESTRUCTIVE,
   textAlign: 'center',
 };
 
@@ -227,8 +227,8 @@ const primaryButton: CSSProperties = {
   fontFamily: 'monospace',
   fontWeight: 'bold',
   letterSpacing: 1,
-  color: '#20242c',
-  background: '#e0b030',
+  color: PRIMARY_TEXT,
+  background: PRIMARY,
   border: 'none',
   borderRadius: 6,
   cursor: 'pointer',
@@ -241,9 +241,9 @@ const bossButton: CSSProperties = {
   fontFamily: 'monospace',
   fontWeight: 'bold',
   letterSpacing: 1,
-  color: '#e0b030',
-  background: 'rgba(224,176,48,0.16)',
-  border: '1px solid #e0b030',
+  color: ACCENT,
+  background: accentAlpha(0.16),
+  border: `1px solid ${ACCENT}`,
   borderRadius: 6,
   cursor: 'pointer',
 };
@@ -255,9 +255,9 @@ const teamButton: CSSProperties = {
   fontFamily: 'monospace',
   fontWeight: 'bold',
   letterSpacing: 1,
-  color: TEAM_A_COLOR_CSS,
-  background: 'rgba(74,157,224,0.14)',
-  border: `1px solid ${TEAM_A_COLOR_CSS}`,
+  color: SECONDARY,
+  background: secondaryAlpha(0.14),
+  border: `1px solid ${SECONDARY}`,
   borderRadius: 6,
   cursor: 'pointer',
 };
@@ -269,9 +269,9 @@ function wideArenaToggle(active: boolean): CSSProperties {
     fontWeight: 'bold',
     padding: '5px 12px',
     borderRadius: 14,
-    border: active ? '1px solid #ffd700' : '1px solid rgba(255,255,255,0.2)',
-    background: active ? 'rgba(255,215,0,0.22)' : 'rgba(255,255,255,0.05)',
-    color: active ? '#ffd700' : '#ddd',
+    border: active ? `1px solid ${ACCENT}` : `1px solid ${textAlpha(0.2)}`,
+    background: active ? accentAlpha(0.22) : textAlpha(0.05),
+    color: active ? ACCENT : TEXT_MUTED,
     cursor: 'pointer',
   };
 }

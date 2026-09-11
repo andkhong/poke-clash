@@ -1,5 +1,6 @@
 import type { CSSProperties } from 'react';
 import { RoomScreen } from '../screens/RoomScreen';
+import { PRIMARY_TEXT, primaryAlpha } from '../theme';
 
 interface FeaturedRoomPanelProps {
   roomId: string;
@@ -79,7 +80,7 @@ const enterLabelStyle: CSSProperties = {
   fontSize: 10,
   fontWeight: 'bold',
   letterSpacing: 0.5,
-  color: '#20242c',
-  background: 'rgba(224,176,48,0.92)',
+  color: PRIMARY_TEXT,
+  background: primaryAlpha(0.92),
   borderRadius: 4,
 };

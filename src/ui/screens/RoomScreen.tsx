@@ -12,8 +12,10 @@ import { appendChatMessage, CHAT_SIDEBAR_MEDIA_QUERY } from '../chat/chatModel';
 import { useMediaQuery } from '../hooks/useMediaQuery';
 import { useWideArenaPreference } from '../hooks/useWideArenaPreference';
 import { useRoomThumbnailCapture } from '../hooks/useRoomThumbnailCapture';
+import { useCountdown } from '../../net/useCountdown';
 import { MatchScreen } from './MatchScreen';
 import { RoomLobbyScreen } from './RoomLobbyScreen';
+import { BG, TEXT, textAlpha } from '../theme';
 
 interface RoomScreenProps {
   roomId: string;
@@ -104,10 +106,18 @@ export function RoomScreen({ roomId, embedded = false }: RoomScreenProps) {
       },
       onLobbyReset(summary) {
         setRoom(summary);
-        setStore(null);
-        setHighlightInstanceId(null);
         setChatLog([]);
-        engineRef.current = null;
+        // The always-on showcase room keeps its arena on screen through the
+        // gap between rounds (see the `inMatch` / `postMatchCountdownLabel`
+        // below) — tearing the store/engine down here would blank the map
+        // out from under that "next round in Ns" countdown. A regular room
+        // has nothing to freeze (nobody's picked yet next round anyway), so
+        // it keeps resetting to the lobby/seat-picking screen as before.
+        if (!summary.autoPlay) {
+          setStore(null);
+          setHighlightInstanceId(null);
+          engineRef.current = null;
+        }
       },
       onChat(message) {
         setChatLog((log) => appendChatMessage(log, message));
@@ -209,7 +219,19 @@ export function RoomScreen({ roomId, embedded = false }: RoomScreenProps) {
   // beside whatever this screen is showing (lobby or match). Narrow: the
   // lobby embeds the panel inline and the match draws it over the arena.
   const sidebar = useMediaQuery(CHAT_SIDEBAR_MEDIA_QUERY);
-  const inMatch = room !== null && store !== null && (room.phase === 'battle' || room.phase === 'complete');
+  // Regular rooms only ever have a store while phase is battle/complete (see
+  // onLobbyReset above); the always-on showcase room keeps its store through
+  // idle/countdown too, so `room.autoPlay` alone covers its whole loop here.
+  const inMatch = room !== null && store !== null && (room.phase === 'battle' || room.phase === 'complete' || room.autoPlay);
+
+  // The showcase room's "next round in Ns" banner, shown in place of the
+  // frozen previous match's own WINS banner during that gap (see
+  // MatchScreen's bannerOverrideText / BannerOverlay's overrideText).
+  const showingPostMatchCountdown = room !== null && room.autoPlay && (room.phase === 'idle' || room.phase === 'countdown');
+  const postMatchRemainingMs = useCountdown(showingPostMatchCountdown ? (room?.countdownEndsAtMs ?? null) : null);
+  const postMatchCountdownLabel = showingPostMatchCountdown
+    ? `NEXT ROUND IN ${Math.max(1, Math.ceil(postMatchRemainingMs / 1000))}s`
+    : undefined;
 
   // Only a room nobody needs a thumbnail for skips this — see
   // useRoomThumbnailCapture's own doc for why every other watching client
@@ -241,6 +263,7 @@ export function RoomScreen({ roomId, embedded = false }: RoomScreenProps) {
             highlightInstanceId={highlightInstanceId}
             onCanvasReady={setCanvas}
             chat={sidebar ? undefined : chat}
+            bannerOverrideText={postMatchCountdownLabel}
           />
         )}
         {room && !inMatch && (
@@ -283,8 +306,8 @@ const connectingStyle: CSSProperties = {
   gap: 16,
   fontFamily: 'monospace',
   fontSize: 13,
-  color: '#eee',
-  background: '#20242c',
+  color: TEXT,
+  background: BG,
 };
 
 const backButton: CSSProperties = {
@@ -292,8 +315,8 @@ const backButton: CSSProperties = {
   fontFamily: 'monospace',
   padding: '5px 10px',
   borderRadius: 5,
-  border: '1px solid rgba(255,255,255,0.2)',
-  background: 'rgba(255,255,255,0.05)',
-  color: '#ddd',
+  border: `1px solid ${textAlpha(0.2)}`,
+  background: textAlpha(0.05),
+  color: TEXT,
   cursor: 'pointer',
 };

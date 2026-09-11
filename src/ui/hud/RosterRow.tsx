@@ -1,4 +1,5 @@
 import type { PokemonInstance } from '../../sim/types';
+import { ACCENT, DESTRUCTIVE } from '../theme';
 
 interface RosterRowProps {
   pokemon: PokemonInstance;
@@ -11,7 +12,7 @@ interface RosterRowProps {
 
 export function RosterRow({ pokemon, fainted, accentColor }: RosterRowProps) {
   const ratio = pokemon.maxHp > 0 ? Math.max(0, pokemon.currentHp / pokemon.maxHp) : 0;
-  const barColor = fainted ? '#5a3030' : ratio > 0.5 ? '#4caf50' : ratio > 0.2 ? '#e0b030' : '#d9453d';
+  const barColor = fainted ? '#5a3030' : ratio > 0.5 ? '#4caf50' : ratio > 0.2 ? ACCENT : DESTRUCTIVE;
 
   return (
     <div

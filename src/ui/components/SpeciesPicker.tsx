@@ -1,5 +1,6 @@
 import { useMemo, useState, type CSSProperties } from 'react';
 import type { SpeciesSummary } from '../../data/loader';
+import { TEXT, TEXT_MUTED, textAlpha } from '../theme';
 
 interface SpeciesPickerProps {
   allSpecies: SpeciesSummary[];
@@ -42,9 +43,9 @@ const searchInput: CSSProperties = {
   fontFamily: 'monospace',
   padding: '8px 10px',
   borderRadius: 6,
-  border: '1px solid rgba(255,255,255,0.2)',
-  background: 'rgba(255,255,255,0.05)',
-  color: '#eee',
+  border: `1px solid ${textAlpha(0.2)}`,
+  background: textAlpha(0.05),
+  color: TEXT,
   outline: 'none',
 };
 
@@ -53,8 +54,8 @@ const pillButton: CSSProperties = {
   fontFamily: 'monospace',
   padding: '6px 12px',
   borderRadius: 16,
-  border: '1px solid rgba(255,255,255,0.2)',
-  background: 'rgba(255,255,255,0.05)',
-  color: '#ddd',
+  border: `1px solid ${textAlpha(0.2)}`,
+  background: textAlpha(0.05),
+  color: TEXT_MUTED,
   cursor: 'pointer',
 };

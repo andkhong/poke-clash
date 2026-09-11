@@ -3,6 +3,7 @@ import type { ChatMessage } from '../../net/protocol';
 import { ChatPanel, type ChatPanelProps } from './ChatPanel';
 import { useKeyboardInset } from '../hooks/useKeyboardInset';
 import { CHAT_TICKER_FADE_MS, CHAT_TICKER_MAX, CHAT_TICKER_MS, chatSenderColor, chatSenderLabel, countUnread, latestChatId } from './chatModel';
+import { PRIMARY, PRIMARY_TEXT, TEXT, bgAlpha, textAlpha } from '../theme';
 
 export type ChatOverlayProps = Omit<ChatPanelProps, 'listHeight' | 'showTimestamps'>;
 
@@ -133,8 +134,8 @@ const badgeStyle: CSSProperties = {
   minWidth: 16,
   padding: '1px 5px',
   fontSize: 10,
-  color: '#20242c',
-  background: '#e0b030',
+  color: PRIMARY_TEXT,
+  background: PRIMARY,
   borderRadius: 8,
 };
 
@@ -169,8 +170,8 @@ const drawerStyle: CSSProperties = {
   display: 'flex',
   flexDirection: 'column',
   boxSizing: 'border-box',
-  background: 'rgba(20,22,28,0.94)',
-  borderTop: '1px solid rgba(232,226,212,0.25)',
+  background: bgAlpha(0.97),
+  borderTop: `1px solid ${textAlpha(0.2)}`,
   borderRadius: '12px 12px 0 0',
   pointerEvents: 'auto',
   zIndex: 2,
@@ -188,16 +189,16 @@ const drawerTitleStyle: CSSProperties = {
   fontFamily: 'monospace',
   fontWeight: 'bold',
   letterSpacing: 1,
-  color: '#e8e2d4',
+  color: TEXT,
 };
 
 const closeButtonStyle: CSSProperties = {
   fontSize: 16,
   lineHeight: 1,
   padding: '2px 10px',
-  color: '#e8e2d4',
+  color: TEXT,
   background: 'transparent',
-  border: '1px solid rgba(232,226,212,0.3)',
+  border: `1px solid ${textAlpha(0.25)}`,
   borderRadius: 4,
   cursor: 'pointer',
 };

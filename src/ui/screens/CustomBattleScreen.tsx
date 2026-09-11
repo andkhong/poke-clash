@@ -5,6 +5,7 @@ import { buildSpeciesDataForLevel, getMoveDefinition, hasPmdSprite, listAllSpeci
 import { getMoveTypeColor } from '../../render/vfx/typeColor';
 import type { MatchConfig, MoveCategory } from '../../sim/types';
 import { useWideArenaPreference } from '../hooks/useWideArenaPreference';
+import { BG, DESTRUCTIVE, PRIMARY, PRIMARY_TEXT, TEXT, TEXT_MUTED, destructiveAlpha, primaryAlpha, textAlpha } from '../theme';
 
 interface CustomBattleScreenProps {
   onStart: (config: MatchConfig) => void;
@@ -77,8 +78,8 @@ export function CustomBattleScreen({ onStart, onBack }: CustomBattleScreenProps)
         boxSizing: 'border-box',
         overflowY: 'auto',
         fontFamily: 'monospace',
-        color: '#eee',
-        background: '#20242c',
+        color: TEXT,
+        background: BG,
       }}
     >
       <div style={{ width: '100%', maxWidth: 420, display: 'flex', alignItems: 'center', gap: 10 }}>
@@ -290,8 +291,8 @@ const sectionHeading: CSSProperties = {
 const chip: CSSProperties = {
   fontSize: 10,
   textTransform: 'uppercase',
-  background: 'rgba(255,255,255,0.08)',
-  border: '1px solid rgba(255,255,255,0.15)',
+  background: textAlpha(0.08),
+  border: `1px solid ${textAlpha(0.15)}`,
   borderRadius: 3,
   padding: '3px 7px',
 };
@@ -302,13 +303,16 @@ function pillButton(active: boolean): CSSProperties {
     fontFamily: 'monospace',
     padding: '6px 12px',
     borderRadius: 16,
-    border: active ? '1px solid #e0b030' : '1px solid rgba(255,255,255,0.2)',
-    background: active ? 'rgba(224,176,48,0.18)' : 'rgba(255,255,255,0.05)',
-    color: active ? '#e0b030' : '#ddd',
+    border: active ? `1px solid ${PRIMARY}` : `1px solid ${textAlpha(0.2)}`,
+    background: active ? primaryAlpha(0.18) : textAlpha(0.05),
+    color: active ? PRIMARY : TEXT_MUTED,
     cursor: 'pointer',
   };
 }
 
+// Deliberately NOT themed off PRIMARY — matches SHINY_TINT_COLOR (#ffd700) in
+// PokemonSprite.ts, so the toggle's own "on" look previews the actual gold
+// recolor it turns on in the (separately-themed) game canvas.
 function shinyToggleButton(active: boolean): CSSProperties {
   return {
     fontSize: 12,
@@ -316,9 +320,9 @@ function shinyToggleButton(active: boolean): CSSProperties {
     fontWeight: 'bold',
     padding: '6px 14px',
     borderRadius: 16,
-    border: active ? '1px solid #ffd700' : '1px solid rgba(255,255,255,0.2)',
-    background: active ? 'rgba(255,215,0,0.22)' : 'rgba(255,255,255,0.05)',
-    color: active ? '#ffd700' : '#ddd',
+    border: active ? '1px solid #ffd700' : `1px solid ${textAlpha(0.2)}`,
+    background: active ? 'rgba(255,215,0,0.22)' : textAlpha(0.05),
+    color: active ? '#ffd700' : TEXT_MUTED,
     cursor: 'pointer',
   };
 }
@@ -331,8 +335,8 @@ function startButton(enabled: boolean): CSSProperties {
     fontFamily: 'monospace',
     fontWeight: 'bold',
     letterSpacing: 1,
-    color: enabled ? '#20242c' : '#666',
-    background: enabled ? '#e0b030' : '#3a3f4a',
+    color: enabled ? PRIMARY_TEXT : TEXT_MUTED,
+    background: enabled ? PRIMARY : textAlpha(0.15),
     border: 'none',
     borderRadius: 6,
     cursor: enabled ? 'pointer' : 'not-allowed',
@@ -344,9 +348,9 @@ const backButton: CSSProperties = {
   fontFamily: 'monospace',
   padding: '5px 10px',
   borderRadius: 5,
-  border: '1px solid rgba(255,255,255,0.2)',
-  background: 'rgba(255,255,255,0.05)',
-  color: '#ddd',
+  border: `1px solid ${textAlpha(0.2)}`,
+  background: textAlpha(0.05),
+  color: TEXT,
   cursor: 'pointer',
 };
 
@@ -355,9 +359,9 @@ const changeButton: CSSProperties = {
   fontFamily: 'monospace',
   padding: '3px 8px',
   borderRadius: 4,
-  border: '1px solid rgba(255,255,255,0.2)',
+  border: `1px solid ${textAlpha(0.2)}`,
   background: 'transparent',
-  color: '#aaa',
+  color: TEXT_MUTED,
   cursor: 'pointer',
 };
 
@@ -368,12 +372,15 @@ const searchInput: CSSProperties = {
   fontFamily: 'monospace',
   padding: '8px 10px',
   borderRadius: 6,
-  border: '1px solid rgba(255,255,255,0.2)',
-  background: 'rgba(255,255,255,0.05)',
-  color: '#eee',
+  border: `1px solid ${textAlpha(0.2)}`,
+  background: textAlpha(0.05),
+  color: TEXT,
   outline: 'none',
 };
 
+// Left dark regardless of theme — move-type colors (getMoveTypeColor) are
+// often bright/saturated (electric yellow, etc.), and dark text is what
+// stays legible across that whole set.
 const typeTag: CSSProperties = {
   fontSize: 8,
   fontWeight: 'bold',
@@ -391,8 +398,8 @@ function moveRowContainer(checked: boolean, disabled: boolean): CSSProperties {
     gap: 6,
     paddingRight: 6,
     borderRadius: 5,
-    border: checked ? '1px solid #e0b030' : '1px solid rgba(255,255,255,0.12)',
-    background: checked ? 'rgba(224,176,48,0.16)' : 'rgba(255,255,255,0.04)',
+    border: checked ? `1px solid ${PRIMARY}` : `1px solid ${textAlpha(0.12)}`,
+    background: checked ? primaryAlpha(0.16) : textAlpha(0.04),
     opacity: disabled ? 0.5 : 1,
   };
 }
@@ -408,12 +415,12 @@ function moveRowButton(disabled: boolean): CSSProperties {
     padding: '6px 10px',
     border: 'none',
     background: 'transparent',
-    color: disabled ? '#666' : '#ddd',
+    color: disabled ? TEXT_MUTED : TEXT,
     cursor: disabled ? 'not-allowed' : 'pointer',
   };
 }
 
-/** Distinct red "target lock" color scheme (vs. the gold used for
+/** Distinct red "target lock" color scheme (vs. the magenta used for
  * checked/selected elsewhere on this screen) so a forced move reads as a
  * different kind of toggle — pinning which move fires, not just whether it's
  * in the pool at all. */
@@ -424,9 +431,9 @@ function forcePinButton(active: boolean): CSSProperties {
     fontWeight: 'bold',
     padding: '3px 7px',
     borderRadius: 10,
-    border: active ? '1px solid #ff5050' : '1px solid rgba(255,255,255,0.2)',
-    background: active ? 'rgba(255,80,80,0.22)' : 'rgba(255,255,255,0.05)',
-    color: active ? '#ff5050' : '#888',
+    border: active ? `1px solid ${DESTRUCTIVE}` : `1px solid ${textAlpha(0.2)}`,
+    background: active ? destructiveAlpha(0.22) : textAlpha(0.05),
+    color: active ? DESTRUCTIVE : TEXT_MUTED,
     cursor: 'pointer',
     whiteSpace: 'nowrap',
   };

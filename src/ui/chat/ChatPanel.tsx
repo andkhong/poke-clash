@@ -2,6 +2,7 @@ import { useCallback, useEffect, useLayoutEffect, useRef, useState, type CSSProp
 import type { ChatMessage, RoomSummary } from '../../net/protocol';
 import { CHAT_MAX_LENGTH, normalizeChatText, QUICK_REACTIONS } from '../../net/chat';
 import { chatSenderColor, chatSenderLabel, formatChatTime } from './chatModel';
+import { DESTRUCTIVE, PRIMARY, PRIMARY_TEXT, TEXT, textAlpha } from '../theme';
 
 export interface ChatPanelProps {
   messages: ChatMessage[];
@@ -175,7 +176,7 @@ const panelStyle: CSSProperties = {
   flexDirection: 'column',
   gap: 6,
   fontFamily: 'monospace',
-  color: '#e8e2d4',
+  color: TEXT,
 };
 
 const listWrapBase: CSSProperties = {
@@ -189,7 +190,7 @@ const listStyle: CSSProperties = {
   overscrollBehavior: 'contain',
   padding: '4px 8px',
   boxSizing: 'border-box',
-  background: 'rgba(0,0,0,0.25)',
+  background: textAlpha(0.06),
   borderRadius: 6,
 };
 
@@ -221,8 +222,8 @@ const newBelowStyle: CSSProperties = {
   fontSize: 11,
   fontFamily: 'monospace',
   fontWeight: 'bold',
-  color: '#20242c',
-  background: '#e0b030',
+  color: PRIMARY_TEXT,
+  background: PRIMARY,
   border: 'none',
   borderRadius: 12,
   cursor: 'pointer',
@@ -232,7 +233,7 @@ const newBelowStyle: CSSProperties = {
 const noticeStyle: CSSProperties = {
   margin: 0,
   fontSize: 11,
-  color: '#e0b030',
+  color: DESTRUCTIVE,
 };
 
 const chipsRowStyle: CSSProperties = {
@@ -246,9 +247,9 @@ const chipStyle: CSSProperties = {
   padding: '6px 10px',
   fontSize: 13,
   fontFamily: 'monospace',
-  color: '#e8e2d4',
-  background: 'rgba(255,255,255,0.08)',
-  border: '1px solid rgba(255,255,255,0.18)',
+  color: TEXT,
+  background: textAlpha(0.08),
+  border: `1px solid ${textAlpha(0.18)}`,
   borderRadius: 14,
   cursor: 'pointer',
 };
@@ -268,9 +269,9 @@ const inputStyle: CSSProperties = {
   fontFamily: 'monospace',
   padding: '8px 10px',
   borderRadius: 6,
-  border: '1px solid rgba(255,255,255,0.2)',
-  background: 'rgba(255,255,255,0.05)',
-  color: '#eee',
+  border: `1px solid ${textAlpha(0.2)}`,
+  background: textAlpha(0.05),
+  color: TEXT,
   outline: 'none',
 };
 
@@ -280,8 +281,8 @@ const sendButtonStyle: CSSProperties = {
   fontFamily: 'monospace',
   fontWeight: 'bold',
   letterSpacing: 1,
-  color: '#20242c',
-  background: '#e0b030',
+  color: PRIMARY_TEXT,
+  background: PRIMARY,
   border: 'none',
   borderRadius: 6,
   cursor: 'pointer',

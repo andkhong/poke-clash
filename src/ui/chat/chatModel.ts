@@ -1,6 +1,7 @@
 import type { ChatMessage, RoomSummary } from '../../net/protocol';
 import { CHAT_LOG_LIMIT } from '../../net/chat';
 import { teamColorCss } from '../teamColors';
+import { SOLARIZED_ACCENTS } from '../theme';
 
 /** Pure chat-presentation logic, kept out of the components so it can be
  * unit-tested under Vitest's node environment (no DOM). */
@@ -52,9 +53,9 @@ export function chatSenderLabel(
   return liveName ?? message.speciesName ?? `Seat ${message.slotIndex + 1}`;
 }
 
-// Eight hues that read on the dark chat background — one per seat, Twitch
+// Eight hues that read on the light chat background — one per seat, Twitch
 // style, so a reader can follow a sender by color alone.
-const SENDER_PALETTE = ['#f2c14e', '#5aa9e6', '#ef6f6c', '#6fcf97', '#c084fc', '#ff9f5a', '#4dd0c4', '#f48fb1'];
+const SENDER_PALETTE = SOLARIZED_ACCENTS;
 
 /** Stable string hash → palette index, so a spectator's generated name (no
  * slotIndex to key off) still gets a consistent color across messages. */

@@ -5,6 +5,7 @@ import { hasPmdSprite, listAllSpecies, pickRandomSpeciesIds } from '../../data/l
 import type { MatchConfig } from '../../sim/types';
 import { TEAM_A_COLOR_CSS, TEAM_B_COLOR_CSS } from '../teamColors';
 import { useWideArenaPreference } from '../hooks/useWideArenaPreference';
+import { BG, PRIMARY, PRIMARY_TEXT, TEXT, TEXT_MUTED, primaryAlpha, textAlpha } from '../theme';
 
 interface TeamModeScreenProps {
   onStart: (config: MatchConfig) => void;
@@ -162,8 +163,8 @@ const containerStyle: CSSProperties = {
   boxSizing: 'border-box',
   overflowY: 'auto',
   fontFamily: 'monospace',
-  color: '#eee',
-  background: '#20242c',
+  color: TEXT,
+  background: BG,
 };
 
 const sectionHeading: CSSProperties = {
@@ -178,7 +179,7 @@ function chip(color: string): CSSProperties {
   return {
     fontSize: 10,
     textTransform: 'uppercase',
-    background: 'rgba(255,255,255,0.08)',
+    background: textAlpha(0.08),
     border: `1px solid ${color}`,
     borderRadius: 3,
     padding: '3px 7px',
@@ -190,9 +191,9 @@ const backButton: CSSProperties = {
   fontFamily: 'monospace',
   padding: '5px 10px',
   borderRadius: 5,
-  border: '1px solid rgba(255,255,255,0.2)',
-  background: 'rgba(255,255,255,0.05)',
-  color: '#ddd',
+  border: `1px solid ${textAlpha(0.2)}`,
+  background: textAlpha(0.05),
+  color: TEXT,
   cursor: 'pointer',
 };
 
@@ -202,13 +203,16 @@ function pillButton(active: boolean): CSSProperties {
     fontFamily: 'monospace',
     padding: '6px 12px',
     borderRadius: 16,
-    border: active ? '1px solid #e0b030' : '1px solid rgba(255,255,255,0.2)',
-    background: active ? 'rgba(224,176,48,0.18)' : 'rgba(255,255,255,0.05)',
-    color: active ? '#e0b030' : '#ddd',
+    border: active ? `1px solid ${PRIMARY}` : `1px solid ${textAlpha(0.2)}`,
+    background: active ? primaryAlpha(0.18) : textAlpha(0.05),
+    color: active ? PRIMARY : TEXT_MUTED,
     cursor: 'pointer',
   };
 }
 
+// Deliberately NOT themed off PRIMARY — matches SHINY_TINT_COLOR (#ffd700) in
+// PokemonSprite.ts, so the toggle's own "on" look previews the actual gold
+// recolor it turns on in the (separately-themed) game canvas.
 function shinyToggleButton(active: boolean): CSSProperties {
   return {
     fontSize: 12,
@@ -216,9 +220,9 @@ function shinyToggleButton(active: boolean): CSSProperties {
     fontWeight: 'bold',
     padding: '6px 14px',
     borderRadius: 16,
-    border: active ? '1px solid #ffd700' : '1px solid rgba(255,255,255,0.2)',
-    background: active ? 'rgba(255,215,0,0.22)' : 'rgba(255,255,255,0.05)',
-    color: active ? '#ffd700' : '#ddd',
+    border: active ? '1px solid #ffd700' : `1px solid ${textAlpha(0.2)}`,
+    background: active ? 'rgba(255,215,0,0.22)' : textAlpha(0.05),
+    color: active ? '#ffd700' : TEXT_MUTED,
     cursor: 'pointer',
   };
 }
@@ -231,8 +235,8 @@ function startButton(enabled: boolean): CSSProperties {
     fontFamily: 'monospace',
     fontWeight: 'bold',
     letterSpacing: 1,
-    color: enabled ? '#20242c' : '#666',
-    background: enabled ? '#e0b030' : '#3a3f4a',
+    color: enabled ? PRIMARY_TEXT : TEXT_MUTED,
+    background: enabled ? PRIMARY : textAlpha(0.15),
     border: 'none',
     borderRadius: 6,
     cursor: enabled ? 'pointer' : 'not-allowed',

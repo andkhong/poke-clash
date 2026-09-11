@@ -357,13 +357,26 @@ export const ARENA_PADDING = 48;
  * Extra-tall clamp for the arena's top edge only — reserves a strip at the
  * top of the map for the roster/HP HUD panel (RosterPanel, rendered as a
  * screen overlay outside the sim) so it never has to render over (or get
- * walked under by) a live Pokémon. Kept as a fixed fraction of ARENA_HEIGHT
- * rather than measured from the actual DOM panel height, since the sim's
- * arena bounds are shared/authoritative and can't depend on any one client's
- * screen layout — sized generously for the largest roster's HUD footprint at
- * the near-1:1 phone display scale ARENA_WIDTH/HEIGHT are tuned for.
+ * walked under by) a live Pokémon. Kept as a fixed sim-pixel value rather
+ * than measured from the actual DOM panel height, since the sim's arena
+ * bounds are shared/authoritative and can't depend on any one client's
+ * screen layout.
+ *
+ * In practice this only ever binds on the landscape (desktop) arena —
+ * getMovementBounds takes Math.max(this, redZone.top, fence.top +
+ * ARENA_PADDING), and the portrait arena's own red-zone top inset
+ * (getRedZoneInsets) is bigger than this on its own. So it has to be sized
+ * for the landscape arena's HUD, which is a plain DOM overlay in fixed CSS
+ * pixels (RosterPanel's own font/padding, not scaled) sitting over a Phaser
+ * canvas that's *never* shown at this arena's native 1920px width — the
+ * desktop match frame (MatchScreen's desktopFrameStyle) caps it well below
+ * that — so the HUD's real footprint in sim pixels is always bigger than its
+ * on-screen footprint in CSS pixels, roughly by 1920/(displayed frame
+ * width). Sized with real margin over the HUD's footprint at that frame's
+ * smallest realistic width instead of at the theoretical 1:1 scale, which is
+ * what let the HUD start covering Pokémon fighting near the top edge.
  */
-export const ARENA_TOP_PADDING = 200;
+export const ARENA_TOP_PADDING = 240;
 
 /**
  * On-screen sprite scale — shared with the renderer (PokemonSprite.ts derives

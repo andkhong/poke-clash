@@ -6,10 +6,24 @@
     <title>PokéBets Arena</title>
     <!-- Retro pixel font for the in-battle move-name callout (PokemonSprite.ts's
          showMoveLabel), matching the blocky arcade-style lettering used by the
-         reference battle-UI style this project is following. -->
+         reference battle-UI style this project is following. Space Mono is the
+         app's base UI font (see src/ui/theme.ts's FONT_MONO) — the monospace
+         face used by the "Retro Arcade" theme the rest of the app follows. -->
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-    <link href="https://fonts.googleapis.com/css2?family=Press+Start+2P&display=swap" rel="stylesheet" />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Press+Start+2P&family=Space+Mono:wght@400;700&display=swap"
+      rel="stylesheet"
+    />
+    <!-- Matches src/ui/theme.ts's BG — avoids a flash of the browser's
+         default white before the first screen mounts and paints its own. -->
+    <style>
+      html,
+      body {
+        margin: 0;
+        background: #fdf6e3;
+      }
+    </style>
   </head>
   <body>
     <div id="root"></div>

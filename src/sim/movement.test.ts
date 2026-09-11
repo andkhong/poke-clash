@@ -324,14 +324,14 @@ describe('pickWanderWaypoint', () => {
 
   it('mostly escapes into the open arena instead of re-landing on the same wall it started at', () => {
     const rng = createRng(6);
-    const topLeftCorner = { x: 48, y: 200 }; // exactly ARENA_PADDING/ARENA_TOP_PADDING's corner
+    const topLeftCorner = { x: 48, y: ARENA_TOP_PADDING }; // exactly ARENA_PADDING/ARENA_TOP_PADDING's corner
     const EPSILON = 1e-6;
     const trials = 300;
     let stillOnAWall = 0;
     for (let i = 0; i < trials; i++) {
       const wp = pickWanderWaypoint(rng, arena, topLeftCorner);
       const onVerticalWall = wp.x <= 48 + EPSILON || wp.x >= arena.width - 48 + EPSILON;
-      const onHorizontalWall = wp.y <= 200 + EPSILON || wp.y >= arena.height - 48 + EPSILON;
+      const onHorizontalWall = wp.y <= ARENA_TOP_PADDING + EPSILON || wp.y >= arena.height - 48 + EPSILON;
       if (onVerticalWall || onHorizontalWall) stillOnAWall++;
     }
     // A single uncontested random cast (the old behavior) lands back on one

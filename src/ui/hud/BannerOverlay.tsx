@@ -5,6 +5,12 @@ const FINAL_TWO_BANNER_MS = 2600;
 
 interface BannerOverlayProps {
   state: SimState;
+  /** Shown in the same banner box instead of whatever `state` would derive —
+   * used for the always-on showcase room's "next round in Ns" countdown
+   * during the post-match gap, when `state` is still frozen on the finished
+   * match's own phase (so the normal derivation below would otherwise keep
+   * showing its stale WINS banner). Omit to use the normal derivation. */
+  overrideText?: string;
 }
 
 /** More than one winner happens when the 90s hard time limit is hit with
@@ -24,23 +30,25 @@ function formatWinnerText(names: string[]): string {
  * "<WINNER> WINS!") straight from state.phase + state.elapsedMs rather than
  * consuming the sim event log — simpler, and idempotent under React
  * StrictMode's double-render since it never mutates shared state. */
-export function BannerOverlay({ state }: BannerOverlayProps) {
+export function BannerOverlay({ state, overrideText }: BannerOverlayProps) {
   const finalTwoStartRef = useRef<number | null>(null);
   if (state.phase === 'finalTwo' && finalTwoStartRef.current === null) {
     finalTwoStartRef.current = state.elapsedMs;
   }
 
-  let text: string | null = null;
-  if (state.phase === 'intro') {
-    text = 'WHO WILL WIN?';
-  } else if (state.phase === 'complete' && state.winnerInstanceIds.length > 0) {
-    text = formatWinnerText(state.winnerInstanceIds.map((id) => state.pokemon[id].name));
-  } else if (
-    state.phase === 'finalTwo' &&
-    finalTwoStartRef.current !== null &&
-    state.elapsedMs - finalTwoStartRef.current < FINAL_TWO_BANNER_MS
-  ) {
-    text = 'FINAL TWO';
+  let text: string | null = overrideText ?? null;
+  if (text === null) {
+    if (state.phase === 'intro') {
+      text = 'WHO WILL WIN?';
+    } else if (state.phase === 'complete' && state.winnerInstanceIds.length > 0) {
+      text = formatWinnerText(state.winnerInstanceIds.map((id) => state.pokemon[id].name));
+    } else if (
+      state.phase === 'finalTwo' &&
+      finalTwoStartRef.current !== null &&
+      state.elapsedMs - finalTwoStartRef.current < FINAL_TWO_BANNER_MS
+    ) {
+      text = 'FINAL TWO';
+    }
   }
 
   if (!text) return null;

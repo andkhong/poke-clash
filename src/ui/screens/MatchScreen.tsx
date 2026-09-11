@@ -12,6 +12,7 @@ import { ChatOverlay, type ChatOverlayProps } from '../chat/ChatOverlay';
 import { useSimSnapshot } from '../hooks/useSimSnapshot';
 import type { SimStore } from '../state/simStore';
 import { isMobileArena } from '../../sim/constants';
+import { PRIMARY, PRIMARY_TEXT } from '../theme';
 
 interface MatchScreenProps {
   store: SimStore;
@@ -36,6 +37,12 @@ interface MatchScreenProps {
   /** Multiplayer only (see useRoomThumbnailCapture) — solo play has no room
    * to attribute a captured frame to, so App.tsx never passes this. */
   onCanvasReady?: (canvas: HTMLCanvasElement) => void;
+  /** Overrides the banner overlay's own text — see BannerOverlay's
+   * `overrideText`. Used by the always-on showcase room to show "next round
+   * in Ns" over the arena during its post-match gap, when `store`'s sim
+   * state is still frozen on the finished match (RoomScreen keeps the last
+   * match's engine/store alive there instead of tearing the arena down). */
+  bannerOverrideText?: string;
 }
 
 export function MatchScreen({
@@ -47,6 +54,7 @@ export function MatchScreen({
   highlightInstanceId = null,
   chat,
   onCanvasReady,
+  bannerOverrideText,
 }: MatchScreenProps) {
   const state = useSimSnapshot(store);
   // Phaser's FIT scaling can letterbox the canvas within this screen's full
@@ -100,7 +108,7 @@ export function MatchScreen({
               <RosterPanel state={state} />
             </div>
 
-            <BannerOverlay state={state} />
+            <BannerOverlay state={state} overrideText={bannerOverrideText} />
 
             {state.phase !== 'complete' && showEndMatchControl && (
               <button
@@ -150,12 +158,17 @@ const mobileFrameStyle: CSSProperties = {
 
 // Percent of the parent rather than vw: on a wide viewport RoomScreen places
 // a chat sidebar beside this screen, so the frame has to size to the arena
-// region it's actually given, not the whole window.
+// region it's actually given, not the whole window. Capped well above any
+// realistic viewport (rather than left uncapped) only so an ultra-wide
+// monitor's frame can't grow large enough to make Pokémon sprites — sized in
+// fixed game-world pixels — look tiny relative to it. Raised from the
+// original 92%/1200px/92vh caps, which left a lot of the page's own
+// background showing around the frame on anything but a wide, short window.
 const desktopFrameStyle: CSSProperties = {
   position: 'relative',
-  width: 'min(92%, 1200px)',
+  width: 'min(98%, 1800px)',
   aspectRatio: '16 / 9',
-  maxHeight: '92vh',
+  maxHeight: '98vh',
   background: '#000',
   border: '1px solid rgba(255,255,255,0.12)',
   borderRadius: 8,
@@ -193,8 +206,8 @@ const completeButtonStyle: CSSProperties = {
   fontFamily: 'monospace',
   fontWeight: 'bold',
   letterSpacing: 1,
-  color: '#20242c',
-  background: '#e0b030',
+  color: PRIMARY_TEXT,
+  background: PRIMARY,
   border: 'none',
   borderRadius: 6,
   cursor: 'pointer',

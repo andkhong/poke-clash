@@ -9,6 +9,7 @@ import { ChatPanel, type ChatPanelProps } from '../chat/ChatPanel';
 import { useWideArenaPreference } from '../hooks/useWideArenaPreference';
 import { describeArenaShape } from '../arenaShape';
 import { TEAM_A_COLOR_CSS, teamColorCss } from '../teamColors';
+import { ACCENT, BG, PRIMARY, PRIMARY_TEXT, TEXT, TEXT_MUTED, YELLOW, textAlpha, yellowAlpha } from '../theme';
 
 interface RoomLobbyScreenProps {
   room: RoomSummary;
@@ -169,8 +170,8 @@ const containerStyle: CSSProperties = {
   boxSizing: 'border-box',
   overflowY: 'auto',
   fontFamily: 'monospace',
-  color: '#eee',
-  background: '#20242c',
+  color: TEXT,
+  background: BG,
 };
 
 const backButton: CSSProperties = {
@@ -178,9 +179,9 @@ const backButton: CSSProperties = {
   fontFamily: 'monospace',
   padding: '5px 10px',
   borderRadius: 5,
-  border: '1px solid rgba(255,255,255,0.2)',
-  background: 'rgba(255,255,255,0.05)',
-  color: '#ddd',
+  border: `1px solid ${textAlpha(0.2)}`,
+  background: textAlpha(0.05),
+  color: TEXT,
   cursor: 'pointer',
 };
 
@@ -194,7 +195,7 @@ const bossBanner: CSSProperties = {
   margin: 0,
   fontSize: 12,
   fontWeight: 'bold',
-  color: '#e0b030',
+  color: ACCENT,
 };
 
 const teamBanner: CSSProperties = {
@@ -213,8 +214,8 @@ function slotCardStyle(accentColor?: string): CSSProperties {
     fontSize: 13,
     padding: '10px 14px',
     borderRadius: 6,
-    border: `1px solid ${accentColor ? `${accentColor}66` : 'rgba(255,255,255,0.15)'}`,
-    background: 'rgba(255,255,255,0.05)',
+    border: `1px solid ${accentColor ? `${accentColor}66` : textAlpha(0.15)}`,
+    background: textAlpha(0.05),
   };
 }
 
@@ -231,9 +232,9 @@ function arenaTag(wide: boolean): CSSProperties {
     fontWeight: 'bold',
     letterSpacing: 1,
     whiteSpace: 'nowrap',
-    color: wide ? '#ffd700' : '#bbb',
-    background: wide ? 'rgba(255,215,0,0.16)' : 'rgba(255,255,255,0.06)',
-    border: `1px solid ${wide ? '#ffd700' : 'rgba(255,255,255,0.2)'}`,
+    color: wide ? YELLOW : TEXT_MUTED,
+    background: wide ? yellowAlpha(0.16) : textAlpha(0.06),
+    border: `1px solid ${wide ? YELLOW : textAlpha(0.2)}`,
     borderRadius: 3,
     padding: '2px 6px',
   };
@@ -242,7 +243,7 @@ function arenaTag(wide: boolean): CSSProperties {
 const youTag: CSSProperties = {
   fontSize: 10,
   fontWeight: 'bold',
-  color: '#e0b030',
+  color: PRIMARY,
 };
 
 const primaryButton: CSSProperties = {
@@ -251,8 +252,8 @@ const primaryButton: CSSProperties = {
   fontFamily: 'monospace',
   fontWeight: 'bold',
   letterSpacing: 1,
-  color: '#20242c',
-  background: '#e0b030',
+  color: PRIMARY_TEXT,
+  background: PRIMARY,
   border: 'none',
   borderRadius: 6,
   cursor: 'pointer',

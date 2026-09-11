@@ -1,6 +1,7 @@
 import { useEffect, useState, type CSSProperties } from 'react';
 import { ChatPanel, type ChatPanelProps } from './ChatPanel';
 import { CHAT_SIDEBAR_WIDTH, countUnread, latestChatId } from './chatModel';
+import { BG_ALT, PRIMARY, PRIMARY_TEXT, TEXT, textAlpha } from '../theme';
 
 const COLLAPSED_STORAGE_KEY = 'poke-clash:chat-sidebar-collapsed';
 
@@ -81,10 +82,10 @@ const sidebarStyle: CSSProperties = {
   boxSizing: 'border-box',
   display: 'flex',
   flexDirection: 'column',
-  background: '#1b1e25',
-  borderLeft: '1px solid rgba(255,255,255,0.1)',
+  background: BG_ALT,
+  borderLeft: `1px solid ${textAlpha(0.12)}`,
   fontFamily: 'monospace',
-  color: '#e8e2d4',
+  color: TEXT,
 };
 
 const headerStyle: CSSProperties = {
@@ -92,7 +93,7 @@ const headerStyle: CSSProperties = {
   alignItems: 'center',
   gap: 8,
   padding: '8px 10px',
-  borderBottom: '1px solid rgba(255,255,255,0.1)',
+  borderBottom: `1px solid ${textAlpha(0.12)}`,
 };
 
 const titleStyle: CSSProperties = {
@@ -114,9 +115,9 @@ const headerButtonStyle: CSSProperties = {
   fontSize: 14,
   lineHeight: 1,
   padding: '4px 6px',
-  color: '#e8e2d4',
+  color: TEXT,
   background: 'transparent',
-  border: '1px solid rgba(255,255,255,0.15)',
+  border: `1px solid ${textAlpha(0.15)}`,
   borderRadius: 4,
   cursor: 'pointer',
 };
@@ -139,8 +140,8 @@ const stripStyle: CSSProperties = {
   flexDirection: 'column',
   alignItems: 'center',
   paddingTop: 8,
-  background: '#1b1e25',
-  borderLeft: '1px solid rgba(255,255,255,0.1)',
+  background: BG_ALT,
+  borderLeft: `1px solid ${textAlpha(0.12)}`,
 };
 
 const stripButtonStyle: CSSProperties = {
@@ -149,7 +150,7 @@ const stripButtonStyle: CSSProperties = {
   lineHeight: 1,
   padding: '6px 4px',
   background: 'transparent',
-  border: '1px solid rgba(255,255,255,0.15)',
+  border: `1px solid ${textAlpha(0.15)}`,
   borderRadius: 4,
   cursor: 'pointer',
 };
@@ -163,7 +164,7 @@ const badgeStyle: CSSProperties = {
   fontSize: 10,
   fontFamily: 'monospace',
   fontWeight: 'bold',
-  color: '#20242c',
-  background: '#e0b030',
+  color: PRIMARY_TEXT,
+  background: PRIMARY,
   borderRadius: 8,
 };
