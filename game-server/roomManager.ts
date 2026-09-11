@@ -7,7 +7,7 @@ import type { ArenaBounds, MatchConfig } from '../src/sim/types';
 import type { BattleStartPayload, ChatMessage, HelloPayload, RoomMode, RoomPhase, RoomSlotSummary, RoomSummary, RoomTeam } from '../src/net/protocol';
 import { roomCapacityForMode, teamSizeForMode } from '../src/net/protocol';
 import { CHAT_LOG_LIMIT, normalizeChatText, normalizeSpectatorName } from '../src/net/chat';
-import { broadcast } from './sse';
+import { broadcast, subscriberCount } from './sse';
 
 export const ROOM_COUNTDOWN_MS = 15_000;
 export const ROOM_COMPLETE_HOLD_MS = 8_000;
@@ -170,6 +170,7 @@ export function toRoomSummary(room: RoomState): RoomSummary {
     capacity: roomCapacityForMode(room.mode),
     autoPlay: room.autoPlay,
     thumbnailUpdatedAtMs: room.thumbnailUpdatedAtMs,
+    viewerCount: subscriberCount(room.id),
   };
 }
 

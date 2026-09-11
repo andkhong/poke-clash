@@ -4,6 +4,10 @@ import { PRIMARY_TEXT, primaryAlpha } from '../theme';
 
 interface FeaturedRoomPanelProps {
   roomId: string;
+  /** Live count of connections subscribed to this room's SSE stream (see
+   * RoomSummary.viewerCount) — shown bottom-left same as a grid RoomCard's
+   * badge, so the always-live showcase isn't the one room without one. */
+  viewerCount: number;
 }
 
 /** The landing page's always-live hero: the server's one permanent,
@@ -25,7 +29,7 @@ interface FeaturedRoomPanelProps {
  * keeps the landing-page embed a single clickable preview rather than a
  * partially-interactive one (typing into the embedded composer would be a
  * dead end otherwise, since RoomScreen unmounts on navigation anyway). */
-export function FeaturedRoomPanel({ roomId }: FeaturedRoomPanelProps) {
+export function FeaturedRoomPanel({ roomId, viewerCount }: FeaturedRoomPanelProps) {
   return (
     <div style={frameStyle}>
       <RoomScreen roomId={roomId} embedded />
@@ -35,6 +39,9 @@ export function FeaturedRoomPanel({ roomId }: FeaturedRoomPanelProps) {
         aria-label="Open this room's full page, with chat"
       >
         <span style={enterLabelStyle}>OPEN ROOM &amp; CHAT →</span>
+        <span style={viewerBadgeStyle}>
+          {viewerCount} viewer{viewerCount === 1 ? '' : 's'}
+        </span>
       </button>
     </div>
   );
@@ -83,4 +90,17 @@ const enterLabelStyle: CSSProperties = {
   color: PRIMARY_TEXT,
   background: primaryAlpha(0.92),
   borderRadius: 4,
+};
+
+const viewerBadgeStyle: CSSProperties = {
+  position: 'absolute',
+  bottom: 10,
+  left: 10,
+  fontFamily: 'monospace',
+  fontSize: 10,
+  fontWeight: 'bold',
+  padding: '4px 8px',
+  borderRadius: 4,
+  color: '#fff',
+  background: 'rgba(0,0,0,0.6)',
 };

@@ -23,7 +23,7 @@ import { ARENA_HEIGHT, ARENA_WIDTH, DESKTOP_ARENA_HEIGHT, DESKTOP_ARENA_WIDTH, T
 
 // Broadcasting to nobody is already a no-op, but mocking lets the chat tests
 // assert that a posted message actually goes out as a `chat` frame.
-vi.mock('./sse', () => ({ broadcast: vi.fn(), subscribe: vi.fn() }));
+vi.mock('./sse', () => ({ broadcast: vi.fn(), subscribe: vi.fn(), subscriberCount: vi.fn(() => 0) }));
 
 describe('roomManager Team Mode', () => {
   beforeEach(() => {

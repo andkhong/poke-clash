@@ -32,12 +32,13 @@ export function appendChatMessage(log: ChatMessage[], message: ChatMessage): Cha
 }
 
 /** Who to show as the sender. A seated player is known by their pick, same
- * as ever: "You" for the local seat, otherwise the seat's *current* species
- * name (a message sent before picking upgrades from "Seat N" to the species
- * once they pick), falling back to the name snapshotted on the message, then
- * the seat number. Every room supports chat now (see spectatorIdentity.ts),
- * so an unseated sender (message.slotIndex null) shows their generated
- * display name instead — "You" when it's this tab's own. */
+ * as ever: the seat's *current* species name (a message sent before picking
+ * upgrades from "Seat N" to the species once they pick), falling back to the
+ * name snapshotted on the message, then the seat number. Every room supports
+ * chat now (see spectatorIdentity.ts), so an unseated sender
+ * (message.slotIndex null) shows their generated display name instead. Each
+ * viewer's own messages get a " (You)" suffix appended to their name, so
+ * they can still see who they are while spotting their own lines. */
 export function chatSenderLabel(
   message: ChatMessage,
   mySlotIndex: number | null,
@@ -45,12 +46,14 @@ export function chatSenderLabel(
   mySpectatorName: string | null
 ): string {
   if (message.slotIndex === null) {
-    if (mySpectatorName !== null && message.spectatorName === mySpectatorName) return 'You';
-    return message.spectatorName ?? 'Spectator';
+    const name = message.spectatorName ?? 'Spectator';
+    const isSelf = mySpectatorName !== null && message.spectatorName === mySpectatorName;
+    return isSelf ? `${name} (You)` : name;
   }
-  if (mySlotIndex !== null && message.slotIndex === mySlotIndex) return 'You';
   const liveName = room?.slots[message.slotIndex]?.speciesName ?? null;
-  return liveName ?? message.speciesName ?? `Seat ${message.slotIndex + 1}`;
+  const name = liveName ?? message.speciesName ?? `Seat ${message.slotIndex + 1}`;
+  const isSelf = mySlotIndex !== null && message.slotIndex === mySlotIndex;
+  return isSelf ? `${name} (You)` : name;
 }
 
 // Eight hues that read on the light chat background — one per seat, Twitch

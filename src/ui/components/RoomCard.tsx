@@ -18,8 +18,8 @@ interface RoomCardProps {
 
 /** One tile in the landing page's room grid — a Twitch-style card: a
  * captured thumbnail (see useRoomThumbnailCapture, served from
- * /api/rooms/:id/thumbnail) with phase/seat badges over it, name + mode tags
- * below, the whole thing a button into that room's lobby. */
+ * /api/rooms/:id/thumbnail) with phase/seat/viewer badges over it, name +
+ * mode tags below, the whole thing a button into that room's lobby. */
 export function RoomCard({ room }: RoomCardProps) {
   const remainingMs = useCountdown(room.countdownEndsAtMs);
   const filled = room.slots.filter((s) => s.playerId !== null).length;
@@ -46,6 +46,9 @@ export function RoomCard({ room }: RoomCardProps) {
         <span style={phasePillStyle(room.phase)}>{PHASE_LABEL[room.phase]}</span>
         <span style={seatPillStyle}>
           {filled}/{room.capacity}
+        </span>
+        <span style={viewerPillStyle}>
+          {room.viewerCount} viewer{room.viewerCount === 1 ? '' : 's'}
         </span>
         {room.phase === 'countdown' && <span style={countdownPillStyle}>{Math.ceil(remainingMs / 1000)}s</span>}
       </div>
@@ -122,6 +125,18 @@ function phasePillStyle(phase: RoomPhase): CSSProperties {
 }
 
 const seatPillStyle: CSSProperties = {
+  position: 'absolute',
+  top: 6,
+  right: 6,
+  fontSize: 9,
+  fontWeight: 'bold',
+  padding: '2px 6px',
+  borderRadius: 3,
+  color: '#fff',
+  background: 'rgba(0,0,0,0.6)',
+};
+
+const viewerPillStyle: CSSProperties = {
   position: 'absolute',
   bottom: 6,
   left: 6,

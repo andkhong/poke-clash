@@ -82,6 +82,11 @@ export interface RoomSummary {
    * ever captured one — null means "don't bother requesting the image, show
    * the placeholder instead." */
   thumbnailUpdatedAtMs: number | null;
+  /** Connections currently subscribed to this room's SSE stream — seated
+   * players and spectators alike (see game-server/sse.ts's subscriberCount).
+   * Recomputed on every fetch, so the landing page's 2s room-list poll keeps
+   * it live without a dedicated push event. */
+  viewerCount: number;
 }
 
 export interface CreateRoomRequest {

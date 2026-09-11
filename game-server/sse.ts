@@ -25,3 +25,11 @@ export function broadcast(roomId: string, event: string, data: unknown): void {
   const frame = `event: ${event}\ndata: ${JSON.stringify(data)}\n\n`;
   for (const res of set) res.write(frame);
 }
+
+/** How many connections are currently watching this room's SSE stream —
+ * seated players and spectators alike, since subscribing is independent of
+ * holding a seat (see the comment above subscribersByRoom). Used as the
+ * room list's live viewer count. */
+export function subscriberCount(roomId: string): number {
+  return subscribersByRoom.get(roomId)?.size ?? 0;
+}

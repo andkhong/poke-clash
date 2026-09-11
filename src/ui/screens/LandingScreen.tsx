@@ -82,7 +82,7 @@ export function LandingScreen() {
       {error && <p style={errorText}>{error}</p>}
 
       {featuredRoom ? (
-        <FeaturedRoomPanel roomId={featuredRoom.id} />
+        <FeaturedRoomPanel roomId={featuredRoom.id} viewerCount={featuredRoom.viewerCount} />
       ) : (
         !error && <p style={statusText}>Loading the live room…</p>
       )}

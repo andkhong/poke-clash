@@ -38,6 +38,7 @@ function roomWith(speciesNames: Array<string | null>): RoomSummary {
     arena: { width: 900, height: 1950 },
     autoPlay: false,
     thumbnailUpdatedAtMs: null,
+    viewerCount: 0,
   };
 }
 
@@ -61,8 +62,8 @@ describe('appendChatMessage', () => {
 });
 
 describe('chatSenderLabel', () => {
-  it('is "You" for the local seat', () => {
-    expect(chatSenderLabel(msg(1, { slotIndex: 2 }), 2, roomWith(['Aipom', 'Litleo', 'Skiddo']), null)).toBe('You');
+  it('appends " (You)" to the local seat\'s own name', () => {
+    expect(chatSenderLabel(msg(1, { slotIndex: 2 }), 2, roomWith(['Aipom', 'Litleo', 'Skiddo']), null)).toBe('Skiddo (You)');
   });
 
   it('prefers the seat\'s live species name, so a pre-pick message upgrades once they pick', () => {
@@ -80,11 +81,11 @@ describe('chatSenderLabel', () => {
     expect(chatSenderLabel(msg(1, { slotIndex: 0, speciesName: 'Aipom' }), null, null, 'Eevee123')).toBe('Aipom');
   });
 
-  it('shows an unseated sender\'s generated name, and "You" only for this tab\'s own', () => {
+  it('shows an unseated sender\'s generated name, with " (You)" only for this tab\'s own', () => {
     const message = msg(1, { slotIndex: null, speciesName: null, spectatorName: 'Slowpoke482' });
     expect(chatSenderLabel(message, null, null, null)).toBe('Slowpoke482');
     expect(chatSenderLabel(message, null, null, 'Eevee123')).toBe('Slowpoke482');
-    expect(chatSenderLabel(message, null, null, 'Slowpoke482')).toBe('You');
+    expect(chatSenderLabel(message, null, null, 'Slowpoke482')).toBe('Slowpoke482 (You)');
     // A seated viewer's own mySlotIndex must never match an unseated sender.
     expect(chatSenderLabel(message, 0, roomWith(['Aipom']), null)).toBe('Slowpoke482');
   });

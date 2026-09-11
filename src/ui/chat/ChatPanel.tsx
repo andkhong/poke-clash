@@ -9,7 +9,7 @@ export interface ChatPanelProps {
   /** The local player's seat, or null when unseated. */
   mySlotIndex: number | null;
   /** This tab's generated spectator identity (see spectatorIdentity.ts) —
-   * used to label an unseated sender's own messages "You". */
+   * used to append " (You)" to an unseated sender's own messages. */
   mySpectatorName: string | null;
   room: RoomSummary | null;
   canSend: boolean;
