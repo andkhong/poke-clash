@@ -130,6 +130,13 @@ export interface PokemonInstance {
   /** True only for Boss Mode's single boss — drives damage amplification
    * (damage.ts) and 3x sprite scale (PokemonSprite.ts). See sim/bossConfig.ts. */
   isBoss?: boolean;
+  /** Purely cosmetic (see matchSetup.ts's buildInstance): either forced by
+   * MatchConfig.shiny (the whole-roster setup-screen toggle) or, when that's
+   * off, an independent SHINY_CHANCE roll per Pokémon. Per-instance rather
+   * than a single match-wide flag so a random shiny in, say, a 16-Pokémon
+   * free-for-all doesn't make every other entrant shiny too. The sim itself
+   * never branches on this. */
+  shiny: boolean;
 
   aiState: AiState;
   targetInstanceId: string | null;
@@ -215,10 +222,6 @@ export interface SimState {
   introDurationMs: number;
   /** See AttackGateState. */
   attackGate: AttackGateState;
-  /** Purely cosmetic (see MatchConfig.shiny) — echoed here, same as `arena`,
-   * so the renderer can read it off the state it already has without a
-   * separate plumbing path. The sim itself never branches on this. */
-  shiny: boolean;
   /** Echoed from MatchConfig.teams — lets the renderer (RosterPanel,
    * PokemonSprite's team-color ring) know this is a Team Mode match without
    * needing the original MatchConfig. Undefined for free-for-all/Boss Mode. */
@@ -276,9 +279,11 @@ export interface MatchConfig {
   /** Species IDs to draw into the arena; MVP = unique species, no duplicates, length <= 16. */
   speciesIds: number[];
   arena: ArenaBounds;
-  /** Whole-roster cosmetic toggle from the setup screen — every Pokémon in
-   * the match renders with the shiny recolor/sparkle. No effect on stats,
-   * moves, or any other sim behavior. */
+  /** Whole-roster cosmetic toggle from the setup screen, forcing every
+   * Pokémon shiny — independent of, and on top of, the per-Pokémon
+   * SHINY_CHANCE roll (see matchSetup.ts's buildInstance) that already
+   * applies when this is off. No effect on stats, moves, or any other sim
+   * behavior either way. */
   shiny: boolean;
   /** Explicit moveset override, keyed by species ID — up to 4 move IDs drawn
    * from that species' own movePool (see data/loader.ts's

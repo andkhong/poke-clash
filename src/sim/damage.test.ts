@@ -33,6 +33,7 @@ function makeInstance(overrides: Partial<PokemonInstance> = {}): PokemonInstance
     lastRetargetMs: 0,
     actionCooldownMs: 0,
     postAttackHoldMs: 0,
+    shiny: false,
     ...overrides,
   };
 }

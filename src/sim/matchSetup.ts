@@ -10,7 +10,11 @@ import type {
   Vec2,
 } from './types';
 import type { Rng } from './rng';
-import { rngShuffle } from './rng';
+import { rngChance, rngShuffle } from './rng';
+
+/** A Pokémon not covered by MatchConfig.shiny's whole-roster toggle still
+ * gets an independent shot at spawning shiny — see buildInstance. */
+const SHINY_CHANCE = 0.1;
 import { computeStats, createNeutralStages } from './statCalc';
 import { computeIntroDurationMs } from './constants';
 import { clampToArenaBounds } from './movement';
@@ -89,7 +93,8 @@ function buildInstance(
   level: number,
   customMoves: Record<number, number[]> | undefined,
   isBoss: boolean,
-  forcedMoveId: number | undefined
+  forcedMoveId: number | undefined,
+  forceShiny: boolean
 ): PokemonInstance {
   const data = species[speciesId];
   if (!data) throw new Error(`Unknown species id ${speciesId} in match config`);
@@ -119,6 +124,7 @@ function buildInstance(
     collisionRadius: isBoss ? data.collisionRadius * BOSS_CONFIG.spriteScaleMultiplier : data.collisionRadius,
     team,
     isBoss,
+    shiny: forceShiny || rngChance(rng, SHINY_CHANCE),
     aiState: 'wander',
     targetInstanceId: null,
     lastRetargetMs: 0,
@@ -162,7 +168,8 @@ export function createMatch(
       config.level,
       config.customMoves,
       false,
-      config.forcedMoveId?.[speciesId]
+      config.forcedMoveId?.[speciesId],
+      config.shiny
     );
     pokemon[instanceId] = instance;
     livingOrder.push(instanceId);
@@ -181,7 +188,8 @@ export function createMatch(
       config.level,
       undefined,
       true,
-      undefined
+      undefined,
+      config.shiny
     );
     pokemon[instanceId] = instance;
     livingOrder.push(instanceId);
@@ -199,7 +207,6 @@ export function createMatch(
     arena: config.arena,
     introDurationMs: computeIntroDurationMs(livingOrder.length),
     attackGate: { active: [], closedUntilMs: 0, lastAttackerId: null },
-    shiny: config.shiny,
     teams: config.teams,
     disableWander: config.disableWander,
   };

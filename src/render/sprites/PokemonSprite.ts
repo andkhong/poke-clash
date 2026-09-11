@@ -9,7 +9,7 @@ import { getMoveTypeColor } from '../vfx/typeColor';
 import { POKEBALL_TEXTURE_KEY } from './pokeballAsset';
 import { playCry } from './cryAudio';
 import { pmdSheetUrl } from './pmdSheetUrl';
-import { playSparkleReveal } from '../vfx/sparkle';
+import { createShinyAura, playSparkleReveal } from '../vfx/sparkle';
 import { frameDurationMs, playAnimation, type AnimationHandle } from '../vfx/anim/AnimPlayer';
 import { animationScaleFor } from '../vfx/anim/geometry';
 import { getLoadedCommonAnimation } from '../vfx/anim/moveAnimLoader';
@@ -331,6 +331,12 @@ export class PokemonSprite {
   private statusVfxTimer: Phaser.Time.TimerEvent | null = null;
   private statusVfxFor: StatusCondition | null = null;
 
+  /** Continuous twinkle for a shiny Pokémon (see createShinyAura), started
+   * once at reveal and left running — parented to `container` so it tracks
+   * position for free — until this sprite is destroyed. Null for a
+   * non-shiny Pokémon. */
+  private shinyAura: Phaser.GameObjects.Particles.ParticleEmitter | null = null;
+
   /**
    * `spawnIndex`/`totalCount` drive the clockwise Pokéball-drop entrance —
    * matchSetup.ts's circlePosition already assigns spawn indices in clockwise
@@ -447,6 +453,10 @@ export class PokemonSprite {
     this.hasRevealed = true;
     playCry(this.scene, this.speciesId);
     playSparkleReveal(this.scene, targetPos.x, targetPos.y, this.shiny);
+    if (this.shiny) {
+      this.shinyAura = createShinyAura(this.scene, this.targetOnScreenSize);
+      this.container.add(this.shinyAura);
+    }
 
     this.container.setScale(0.5);
     this.scene.tweens.add({
@@ -1402,6 +1412,8 @@ export class PokemonSprite {
     this.pendingDodge = null;
     this.offsetTween?.stop();
     this.offsetTween = null;
+    this.shinyAura?.destroy();
+    this.shinyAura = null;
     this.container.destroy();
   }
 }

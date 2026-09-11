@@ -437,7 +437,7 @@ export class ReviewScene extends Phaser.Scene {
 
     const spriteIndex = spriteIndexData as SpriteIndex;
     for (const id of state.livingOrder) {
-      this.sprites.set(id, new PokemonSprite(this, state.pokemon[id], spriteIndex, this.pmdSpriteIndex, 0, state.shiny));
+      this.sprites.set(id, new PokemonSprite(this, state.pokemon[id], spriteIndex, this.pmdSpriteIndex, 0, state.pokemon[id].shiny));
     }
   }
 

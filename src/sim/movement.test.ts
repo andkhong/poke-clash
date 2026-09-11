@@ -49,6 +49,7 @@ function makeCollider(id: string, x: number, y: number, collisionRadius: number)
     lastRetargetMs: 0,
     actionCooldownMs: 0,
     postAttackHoldMs: 0,
+    shiny: false,
   };
 }
 

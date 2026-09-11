@@ -56,6 +56,12 @@ interface RoomState {
   mode: RoomMode;
   phase: RoomPhase;
   slots: PlayerSlot[];
+  /** Seat count, fixed for this room's whole lifetime — normally just
+   * roomCapacityForMode(mode), but the always-on showcase room overrides it
+   * (see createRoom's `capacity` opt). Stored rather than recomputed so
+   * resetRoom's fresh emptySlots() call keeps the same seat count on every
+   * loop instead of silently reverting to the mode's default. */
+  capacity: number;
   /** Boss Mode only — chosen once at battle start; nobody picks it, so it
    * isn't a PlayerSlot. Null outside 'battle'/'complete'. */
   bossSpeciesId: number | null;
@@ -99,8 +105,7 @@ const speciesNameById = new Map(listAllSpecies().map((s) => [s.id, s.name]));
 // separate join-order bookkeeping. It also means startBattle() can hand
 // room.slots straight to MatchConfig.speciesIds in slot order and get exactly
 // the contiguous halves matchSetup.ts's Team Mode split expects.
-function emptySlots(mode: RoomMode): PlayerSlot[] {
-  const capacity = roomCapacityForMode(mode);
+function emptySlots(mode: RoomMode, capacity: number): PlayerSlot[] {
   const teamSize = teamSizeForMode(mode);
   return Array.from({ length: capacity }, (_, slotIndex) => ({
     playerId: null,
@@ -110,16 +115,18 @@ function emptySlots(mode: RoomMode): PlayerSlot[] {
   }));
 }
 
-export function createRoom(mode: RoomMode = 'classic', arena?: ArenaBounds, opts?: { autoPlay?: boolean }) {
+export function createRoom(mode: RoomMode = 'classic', arena?: ArenaBounds, opts?: { autoPlay?: boolean; capacity?: number }) {
   const id = `room-${nextRoomNumber}`;
   const name = opts?.autoPlay ? 'Featured Showcase' : `Room ${nextRoomNumber}`;
   nextRoomNumber += 1;
+  const capacity = opts?.capacity ?? roomCapacityForMode(mode);
   const room: RoomState = {
     id,
     name,
     mode,
     phase: 'idle',
-    slots: emptySlots(mode),
+    slots: emptySlots(mode, capacity),
+    capacity,
     bossSpeciesId: null,
     arena: arena ?? { width: ARENA_WIDTH, height: ARENA_HEIGHT },
     countdownEndsAtMs: null,
@@ -167,7 +174,7 @@ export function toRoomSummary(room: RoomState): RoomSummary {
     arena: room.arena,
     countdownEndsAtMs: room.countdownEndsAtMs,
     bossSpeciesName: room.bossSpeciesId !== null ? (speciesNameById.get(room.bossSpeciesId) ?? null) : null,
-    capacity: roomCapacityForMode(room.mode),
+    capacity: room.capacity,
     autoPlay: room.autoPlay,
     thumbnailUpdatedAtMs: room.thumbnailUpdatedAtMs,
     viewerCount: subscriberCount(room.id),
@@ -412,7 +419,7 @@ function startAutoPlayCycle(room: RoomState): void {
 function resetRoom(room: RoomState): void {
   room.completeResetTimer = null;
   room.phase = 'idle';
-  room.slots = emptySlots(room.mode);
+  room.slots = emptySlots(room.mode, room.capacity);
   room.bossSpeciesId = null;
   room.countdownEndsAtMs = null;
   room.engine = null;

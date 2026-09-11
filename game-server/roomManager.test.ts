@@ -352,6 +352,23 @@ describe('roomManager autoPlay', () => {
     expect(room.phase).toBe('battle');
   });
 
+  it('keeps its overridden seat count across resetRoom, not just its first cycle', () => {
+    const room = createRoom('classic', undefined, { autoPlay: true, capacity: 6 });
+    expect(room.slots).toHaveLength(6);
+
+    vi.advanceTimersByTime(AUTO_PLAY_COUNTDOWN_MS);
+    room.engine!.endMatchNow();
+    vi.advanceTimersByTime(TICK_MS);
+    vi.advanceTimersByTime(ROOM_COMPLETE_HOLD_MS); // fires resetRoom, then starts the next cycle
+
+    expect(room.slots).toHaveLength(6);
+    expect(toRoomSummary(room).capacity).toBe(6);
+
+    vi.advanceTimersByTime(AUTO_PLAY_COUNTDOWN_MS);
+    expect(room.phase).toBe('battle');
+    expect(room.slots.every((s) => s.speciesId !== null)).toBe(true);
+  });
+
   it('still lets anyone — seated or spectating — chat with no seat to give', () => {
     vi.mocked(broadcast).mockClear();
     const room = createRoom('classic', undefined, { autoPlay: true });

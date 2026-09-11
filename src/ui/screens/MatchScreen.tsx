@@ -107,8 +107,14 @@ export function MatchScreen({
           >
             <div style={{ position: 'absolute', top: 0, left: 0, right: 0 }}>
               <MatchTimer state={state} />
-              <RosterPanel state={state} />
             </div>
+
+            {/* Not nested in the top-anchored div above: on the wide arena
+                RosterPanel positions itself as two full-height side columns
+                (see RosterPanel's own isMobileArena branch), which needs a
+                containing block sized to the whole stage, not one that
+                auto-collapses to the timer's height. */}
+            <RosterPanel state={state} />
 
             <BannerOverlay state={state} overrideText={bannerOverrideText} />
 

@@ -234,7 +234,7 @@ export class ArenaScene extends Phaser.Scene {
     // arrive to remove a sprite created for them here.
     state.livingOrder.forEach((id, index) => {
       const pokemon = state.pokemon[id];
-      const sprite = new PokemonSprite(this, pokemon, spriteIndex, pmdSpriteIndex, index, state.shiny);
+      const sprite = new PokemonSprite(this, pokemon, spriteIndex, pmdSpriteIndex, index, pokemon.shiny);
       if (id === this.highlightInstanceId) sprite.setHighlighted(true);
       if (state.teams) sprite.setTeamColor(teamColorHex(pokemon.team));
       this.sprites.set(id, sprite);

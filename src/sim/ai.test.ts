@@ -36,6 +36,7 @@ function makePokemon(
     lastRetargetMs: 0,
     actionCooldownMs: 0,
     postAttackHoldMs: 0,
+    shiny: false,
     ...overrides,
   };
 }
@@ -55,7 +56,6 @@ function makeState(pokemonList: PokemonInstance[], introDurationMs = 0): SimStat
     arena: { width: 2000, height: 2000 },
     introDurationMs,
     attackGate: { active: [], closedUntilMs: 0, lastAttackerId: null },
-    shiny: false,
   };
 }
 

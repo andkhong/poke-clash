@@ -258,7 +258,7 @@ export function RoomScreen({ roomId, embedded = false }: RoomScreenProps) {
             store={store}
             onExit={() => (window.location.hash = '#/rooms')}
             showEndMatchControl={false}
-            leaveControlLabel={embedded ? undefined : 'LEAVE ROOM'}
+            leaveControlLabel={embedded || room.autoPlay ? undefined : 'LEAVE ROOM'}
             completeButtonLabel="BACK TO ROOMS"
             highlightInstanceId={highlightInstanceId}
             onCanvasReady={setCanvas}

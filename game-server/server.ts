@@ -34,7 +34,8 @@ createRoom('team2');
 // already mid-cycle before any client connects. Wide arena: the featured
 // panel is a landing-page hero, sized more like the desktop arena's shape
 // than the portrait one the rest of the pre-seeded rooms default to.
-createRoom('classic', { width: DESKTOP_ARENA_WIDTH, height: DESKTOP_ARENA_HEIGHT }, { autoPlay: true });
+// 6 seats rather than classic mode's usual 4 — a livelier showcase.
+createRoom('classic', { width: DESKTOP_ARENA_WIDTH, height: DESKTOP_ARENA_HEIGHT }, { autoPlay: true, capacity: 6 });
 
 const ID_SEGMENT = '[A-Za-z0-9_-]+';
 const JOIN_RE = new RegExp(`^/api/rooms/(${ID_SEGMENT})/join$`);

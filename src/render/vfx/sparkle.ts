@@ -58,3 +58,29 @@ export function playSparkleReveal(scene: Phaser.Scene, x: number, y: number, shi
 
   scene.time.delayedCall(700, () => emitter.destroy());
 }
+
+/** Continuous ambient twinkle for a shiny Pokémon, distinct from
+ * playSparkleReveal's one-shot burst — call once the moment its sprite
+ * reveals and keep the returned emitter alive (the caller should parent it
+ * to the sprite's own container, so it tracks position for free) for as
+ * long as that Pokémon is on screen, destroying it itself when the sprite
+ * does. `radius` scales the spawn area and drift speed to the sprite's own
+ * on-screen size, so a Wailord's aura doesn't look identical to a Joltik's. */
+export function createShinyAura(scene: Phaser.Scene, radius: number): Phaser.GameObjects.Particles.ParticleEmitter {
+  buildSparkleTexture(scene, SHINY_SPARKLE_TEXTURE_KEY, 0xfff2a8, 0xe0a428);
+
+  const emitter = scene.add.particles(0, 0, SHINY_SPARKLE_TEXTURE_KEY, {
+    x: { min: -radius * 0.5, max: radius * 0.5 },
+    y: { min: -radius * 0.5, max: radius * 0.5 },
+    speed: { min: 3, max: 10 },
+    angle: { min: 0, max: 360 },
+    scale: { start: 1.3, end: 0 },
+    alpha: { start: 1, end: 0 },
+    lifespan: { min: 500, max: 900 },
+    frequency: 220,
+    quantity: 1,
+    blendMode: 'ADD',
+  });
+  emitter.setDepth(600);
+  return emitter;
+}

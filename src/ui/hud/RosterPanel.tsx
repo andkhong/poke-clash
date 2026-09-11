@@ -18,6 +18,8 @@ const TEAM_COLUMN_GAP_PX = 6;
  * panel is capped and centred instead. The portrait arena's stage is
  * narrower than this cap at any column count, so it's unaffected. */
 const MAX_ROW_WIDTH_PX = 340;
+const SIDE_COLUMN_WIDTH_PX = 150;
+const SIDE_ROW_GAP_PX = 4;
 
 /** Caps and centres the panel on the landscape arena — see MAX_ROW_WIDTH_PX. */
 function panelWidthStyle(state: SimState, columns: number, gapPx: number): CSSProperties {
@@ -27,8 +29,13 @@ function panelWidthStyle(state: SimState, columns: number, gapPx: number): CSSPr
 
 /** Grid of every Pokémon in the match, in original spawn order — a row empties
  * out (rather than disappearing) once that Pokémon faints, matching the
- * persistent roster panel seen in the example videos. */
+ * persistent roster panel seen in the example videos. On the wide/desktop
+ * arena the roster instead flanks the map as two side columns (see
+ * SideRosterPanel) — a top strip reads fine on the tall portrait arena but
+ * gets lost above a much wider stage, and the extra width comfortably fits
+ * a column down each edge instead. */
 export function RosterPanel({ state }: RosterPanelProps) {
+  if (!isMobileArena(state.arena)) return <SideRosterPanel state={state} />;
   if (state.teams) return <TeamRosterPanel state={state} />;
 
   const columns = state.allInstanceIds.length > 10 ? 3 : state.allInstanceIds.length > 4 ? 2 : 1;
@@ -82,6 +89,93 @@ function TeamColumn({ label, color, ids, state }: { label: string; color: string
       >
         {label}
       </span>
+      {ids.map((id) => {
+        const pokemon = state.pokemon[id];
+        const fainted = !state.livingOrder.includes(id);
+        return <RosterRow key={id} pokemon={pokemon} fainted={fainted} accentColor={color} />;
+      })}
+    </div>
+  );
+}
+
+/** Wide/desktop arena's roster: flanks the map instead of sitting above it —
+ * Team Mode splits by side (teamA left, teamB right, same grouping
+ * TeamRosterPanel uses), free-for-all just splits the spawn-order roster
+ * list in half. Rendered as two independently-positioned full-height
+ * columns (not one flex row) so each hugs its own edge regardless of how
+ * much horizontal space is between them. */
+function SideRosterPanel({ state }: RosterPanelProps) {
+  let leftIds: string[];
+  let rightIds: string[];
+  let leftLabel: string | undefined;
+  let rightLabel: string | undefined;
+  let leftColor: string | undefined;
+  let rightColor: string | undefined;
+
+  if (state.teams) {
+    leftIds = state.allInstanceIds.filter((id) => state.pokemon[id].team === 'teamA');
+    rightIds = state.allInstanceIds.filter((id) => state.pokemon[id].team === 'teamB');
+    leftLabel = 'TEAM A';
+    rightLabel = 'TEAM B';
+    leftColor = TEAM_A_COLOR_CSS;
+    rightColor = TEAM_B_COLOR_CSS;
+  } else {
+    const half = Math.ceil(state.allInstanceIds.length / 2);
+    leftIds = state.allInstanceIds.slice(0, half);
+    rightIds = state.allInstanceIds.slice(half);
+  }
+
+  return (
+    <>
+      <SideColumn side="left" ids={leftIds} state={state} label={leftLabel} color={leftColor} />
+      <SideColumn side="right" ids={rightIds} state={state} label={rightLabel} color={rightColor} />
+    </>
+  );
+}
+
+function SideColumn({
+  side,
+  ids,
+  state,
+  label,
+  color,
+}: {
+  side: 'left' | 'right';
+  ids: string[];
+  state: SimState;
+  label?: string;
+  color?: string;
+}) {
+  return (
+    <div
+      style={{
+        position: 'absolute',
+        top: 0,
+        bottom: 0,
+        [side]: 0,
+        width: SIDE_COLUMN_WIDTH_PX,
+        display: 'flex',
+        flexDirection: 'column',
+        justifyContent: 'center',
+        gap: SIDE_ROW_GAP_PX,
+        padding: '0 8px',
+        pointerEvents: 'none',
+      }}
+    >
+      {label && (
+        <span
+          style={{
+            fontSize: 9,
+            fontFamily: 'monospace',
+            fontWeight: 'bold',
+            letterSpacing: 1,
+            color,
+            textAlign: side === 'left' ? 'left' : 'right',
+          }}
+        >
+          {label}
+        </span>
+      )}
       {ids.map((id) => {
         const pokemon = state.pokemon[id];
         const fainted = !state.livingOrder.includes(id);
