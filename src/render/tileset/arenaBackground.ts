@@ -74,9 +74,42 @@ export function createTiledArenaBackground(scene: Phaser.Scene, width: number, h
  * same placement getFenceInsets (constants.ts) assumes when it maps the
  * wide map's fence into arena coordinates — keep the two in step. */
 function drawCoverImage(scene: Phaser.Scene, key: string, width: number, height: number): void {
+  drawCoverImageAt(scene, key, { x: 0, y: 0, width, height }, { x: width / 2, y: height / 2 });
+}
+
+/** Draws the image scaled up just enough to cover `viewport`, but centred on
+ * `focal` rather than on the viewport's own midpoint — so a landmark printed
+ * at the image's center (the wide map's pokéball) lines up with wherever
+ * `focal` is instead of with the screen's center. */
+function drawCoverImageAt(
+  scene: Phaser.Scene,
+  key: string,
+  viewport: { x: number; y: number; width: number; height: number },
+  focal: { x: number; y: number }
+): void {
   const source = scene.textures.get(key).getSourceImage();
-  const scale = Math.max(width / source.width, height / source.height);
-  scene.add.image(width / 2, height / 2, key).setScale(scale).setDepth(-100);
+  const scale = Math.max(
+    (2 * Math.max(focal.x - viewport.x, viewport.x + viewport.width - focal.x)) / source.width,
+    (2 * Math.max(focal.y - viewport.y, viewport.y + viewport.height - focal.y)) / source.height
+  );
+  scene.add.image(focal.x, focal.y, key).setScale(scale).setDepth(-100);
+}
+
+/** The move-review stage's floor (see ReviewScene): the same wide-background
+ * map a landscape match arena uses, but positioned so its printed pokéball —
+ * dead center of the source image — lands on `focal` (the point the two
+ * fighters are centred around), which sits a bit off the viewport's own
+ * midpoint. Falls back to the tiled ground if the image didn't load. */
+export function createReviewArenaBackground(
+  scene: Phaser.Scene,
+  viewport: { x: number; y: number; width: number; height: number },
+  focal: { x: number; y: number }
+): void {
+  if (scene.textures.exists(LANDSCAPE_MAP.key)) {
+    drawCoverImageAt(scene, LANDSCAPE_MAP.key, viewport, focal);
+    return;
+  }
+  createTiledArenaBackground(scene, viewport.x + viewport.width, viewport.y + viewport.height);
 }
 
 function drawRockBorder(scene: Phaser.Scene, width: number, height: number): void {

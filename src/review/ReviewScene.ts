@@ -12,7 +12,7 @@ import spriteIndexData from '../data/generated/spriteIndex.json';
 import { PokemonSprite } from '../render/sprites/PokemonSprite';
 import { preloadPokeballAsset } from '../render/sprites/pokeballAsset';
 import { pmdSpriteIndexUrl } from '../render/sprites/pmdSheetUrl';
-import { createTiledArenaBackground, preloadArenaTileset } from '../render/tileset/arenaBackground';
+import { createReviewArenaBackground, preloadArenaTileset } from '../render/tileset/arenaBackground';
 import { frameDurationMs, playAnimation, type AnimationHandle } from '../render/vfx/anim/AnimPlayer';
 import { animationScaleFor } from '../render/vfx/anim/geometry';
 import { playFallbackFlash } from '../render/vfx/anim/fallbackFlash';
@@ -156,7 +156,14 @@ export class ReviewScene extends Phaser.Scene {
   }
 
   create(): void {
-    createTiledArenaBackground(this, REVIEW_STAGE_WIDTH, WORLD_HEIGHT);
+    // The wide arena map's own pokéball (its exact center) is lined up with
+    // STAGE_CENTER — where the two fighters are centred — rather than with
+    // the viewport's own midpoint, which sits 30px above that.
+    createReviewArenaBackground(
+      this,
+      { x: 0, y: WORLD_TOP, width: REVIEW_STAGE_WIDTH, height: REVIEW_STAGE_HEIGHT },
+      STAGE_CENTER
+    );
     this.cameras.main.setBackgroundColor('#1a1a1a');
     this.cameras.main.setScroll(0, WORLD_TOP);
     installMasterLimiter(this);
