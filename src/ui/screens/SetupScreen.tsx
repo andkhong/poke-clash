@@ -58,7 +58,7 @@ export function SetupScreen({ onStart, onOpenCustomBattle, onOpenBossMode, onOpe
         background: '#20242c',
       }}
     >
-      <h1 style={{ fontSize: 22, letterSpacing: 1, margin: '8px 0 0' }}>POKÉPIXEL ARENA</h1>
+      <h1 style={{ fontSize: 22, letterSpacing: 1, margin: '8px 0 0' }}>POKÉBETS ARENA</h1>
       <p style={{ margin: 0, opacity: 0.7, fontSize: 12, textAlign: 'center' }}>
         Up to {MAX_ROSTER_SIZE} Pokémon enter. One leaves.
       </p>
