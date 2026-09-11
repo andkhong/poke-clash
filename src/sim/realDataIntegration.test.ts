@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { SimulationEngine } from './engine';
-import { TICK_MS } from './constants';
+import { MATCH_TIME_LIMIT_MS, TICK_MS } from './constants';
 import { buildSpeciesMapForLevel, listAllSpecies, moveLookup, pickRandomSpeciesIds } from '../data/loader';
 
 function runFullMatch(seed: number, speciesIds: number[], level: 50 | 60 | 70 | 80 | 90 | 100): SimulationEngine {
@@ -12,8 +12,8 @@ function runFullMatch(seed: number, speciesIds: number[], level: 50 | 60 | 70 | 
     seed
   );
 
-  // The 90s match-time hard cap guarantees completion well within this budget.
-  const maxSteps = Math.ceil(95_000 / TICK_MS);
+  // The match-time hard cap guarantees completion well within this budget.
+  const maxSteps = Math.ceil((MATCH_TIME_LIMIT_MS + 5_000) / TICK_MS);
   for (let i = 0; i < maxSteps; i++) {
     if (engine.getState().phase === 'complete') break;
     engine.tick(TICK_MS);
@@ -31,7 +31,7 @@ describe('end-to-end: real PokeAPI-derived dataset through a full 16-Pokémon ma
       const state = engine.getState();
 
       expect(state.phase).toBe('complete');
-      // Co-winners are possible if the 90s hard time limit is hit with
+      // Co-winners are possible if the hard time limit is hit with
       // several Pokémon still standing, rather than a clean last-one-standing.
       expect(state.livingOrder.length).toBeGreaterThanOrEqual(1);
       expect(state.eliminationOrder.length).toBe(16 - state.livingOrder.length);

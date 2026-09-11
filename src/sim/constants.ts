@@ -218,7 +218,7 @@ export const POST_ATTACK_HOLD_MS = 1200;
  * slot, the fastest (effective Speed stat) goes first, mainline-style.
  *
  * Note the throughput this implies: one attack per POST_ATTACK_HOLD_MS +
- * ATTACK_GAP_MS (1.5s) arena-wide at most, i.e. ~60 attacks in a 90s
+ * ATTACK_GAP_MS (1.5s) arena-wide at most, i.e. ~80 attacks in a 120s
  * match — a 16-Pokémon roster needs on the order of 70-80 landed attacks
  * to get down to a single winner, so big rosters now routinely reach
  * MATCH_TIME_LIMIT_MS with co-winners unless damage is tuned up to match.
@@ -294,7 +294,7 @@ export const PARALYSIS_SPEED_MULT = 0.5;
  * STATUS_TURN_INTERVAL_MS). A Fire-type hit thaws it outright regardless. */
 export const FREEZE_THAW_CHANCE = 0.2;
 /** Freeze always ends by this many turns even if every thaw roll fails — the
- * mainline games let freeze run indefinitely, but a 90s match can't afford a
+ * mainline games let freeze run indefinitely, but a match on a hard clock can't afford a
  * Pokémon sitting out a quarter of it on a bad streak. With
  * STATUS_TURN_INTERVAL_MS below, that's a 2-8s freeze. */
 export const FREEZE_MAX_TURNS = 4;

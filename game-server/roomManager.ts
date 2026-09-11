@@ -8,6 +8,7 @@ import type { BattleStartPayload, ChatMessage, HelloPayload, RoomMode, RoomPhase
 import { roomCapacityForMode, teamSizeForMode } from '../src/net/protocol';
 import { CHAT_LOG_LIMIT, normalizeChatText, normalizeSpectatorName } from '../src/net/chat';
 import { broadcast, subscriberCount } from './sse';
+import { toLeanState } from '../src/net/leanState';
 
 export const ROOM_COUNTDOWN_MS = 15_000;
 export const ROOM_COMPLETE_HOLD_MS = 8_000;
@@ -384,7 +385,7 @@ function registerRoomTickLoop(room: RoomState): void {
       // battleComplete itself, or they're lost for good.
       const events = engine.getEventsSince(room.lastBroadcastSeq);
       if (events.length > 0) room.lastBroadcastSeq = events[events.length - 1].seq;
-      broadcast(room.id, 'battleComplete', { finalState: engine.getState(), events });
+      broadcast(room.id, 'battleComplete', { finalState: toLeanState(engine.getState()), events });
       if (room.simTimer) clearInterval(room.simTimer);
       if (room.broadcastTimer) clearInterval(room.broadcastTimer);
       room.simTimer = null;
@@ -398,7 +399,7 @@ function registerRoomTickLoop(room: RoomState): void {
     if (!engine) return;
     const events = engine.getEventsSince(room.lastBroadcastSeq);
     if (events.length > 0) room.lastBroadcastSeq = events[events.length - 1].seq;
-    broadcast(room.id, 'stateUpdate', { state: engine.getState(), events });
+    broadcast(room.id, 'stateUpdate', { state: toLeanState(engine.getState()), events });
   }, BROADCAST_INTERVAL_MS);
 }
 

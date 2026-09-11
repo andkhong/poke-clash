@@ -81,10 +81,10 @@ function runFullMatch(seed: number, speciesIds: number[]): SimulationEngine {
     seed
   );
 
-  // The 90s match-time hard cap guarantees completion well within this
+  // The match-time hard cap guarantees completion well within this
   // budget — a bit of headroom over that so a genuine hang still fails the
   // test loudly instead of looping forever.
-  const maxSteps = Math.ceil(95_000 / TICK_MS);
+  const maxSteps = Math.ceil((MATCH_TIME_LIMIT_MS + 5_000) / TICK_MS);
   for (let i = 0; i < maxSteps; i++) {
     if (engine.getState().phase === 'complete') break;
     engine.tick(TICK_MS);
@@ -100,7 +100,7 @@ describe('SimulationEngine full match', () => {
 
       expect(state.phase).toBe('complete');
       expect(state.livingOrder.length).toBeGreaterThanOrEqual(1);
-      // Co-winners are possible if the 90s cap is hit with several still
+      // Co-winners are possible if the hard cap is hit with several still
       // standing — winnerInstanceIds should always match livingOrder exactly.
       expect([...state.winnerInstanceIds].sort()).toEqual([...state.livingOrder].sort());
 
@@ -112,16 +112,16 @@ describe('SimulationEngine full match', () => {
     }
   });
 
-  it('never lets a match run past the 90s hard time limit, even forced far beyond it', () => {
+  it('never lets a match run past the hard time limit, even forced far beyond it', () => {
     const engine = runFullMatch(11, [1, 2, 3, 4, 5, 6]);
-    // Keep ticking well past 90s regardless of whether it already finished —
+    // Keep ticking well past the cap regardless of whether it already finished —
     // the cap must hold no matter how much extra time is thrown at it.
     for (let i = 0; i < Math.ceil(30_000 / TICK_MS); i++) {
       engine.tick(TICK_MS);
     }
     const state = engine.getState();
     expect(state.phase).toBe('complete');
-    expect(state.elapsedMs).toBeLessThanOrEqual(90_000 + TICK_MS);
+    expect(state.elapsedMs).toBeLessThanOrEqual(MATCH_TIME_LIMIT_MS + TICK_MS);
     expect([...state.winnerInstanceIds].sort()).toEqual([...state.livingOrder].sort());
   });
 
@@ -268,13 +268,13 @@ describe('SimulationEngine full match', () => {
         moveLookup,
         seed
       );
-      const maxSteps = Math.ceil(95_000 / TICK_MS);
+      const maxSteps = Math.ceil((MATCH_TIME_LIMIT_MS + 5_000) / TICK_MS);
       for (let i = 0; i < maxSteps; i++) {
         if (engine.getState().phase === 'complete') break;
         engine.tick(TICK_MS);
       }
       const state = engine.getState();
-      if (state.winnerInstanceIds.length !== 1) continue; // co-winners (90s cap) never get teleported — nothing to check
+      if (state.winnerInstanceIds.length !== 1) continue; // co-winners (hard cap) never get teleported — nothing to check
       const winnerId = state.winnerInstanceIds[0];
       expect(state.pokemon[winnerId].position).toEqual(center); // sanity: this seed's winner really was teleported
 
@@ -300,7 +300,7 @@ describe('SimulationEngine full match', () => {
         seed
       );
       const teamById = new Map(Object.values(engine.getState().pokemon).map((p) => [p.instanceId, p.team]));
-      const maxSteps = Math.ceil(95_000 / TICK_MS);
+      const maxSteps = Math.ceil((MATCH_TIME_LIMIT_MS + 5_000) / TICK_MS);
       for (let i = 0; i < maxSteps; i++) {
         if (engine.getState().phase === 'complete') break;
         engine.tick(TICK_MS);
@@ -329,7 +329,7 @@ describe('SimulationEngine full match', () => {
       expect(pokemonList.slice(0, 3).every((p) => p.team === 'teamA')).toBe(true);
       expect(pokemonList.slice(3).every((p) => p.team === 'teamB')).toBe(true);
 
-      const maxSteps = Math.ceil(95_000 / TICK_MS);
+      const maxSteps = Math.ceil((MATCH_TIME_LIMIT_MS + 5_000) / TICK_MS);
       for (let i = 0; i < maxSteps; i++) {
         if (engine.getState().phase === 'complete') break;
         engine.tick(TICK_MS);
@@ -337,7 +337,7 @@ describe('SimulationEngine full match', () => {
       const state = engine.getState();
       expect(state.phase).toBe('complete');
       expect([...state.winnerInstanceIds].sort()).toEqual([...state.livingOrder].sort());
-      // The 90s hard cap legitimately ends a match with both sides still
+      // The hard cap legitimately ends a match with both sides still
       // standing (shared win — see forceMatchEnd); only a knockout finish
       // can say anything about wipe-out timing.
       if (state.elapsedMs >= MATCH_TIME_LIMIT_MS) continue;
@@ -532,7 +532,7 @@ describe('SimulationEngine full match', () => {
         moveLookup,
         seed
       );
-      const maxSteps = Math.ceil(95_000 / TICK_MS);
+      const maxSteps = Math.ceil((MATCH_TIME_LIMIT_MS + 5_000) / TICK_MS);
       const wasParalyzedLastTick = new Map<string, boolean>();
 
       for (let i = 0; i < maxSteps; i++) {
@@ -571,7 +571,7 @@ describe('SimulationEngine full match', () => {
       moveLookup,
       1
     );
-    const maxSteps = Math.ceil(95_000 / TICK_MS);
+    const maxSteps = Math.ceil((MATCH_TIME_LIMIT_MS + 5_000) / TICK_MS);
     let sawBattlePhase = false;
     let wasInBattleLastTick = false;
     for (let i = 0; i < maxSteps; i++) {
@@ -607,7 +607,7 @@ describe('SimulationEngine full match', () => {
       moveLookup,
       1
     );
-    const maxSteps = Math.ceil(95_000 / TICK_MS);
+    const maxSteps = Math.ceil((MATCH_TIME_LIMIT_MS + 5_000) / TICK_MS);
     for (let i = 0; i < maxSteps; i++) {
       if (engine.getState().phase === 'complete') break;
       engine.tick(TICK_MS);
@@ -752,7 +752,7 @@ describe('single-target attacks', () => {
       moveLookup,
       3
     );
-    for (let i = 0; i < Math.ceil(95_000 / TICK_MS); i++) {
+    for (let i = 0; i < Math.ceil((MATCH_TIME_LIMIT_MS + 5_000) / TICK_MS); i++) {
       if (engine.getState().phase === 'complete') break;
       engine.tick(TICK_MS);
     }
@@ -845,7 +845,7 @@ describe('roster spread during a fight', () => {
       const engine = new SimulationEngine({ level: 50, speciesIds, arena, shiny: false }, FIXTURE_SPECIES, moveLookup, seed);
       const state = engine.getState();
       const combatStartMs = state.introDurationMs + COMBAT_START_DELAY_MS;
-      for (let i = 0; i < Math.ceil(95_000 / TICK_MS); i++) {
+      for (let i = 0; i < Math.ceil((MATCH_TIME_LIMIT_MS + 5_000) / TICK_MS); i++) {
         if (state.phase === 'complete' || state.livingOrder.length < 3) break;
         engine.tick(TICK_MS);
         if (state.elapsedMs < combatStartMs) continue;
@@ -885,7 +885,7 @@ describe('arena-wide attack gate', () => {
       moveLookup,
       seed
     );
-    for (let i = 0; i < Math.ceil(95_000 / TICK_MS); i++) {
+    for (let i = 0; i < Math.ceil((MATCH_TIME_LIMIT_MS + 5_000) / TICK_MS); i++) {
       if (engine.getState().phase === 'complete') break;
       engine.tick(TICK_MS);
     }
@@ -954,7 +954,7 @@ describe('arena-wide attack gate', () => {
       moveLookup,
       21
     );
-    for (let i = 0; i < Math.ceil(95_000 / TICK_MS); i++) {
+    for (let i = 0; i < Math.ceil((MATCH_TIME_LIMIT_MS + 5_000) / TICK_MS); i++) {
       if (engine.getState().phase === 'complete') break;
       engine.tick(TICK_MS);
     }
@@ -1010,7 +1010,7 @@ describe('arena-wide attack gate', () => {
       moveLookup,
       1
     );
-    for (let i = 0; i < Math.ceil(95_000 / TICK_MS); i++) {
+    for (let i = 0; i < Math.ceil((MATCH_TIME_LIMIT_MS + 5_000) / TICK_MS); i++) {
       if (engine.getState().phase === 'complete') break;
       engine.tick(TICK_MS);
     }
@@ -1037,7 +1037,7 @@ describe('arena-wide attack gate', () => {
     );
     let deferrals = 0;
     let deferredLastTick = new Set<string>();
-    for (let i = 0; i < Math.ceil(95_000 / TICK_MS); i++) {
+    for (let i = 0; i < Math.ceil((MATCH_TIME_LIMIT_MS + 5_000) / TICK_MS); i++) {
       if (engine.getState().phase === 'complete') break;
       engine.tick(TICK_MS);
       const state = engine.getState();
@@ -1094,7 +1094,7 @@ describe('self-KO moves (MoveDefinition.userFaints)', () => {
       moveLookup,
       3
     );
-    const maxSteps = Math.ceil(95_000 / TICK_MS);
+    const maxSteps = Math.ceil((MATCH_TIME_LIMIT_MS + 5_000) / TICK_MS);
     for (let i = 0; i < maxSteps; i++) {
       if (engine.getState().phase === 'complete') break;
       engine.tick(TICK_MS);

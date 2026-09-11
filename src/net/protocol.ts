@@ -1,4 +1,5 @@
 import type { MatchConfig, SimEvent, SimState } from '../sim/types';
+import type { LeanSimState } from './leanState';
 
 /** Shared wire types between game-server/ and the client's multiplayer UI.
  * game-server already imports src/sim/* and src/data/loader.ts directly
@@ -129,13 +130,17 @@ export interface BattleStartPayload {
   initialState: SimState;
 }
 
+/** The 10 Hz live broadcast. `state` is the lean shape (see leanState.ts):
+ * each Pokémon carries only its renderer-facing mutable fields, which the
+ * client merges over the full snapshot it got from `hello`/`battleStart`. */
 export interface StateUpdatePayload {
-  state: SimState;
+  state: LeanSimState;
   events: SimEvent[];
 }
 
 export interface BattleCompletePayload {
-  finalState: SimState;
+  /** Lean, same as StateUpdatePayload.state. */
+  finalState: LeanSimState;
   /** Events generated on the same tick the match ended (the finishing
    * move, the KO'd Pokémon's faint, the matchEnd milestone) — the periodic
    * stateUpdate broadcast is cancelled the instant completion is detected

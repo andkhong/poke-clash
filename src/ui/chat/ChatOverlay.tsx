@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type CSSProperties } from 'react';
+import { memo, useEffect, useRef, useState, type CSSProperties } from 'react';
 import type { ChatMessage } from '../../net/protocol';
 import { ChatPanel, type ChatPanelProps } from './ChatPanel';
 import { useKeyboardInset } from '../hooks/useKeyboardInset';
@@ -21,8 +21,12 @@ interface TickerEntry {
  * ChatPanel. Nothing is drawn on the canvas itself: speech bubbles over
  * sprites were rejected because fainted players — the ones with the most
  * time to chat — have no sprite to anchor to.
+ *
+ * Memoized: MatchScreen re-renders on every HUD tick (10 Hz, see
+ * useSimSnapshot) and none of this overlay's props come from the sim, so
+ * without this the whole message list was re-rendered ten times a second.
  */
-export function ChatOverlay(props: ChatOverlayProps) {
+export const ChatOverlay = memo(function ChatOverlay(props: ChatOverlayProps) {
   const { messages } = props;
   const [open, setOpen] = useState(false);
   // Both baselines start at the newest backlog id so the hello snapshot
@@ -105,7 +109,7 @@ export function ChatOverlay(props: ChatOverlayProps) {
       </button>
     </>
   );
-}
+});
 
 // Same corner treatment as MatchScreen's END MATCH button, mirrored to the
 // left edge; the two never overlap, and in the complete phase the centered

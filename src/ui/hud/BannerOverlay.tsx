@@ -10,7 +10,7 @@ interface BannerOverlayProps {
   overrideText?: string;
 }
 
-/** More than one winner happens when the 90s hard time limit is hit with
+/** More than one winner happens when the hard time limit is hit with
  * several Pokémon still standing — they're declared co-winners together. */
 function formatWinnerText(names: string[]): string {
   const upper = names.map((n) => n.toUpperCase());

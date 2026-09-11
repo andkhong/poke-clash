@@ -23,9 +23,17 @@ interface PhaserGameProps {
    * stable for the life of the instance, so a consumer (see
    * useRoomThumbnailCapture) can hold onto it instead of re-reading it. */
   onCanvasReady?: (canvas: HTMLCanvasElement) => void;
+  /** Keep the WebGL drawing buffer readable after each frame is presented
+   * (Phaser's render.preserveDrawingBuffer) — needed only by a consumer
+   * that reads pixels back off the canvas outside the render loop (see
+   * useRoomThumbnailCapture). Off by default: retaining the buffer costs
+   * an extra full-canvas copy per frame on most GPUs, which solo play and
+   * the always-on showcase room (never captured) shouldn't pay. Read once
+   * at mount, like the arena size. */
+  captureFrames?: boolean;
 }
 
-export function PhaserGame({ engine, highlightInstanceId = null, onStageRectChange, onCanvasReady }: PhaserGameProps) {
+export function PhaserGame({ engine, highlightInstanceId = null, onStageRectChange, onCanvasReady, captureFrames = false }: PhaserGameProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const gameRef = useRef<Phaser.Game | null>(null);
   const onStageRectChangeRef = useRef(onStageRectChange);
@@ -39,6 +47,7 @@ export function PhaserGame({ engine, highlightInstanceId = null, onStageRectChan
     // creating a new one rather than ending up with two live games.
     if (gameRef.current) {
       gameRef.current.destroy(true);
+      finishDestroyIfHidden(gameRef.current);
       gameRef.current = null;
     }
 
@@ -60,8 +69,9 @@ export function PhaserGame({ engine, highlightInstanceId = null, onStageRectChan
       // told to keep it — without this, useRoomThumbnailCapture's drawImage
       // (which runs on its own timer, well after any given frame finishes
       // presenting) reads back an already-cleared buffer and produces a
-      // solid black capture. Standard Phaser screenshot-capture setting.
-      render: { preserveDrawingBuffer: true },
+      // solid black capture. Standard Phaser screenshot-capture setting,
+      // opted into per mount (see captureFrames) since it isn't free.
+      render: { preserveDrawingBuffer: captureFrames },
       scale: {
         mode: Phaser.Scale.FIT,
         // The container below centres the canvas with flexbox; Phaser must
@@ -133,6 +143,7 @@ export function PhaserGame({ engine, highlightInstanceId = null, onStageRectChan
       resizeObserver.disconnect();
       game.scale.off(Phaser.Scale.Events.RESIZE, reportStageRect);
       game.destroy(true);
+      finishDestroyIfHidden(game);
       if (gameRef.current === game) gameRef.current = null;
     };
     // Intentionally only re-mount if the engine instance itself changes (a
@@ -154,4 +165,21 @@ export function PhaserGame({ engine, highlightInstanceId = null, onStageRectChan
       }}
     />
   );
+}
+
+/** Game#destroy only flags the game; the actual teardown (Phaser's private
+ * Game#runDestroy) runs at the start of its next frame. That frame never
+ * comes while the tab is hidden — the loop is requestAnimationFrame-driven
+ * and a hidden tab gets no animation frames — so a landing page left in a
+ * background tab stacked up one still-live Game (its WebGL context,
+ * AudioContext and listeners) per showcase-room round, all torn down at
+ * once whenever the tab was next looked at. Nothing here ever runs from
+ * inside a Phaser step, so the teardown can simply be finished now. Only
+ * for a game that has actually started: an unstarted one (React
+ * StrictMode's dev double-mount destroys a game the same instant it's
+ * created) still has its boot pending, and that boot would restart the loop
+ * on an already-torn-down game — its own first step handles the flag. */
+function finishDestroyIfHidden(game: Phaser.Game): void {
+  if (document.visibilityState !== 'hidden' || !game.isRunning) return;
+  (game as unknown as { runDestroy: () => void }).runDestroy();
 }

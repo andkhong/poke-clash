@@ -213,7 +213,7 @@ export interface SimState {
   /** Fainted instance IDs in the order they fainted — used for the elimination log. */
   eliminationOrder: string[];
   phase: MatchPhase;
-  /** Empty until phase === 'complete'. More than one entry means the 90s hard
+  /** Empty until phase === 'complete'. More than one entry means the hard
    * time limit was hit with multiple Pokémon still standing — they're
    * declared co-winners rather than forcing a single victor. */
   winnerInstanceIds: string[];

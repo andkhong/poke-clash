@@ -1,6 +1,7 @@
 import type { EngineLike } from '../sim/engineLike';
 import type { SimEvent, SimState, Vec2 } from '../sim/types';
 import { eventsAfter } from '../sim/events';
+import { mergeLeanState, type LeanSimState } from './leanState';
 
 // Matches game-server's own broadcast cadence (HUD_REFRESH_INTERVAL_MS) — the
 // window position interpolation should span between two successive snapshots.
@@ -18,6 +19,9 @@ export class RemoteSimEngine implements EngineLike {
   private targetPositions = new Map<string, Vec2>();
   private lerpElapsedMs = 0;
 
+  /** `initialState` must be a full snapshot (`hello`'s engineState or
+   * `battleStart`'s initialState) — every later update is lean and only
+   * makes sense laid over it (see leanState.ts). */
   constructor(initialState: SimState) {
     this.state = initialState;
     this.targetPositions = snapshotPositions(this.state);
@@ -47,10 +51,13 @@ export class RemoteSimEngine implements EngineLike {
     }
   }
 
-  /** Called by RoomConnection on every stateUpdate/battleComplete message. */
-  applyServerUpdate(nextState: SimState, newEvents: SimEvent[]): void {
+  /** Called by RoomConnection on every stateUpdate/battleComplete message.
+   * The lean update is merged over the current state, so every static
+   * per-Pokémon field (name, moves, stats, ...) carries over from the
+   * snapshot this engine was built from. */
+  applyServerUpdate(update: LeanSimState, newEvents: SimEvent[]): void {
     this.prevPositions = snapshotPositions(this.state);
-    this.state = nextState;
+    this.state = mergeLeanState(this.state, update);
     this.targetPositions = snapshotPositions(this.state);
     this.lerpElapsedMs = 0;
     if (newEvents.length > 0) this.events.push(...newEvents);

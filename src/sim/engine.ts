@@ -86,7 +86,7 @@ export class SimulationEngine implements EngineLike {
   }
 
   /** Lets the UI end the match on demand (an "End Match" control) rather than
-   * waiting out the full 90s clock — reuses the exact same rule as that hard
+   * waiting out the full match clock — reuses the exact same rule as that hard
    * cap: whoever's still standing at this instant is declared a (possibly
    * shared) winner. No-op if the match has already finished. */
   endMatchNow(): void {
@@ -730,7 +730,7 @@ export class SimulationEngine implements EngineLike {
     }
   }
 
-  /** The 90s hard cap: whoever's still standing is declared a (possibly shared) winner. */
+  /** The hard time cap: whoever's still standing is declared a (possibly shared) winner. */
   private forceMatchEnd(nowMs: number): void {
     if (this.state.phase === 'complete') return;
     this.completeMatch(nowMs);
@@ -739,7 +739,7 @@ export class SimulationEngine implements EngineLike {
   /** Freezes the match and, for a lone winner, plants them at the arena
    * center in an idle victory pose facing south — 'incapacitated' already
    * halts movement/attacking (see stepMovement/maybeAct) and renders as Idle
-   * with no other plumbing needed. Co-winners (from the 90s hard cap) are
+   * with no other plumbing needed. Co-winners (from the hard time cap) are
    * left where they stand rather than stacked on the same point, since only
    * a single winner has an unambiguous "center". */
   private completeMatch(nowMs: number): void {

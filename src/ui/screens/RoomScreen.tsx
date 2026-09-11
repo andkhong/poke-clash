@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type CSSProperties } from 'react';
+import { useCallback, useEffect, useRef, useState, type CSSProperties } from 'react';
 import { RoomConnection } from '../../net/RoomConnection';
 import { RemoteSimEngine } from '../../net/RemoteSimEngine';
 import type { ChatMessage, ChatRequest, JoinRoomRequest, RoomSummary } from '../../net/protocol';
@@ -175,7 +175,10 @@ export function RoomScreen({ roomId, embedded = false }: RoomScreenProps) {
     });
   };
 
-  const handleSendChat = async (text: string): Promise<string | null> => {
+  // Memoized so the match overlay's ChatOverlay (React.memo) keeps its props
+  // stable across this screen's re-renders (room updates, the showcase
+  // room's 4 Hz between-round countdown).
+  const handleSendChat = useCallback(async (text: string): Promise<string | null> => {
     // Read from render scope, not playerIdRef — this runs on a tap, never
     // from inside the once-per-room SSE closures the ref exists for.
     // Every room supports chat, seat or no seat (see spectatorIdentity.ts) —
@@ -195,7 +198,7 @@ export function RoomScreen({ roomId, embedded = false }: RoomScreenProps) {
     } catch {
       return 'send_failed';
     }
-  };
+  }, [playerId, roomId]);
 
   // "You" is whichever slot holds my playerId when I'm seated, otherwise
   // this tab's generated spectator identity — both fall out of `room` +
@@ -262,6 +265,7 @@ export function RoomScreen({ roomId, embedded = false }: RoomScreenProps) {
             completeButtonLabel="BACK TO ROOMS"
             highlightInstanceId={highlightInstanceId}
             onCanvasReady={setCanvas}
+            captureFrames={!room.autoPlay}
             chat={sidebar ? undefined : chat}
             bannerOverrideText={postMatchCountdownLabel}
           />

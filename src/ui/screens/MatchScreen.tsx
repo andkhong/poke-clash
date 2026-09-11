@@ -38,6 +38,9 @@ interface MatchScreenProps {
   /** Multiplayer only (see useRoomThumbnailCapture) — solo play has no room
    * to attribute a captured frame to, so App.tsx never passes this. */
   onCanvasReady?: (canvas: HTMLCanvasElement) => void;
+  /** See PhaserGame's captureFrames — true only for a multiplayer room whose
+   * frames feed the landing page's thumbnail grid. */
+  captureFrames?: boolean;
   /** Overrides the banner overlay's own text — see BannerOverlay's
    * `overrideText`. Used by the always-on showcase room to show "next round
    * in Ns" over the arena during its post-match gap, when `store`'s sim
@@ -55,6 +58,7 @@ export function MatchScreen({
   highlightInstanceId = null,
   chat,
   onCanvasReady,
+  captureFrames = false,
   bannerOverrideText,
 }: MatchScreenProps) {
   const state = useSimSnapshot(store);
@@ -84,6 +88,7 @@ export function MatchScreen({
             highlightInstanceId={highlightInstanceId}
             onStageRectChange={setStageRect}
             onCanvasReady={onCanvasReady}
+            captureFrames={captureFrames}
           />
         </Suspense>
 

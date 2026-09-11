@@ -39,10 +39,10 @@ describe('computeIntroDurationMs', () => {
   });
 });
 
-describe('match clock: 45s aggression trigger / 90s hard cap', () => {
+describe('match clock: 45s aggression trigger / 120s hard cap', () => {
   it('the aggression trigger fires strictly before the hard cap', () => {
     expect(AGGRESSION_TRIGGER_MS).toBeLessThan(MATCH_TIME_LIMIT_MS);
-    expect(MATCH_TIME_LIMIT_MS).toBe(90_000);
+    expect(MATCH_TIME_LIMIT_MS).toBe(120_000);
     expect(AGGRESSION_TRIGGER_MS).toBe(45_000);
   });
 

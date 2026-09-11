@@ -148,7 +148,7 @@ export function updateTargeting(
   // From AGGRESSION_TRIGGER_MS (45s) on, every Pokémon hunts more
   // relentlessly — bigger notice radius, longer leash before disengaging,
   // faster re-evaluation of a better target — which is what actually pushes
-  // stalled matches toward a real resolution before the 90s hard cutoff.
+  // stalled matches toward a real resolution before the hard time cutoff.
   const aggressive = isAggressivePhase(nowMs);
   const aggroRadius = noWander ? NO_WANDER_AGGRO_RADIUS : aggressive ? AGGRO_RADIUS_AGGRESSIVE : AGGRO_RADIUS;
   const engageRange = aggressive ? ENGAGE_RANGE_AGGRESSIVE : ENGAGE_RANGE;
