@@ -1,10 +1,22 @@
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http';
-import { createRoom, getHelloPayload, getRoom, joinRoom, listRooms, pickSpecies, postChat, toRoomSummary } from './roomManager';
+import {
+  createRoom,
+  getHelloPayload,
+  getRoom,
+  joinRoom,
+  listRooms,
+  MAX_THUMBNAIL_BYTES,
+  pickSpecies,
+  postChat,
+  setThumbnail,
+  toRoomSummary,
+} from './roomManager';
 import { subscribe } from './sse';
-import { BadRequestError, readJsonBody, sendJson } from './httpUtil';
+import { BadRequestError, readJsonBody, readRawBody, sendJson } from './httpUtil';
 import type { ApiErrorBody, ChatRequest, ChatResponse, CreateRoomRequest, JoinRoomRequest, PickSpeciesRequest } from '../src/net/protocol';
 import { isRoomMode } from '../src/net/protocol';
 import type { ArenaBounds } from '../src/sim/types';
+import { DESKTOP_ARENA_HEIGHT, DESKTOP_ARENA_WIDTH } from '../src/sim/constants';
 
 const PORT = Number(process.env.GAME_SERVER_PORT ?? 4311);
 // Keeps the previously-requested "4 rooms by default" while making Boss
@@ -17,12 +29,19 @@ const INITIAL_BOSS_ROOM_COUNT = 1;
 for (let i = 0; i < INITIAL_CLASSIC_ROOM_COUNT; i++) createRoom('classic');
 for (let i = 0; i < INITIAL_BOSS_ROOM_COUNT; i++) createRoom('boss');
 createRoom('team2');
+// The landing page's always-live featured panel — see roomManager's
+// startAutoPlayCycle. createRoom kicks off its first cycle itself, so it's
+// already mid-cycle before any client connects. Wide arena: the featured
+// panel is a landing-page hero, sized more like the desktop arena's shape
+// than the portrait one the rest of the pre-seeded rooms default to.
+createRoom('classic', { width: DESKTOP_ARENA_WIDTH, height: DESKTOP_ARENA_HEIGHT }, { autoPlay: true });
 
 const ID_SEGMENT = '[A-Za-z0-9_-]+';
 const JOIN_RE = new RegExp(`^/api/rooms/(${ID_SEGMENT})/join$`);
 const PICK_RE = new RegExp(`^/api/rooms/(${ID_SEGMENT})/pick$`);
 const CHAT_RE = new RegExp(`^/api/rooms/(${ID_SEGMENT})/chat$`);
 const STREAM_RE = new RegExp(`^/api/rooms/(${ID_SEGMENT})/stream$`);
+const THUMBNAIL_RE = new RegExp(`^/api/rooms/(${ID_SEGMENT})/thumbnail$`);
 
 function notFound(res: ServerResponse, message = 'not found'): void {
   sendJson(res, 404, { error: message } satisfies ApiErrorBody);
@@ -128,8 +147,10 @@ async function handle(req: IncomingMessage, res: ServerResponse): Promise<void> 
       return;
     }
     const body = await readJsonBody<ChatRequest>(req);
-    if (typeof body.playerId !== 'string' || typeof body.text !== 'string') throw new BadRequestError('invalid_request');
-    const result = postChat(room, body.playerId, body.text);
+    if (typeof body.text !== 'string') throw new BadRequestError('invalid_request');
+    if (body.playerId !== undefined && typeof body.playerId !== 'string') throw new BadRequestError('invalid_request');
+    if (body.spectatorName !== undefined && typeof body.spectatorName !== 'string') throw new BadRequestError('invalid_request');
+    const result = postChat(room, body.playerId ?? null, body.text, undefined, body.spectatorName);
     if (!result.ok) {
       // 429 for the rate limit so a client can tell "slow down" apart from
       // "that was malformed" by status alone.
@@ -158,6 +179,44 @@ async function handle(req: IncomingMessage, res: ServerResponse): Promise<void> 
     res.write(`event: hello\ndata: ${JSON.stringify(getHelloPayload(room))}\n\n`);
     subscribe(room.id, req, res);
     return;
+  }
+
+  const thumbnailMatch = THUMBNAIL_RE.exec(url);
+  if (thumbnailMatch) {
+    const room = getRoom(thumbnailMatch[1]);
+    if (!room) {
+      notFound(res, 'room not found');
+      return;
+    }
+
+    if (method === 'GET') {
+      if (!room.thumbnail) {
+        notFound(res, 'no thumbnail yet');
+        return;
+      }
+      res.writeHead(200, {
+        'Content-Type': 'image/png',
+        'Cache-Control': 'no-cache',
+        'Access-Control-Allow-Origin': '*',
+      }).end(room.thumbnail);
+      return;
+    }
+
+    if (method === 'POST') {
+      // A few hundred px wide downscaled capture (see
+      // useRoomThumbnailCapture.ts) is nowhere near MAX_THUMBNAIL_BYTES, so
+      // this cap is generous — readRawBody's own guard rejects anything
+      // wildly oversized before it's fully buffered.
+      const image = await readRawBody(req, MAX_THUMBNAIL_BYTES);
+      if (image.byteLength === 0) throw new BadRequestError('empty_body');
+      // A throttled/oversized upload isn't a client error worth surfacing —
+      // it's expected under multiple simultaneous viewers — so this just
+      // no-ops with 204 either way rather than a 4xx the uploader would need
+      // to handle.
+      setThumbnail(room, image);
+      res.writeHead(204, { 'Access-Control-Allow-Origin': '*' }).end();
+      return;
+    }
   }
 
   notFound(res);

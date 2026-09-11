@@ -5,8 +5,11 @@ import { chatSenderColor, chatSenderLabel, formatChatTime } from './chatModel';
 
 export interface ChatPanelProps {
   messages: ChatMessage[];
-  /** The local player's seat, or null for a spectator (read-only). */
+  /** The local player's seat, or null when unseated. */
   mySlotIndex: number | null;
+  /** This tab's generated spectator identity (see spectatorIdentity.ts) —
+   * used to label an unseated sender's own messages "You". */
+  mySpectatorName: string | null;
   room: RoomSummary | null;
   canSend: boolean;
   /** Resolves to null on success, or a machine error code (`rate_limited`,
@@ -32,6 +35,7 @@ const NEAR_BOTTOM_PX = 40;
 export function ChatPanel({
   messages,
   mySlotIndex,
+  mySpectatorName,
   room,
   canSend,
   onSend,
@@ -106,7 +110,7 @@ export function ChatPanel({
           {messages.map((message) => (
             <div key={message.id} style={rowStyle}>
               {showTimestamps && <span style={timeStyle}>{formatChatTime(message.sentAtMs)}</span>}
-              <span style={{ color: chatSenderColor(message), fontWeight: 'bold', textTransform: 'capitalize' }}>{chatSenderLabel(message, mySlotIndex, room)}</span>
+              <span style={{ color: chatSenderColor(message), fontWeight: 'bold', textTransform: 'capitalize' }}>{chatSenderLabel(message, mySlotIndex, room, mySpectatorName)}</span>
               <span style={{ opacity: 0.6 }}>: </span>
               <span>{message.text}</span>
             </div>

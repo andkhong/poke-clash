@@ -71,6 +71,17 @@ export interface RoomSummary {
   /** Total seats this room has — same as `slots.length`, echoed here so the
    * lobby/list screens don't need to derive it themselves. */
   capacity: number;
+  /** True only for the server's one permanent, bot-driven showcase room (see
+   * game-server/roomManager.ts's startAutoPlayCycle) — spectate-only, never
+   * joinable, loops battle after battle forever so the landing page always
+   * has something live to feature. Clients use this to exclude it from the
+   * normal room list/grid and to hide JOIN ROOM if it's ever opened directly. */
+  autoPlay: boolean;
+  /** When this room's thumbnail cache (see the /thumbnail routes) was last
+   * updated by a watching client's canvas capture, or null if nobody has
+   * ever captured one — null means "don't bother requesting the image, show
+   * the placeholder instead." */
+  thumbnailUpdatedAtMs: number | null;
 }
 
 export interface CreateRoomRequest {
@@ -159,16 +170,28 @@ export interface ChatMessage {
   /** Per-room, strictly increasing, and never reset (see roomManager's
    * resetRoom) — the client dedupes by it across SSE reconnects. */
   id: number;
-  slotIndex: number;
+  /** Null for a spectator — someone with no seat, including everyone in the
+   * always-on autoPlay room, which has none to give. See spectatorName. */
+  slotIndex: number | null;
   speciesId: number | null;
   speciesName: string | null;
   team: RoomTeam | null;
+  /** A generated display name ("Slowpoke482", see src/net/spectatorIdentity.ts),
+   * set only when slotIndex is null. Seated senders are identified by their
+   * pick instead (speciesName), never by this. */
+  spectatorName: string | null;
   text: string;
   sentAtMs: number;
 }
 
 export interface ChatRequest {
-  playerId: string;
+  /** A seated sender's bearer id (see JoinRoomResponse.playerId). Omit for an
+   * unseated sender and send spectatorName instead — postChat treats
+   * whichever of the two actually resolves to a real identity as the sender. */
+  playerId?: string;
+  /** An unseated sender's generated display name. Ignored if playerId
+   * resolves to a real seat. */
+  spectatorName?: string;
   text: string;
 }
 

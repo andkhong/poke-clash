@@ -28,7 +28,10 @@ export function RoomLobbyScreen({ room, playerId, onJoin, onPick, chat }: RoomLo
   // Guarded on playerId first — an open seat's playerId is null too, and
   // matching one would show a spectator the species picker during countdown.
   const mySlot = playerId === null ? null : (room.slots.find((s) => s.playerId === playerId) ?? null);
-  const canJoin = playerId === null && room.slots.some((s) => s.playerId === null);
+  // The always-on showcase room is spectate-only forever (see roomManager's
+  // startAutoPlayCycle) — never offer a seat in it even if it's opened
+  // directly at #/room/:id.
+  const canJoin = !room.autoPlay && playerId === null && room.slots.some((s) => s.playerId === null);
   const teamSize = teamSizeForMode(room.mode);
 
   // The room's arena is whatever the session-opening join set (see

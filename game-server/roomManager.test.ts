@@ -1,19 +1,23 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
+  AUTO_PLAY_COUNTDOWN_MS,
   CHAT_BURST,
   CHAT_REFILL_MS,
   createRoom,
   getHelloPayload,
   joinRoom,
+  MAX_THUMBNAIL_BYTES,
   pickSpecies,
   postChat,
   ROOM_COMPLETE_HOLD_MS,
   ROOM_COUNTDOWN_MS,
+  setThumbnail,
+  THUMBNAIL_MIN_INTERVAL_MS,
   toRoomSummary,
 } from './roomManager';
 import { broadcast } from './sse';
 import { ROOM_MODES, roomCapacityForMode } from '../src/net/protocol';
-import { CHAT_LOG_LIMIT, CHAT_MAX_LENGTH } from '../src/net/chat';
+import { CHAT_LOG_LIMIT, CHAT_MAX_LENGTH, SPECTATOR_NAME_MAX_LENGTH } from '../src/net/chat';
 import { hasPmdSprite, listAllSpecies } from '../src/data/loader';
 import { ARENA_HEIGHT, ARENA_WIDTH, DESKTOP_ARENA_HEIGHT, DESKTOP_ARENA_WIDTH, TICK_MS } from '../src/sim/constants';
 
@@ -112,7 +116,16 @@ describe('roomManager chat', () => {
     const before = postChat(room, playerId, '  hello  ', 1000);
     expect(before).toEqual({
       ok: true,
-      message: { id: 1, slotIndex: 0, speciesId: null, speciesName: null, team: 'teamA', text: 'hello', sentAtMs: 1000 },
+      message: {
+        id: 1,
+        slotIndex: 0,
+        speciesId: null,
+        speciesName: null,
+        team: 'teamA',
+        spectatorName: null,
+        text: 'hello',
+        sentAtMs: 1000,
+      },
     });
 
     const species = listAllSpecies().find((s) => hasPmdSprite(s.id))!;
@@ -126,13 +139,52 @@ describe('roomManager chat', () => {
     expect(chatFrames()[0]).toEqual([room.id, 'chat', before.ok && before.message]);
   });
 
-  it('refuses anyone without a seat in this room', () => {
+  it('refuses anyone without a seat and no spectator name to fall back to', () => {
     const room = createRoom('classic');
     const other = createRoom('classic');
     const otherPlayerId = seat(other);
     expect(postChat(room, 'nobody', 'hi')).toEqual({ ok: false, error: 'not_in_room' });
     expect(postChat(room, otherPlayerId, 'hi')).toEqual({ ok: false, error: 'not_in_room' });
     expect(chatFrames()).toHaveLength(0);
+  });
+
+  it('lets an unseated spectator chat under a generated display name', () => {
+    const room = createRoom('classic');
+    const result = postChat(room, null, 'hi all', 1000, 'Slowpoke482');
+    expect(result).toEqual({
+      ok: true,
+      message: {
+        id: 1,
+        slotIndex: null,
+        speciesId: null,
+        speciesName: null,
+        team: null,
+        spectatorName: 'Slowpoke482',
+        text: 'hi all',
+        sentAtMs: 1000,
+      },
+    });
+    expect(chatFrames()).toHaveLength(1);
+  });
+
+  it('rejects a blank or over-long spectator name without logging or charging the rate limit', () => {
+    const room = createRoom('classic');
+    expect(postChat(room, null, 'hi', 0, '   ')).toEqual({ ok: false, error: 'invalid_name' });
+    expect(postChat(room, null, 'hi', 0, 'x'.repeat(SPECTATOR_NAME_MAX_LENGTH + 1))).toEqual({ ok: false, error: 'invalid_name' });
+    expect(room.chatLog).toHaveLength(0);
+    // A follow-up with a valid name still gets the full burst.
+    for (let i = 0; i < CHAT_BURST; i++) expect(postChat(room, null, `m${i}`, 0, 'Eevee123').ok).toBe(true);
+  });
+
+  it('rate-limits spectator chat per claimed name, independent of seated players and other names', () => {
+    const room = createRoom('classic');
+    const playerId = seat(room);
+    const t0 = 0;
+    for (let i = 0; i < CHAT_BURST; i++) expect(postChat(room, null, `a${i}`, t0, 'Eevee123').ok).toBe(true);
+    expect(postChat(room, null, 'one too many', t0, 'Eevee123')).toEqual({ ok: false, error: 'rate_limited' });
+    // A different spectator name and a seated player both have their own budget.
+    expect(postChat(room, null, 'fresh name', t0, 'Pikachu007').ok).toBe(true);
+    expect(postChat(room, playerId, 'seated', t0).ok).toBe(true);
   });
 
   it('rejects blank, over-long and control-only text without logging it', () => {
@@ -253,5 +305,95 @@ describe('roomManager arena', () => {
     const room = createRoom('classic', wide);
     expect(joinRoom(room, portrait).ok).toBe(true);
     expect(toRoomSummary(room).arena).toEqual(portrait);
+  });
+});
+
+describe('roomManager autoPlay', () => {
+  beforeEach(() => {
+    vi.useFakeTimers();
+  });
+
+  afterEach(() => {
+    vi.clearAllTimers();
+    vi.useRealTimers();
+  });
+
+  it('is flagged in the summary and starts its own cycle with zero joins', () => {
+    const room = createRoom('classic', undefined, { autoPlay: true });
+    expect(toRoomSummary(room).autoPlay).toBe(true);
+    expect(room.phase).toBe('countdown');
+
+    vi.advanceTimersByTime(AUTO_PLAY_COUNTDOWN_MS);
+    expect(room.phase).toBe('battle');
+    // Every slot got a random pick — nobody ever joined to make one.
+    expect(room.slots.every((s) => s.speciesId !== null && s.isAutoFilled)).toBe(true);
+  });
+
+  it('refuses a real join, seated or not', () => {
+    const room = createRoom('classic', undefined, { autoPlay: true });
+    expect(joinRoom(room)).toEqual({ ok: false, error: 'room_not_joinable' });
+  });
+
+  it('loops straight back into another cycle after a battle completes, instead of sitting idle', () => {
+    const room = createRoom('classic', undefined, { autoPlay: true });
+    vi.advanceTimersByTime(AUTO_PLAY_COUNTDOWN_MS);
+    expect(room.phase).toBe('battle');
+
+    room.engine!.endMatchNow();
+    vi.advanceTimersByTime(TICK_MS);
+    expect(room.phase).toBe('complete');
+
+    vi.advanceTimersByTime(ROOM_COMPLETE_HOLD_MS);
+    // A normal room would be idle here (see the reset test above) — this one
+    // goes straight back into its next countdown.
+    expect(room.phase).toBe('countdown');
+
+    vi.advanceTimersByTime(AUTO_PLAY_COUNTDOWN_MS);
+    expect(room.phase).toBe('battle');
+  });
+
+  it('still lets anyone — seated or spectating — chat with no seat to give', () => {
+    vi.mocked(broadcast).mockClear();
+    const room = createRoom('classic', undefined, { autoPlay: true });
+    const result = postChat(room, null, 'nice sprite', 0, 'Bulbasaur294');
+    expect(result.ok).toBe(true);
+    expect(chatFrames()).toHaveLength(1);
+  });
+
+  function chatFrames() {
+    return vi.mocked(broadcast).mock.calls.filter(([, event]) => event === 'chat');
+  }
+});
+
+describe('roomManager thumbnails', () => {
+  it('caches the first capture and reports when it landed', () => {
+    const room = createRoom('classic');
+    expect(room.thumbnail).toBeNull();
+    expect(toRoomSummary(room).thumbnailUpdatedAtMs).toBeNull();
+
+    const image = Buffer.from('fake-png-bytes');
+    expect(setThumbnail(room, image, 1000)).toEqual({ ok: true });
+    expect(room.thumbnail).toBe(image);
+    expect(toRoomSummary(room).thumbnailUpdatedAtMs).toBe(1000);
+  });
+
+  it('throttles a follow-up capture that lands too soon after the last one', () => {
+    const room = createRoom('classic');
+    expect(setThumbnail(room, Buffer.from('a'), 1000)).toEqual({ ok: true });
+    expect(setThumbnail(room, Buffer.from('b'), 1000 + THUMBNAIL_MIN_INTERVAL_MS - 1)).toEqual({
+      ok: false,
+      error: 'rate_limited',
+    });
+    expect(room.thumbnail?.toString()).toBe('a'); // the throttled capture never overwrote it
+
+    expect(setThumbnail(room, Buffer.from('c'), 1000 + THUMBNAIL_MIN_INTERVAL_MS)).toEqual({ ok: true });
+    expect(room.thumbnail?.toString()).toBe('c');
+  });
+
+  it('rejects an oversized capture without caching it', () => {
+    const room = createRoom('classic');
+    const tooBig = Buffer.alloc(MAX_THUMBNAIL_BYTES + 1);
+    expect(setThumbnail(room, tooBig, 1000)).toEqual({ ok: false, error: 'too_large' });
+    expect(room.thumbnail).toBeNull();
   });
 });

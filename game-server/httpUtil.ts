@@ -54,3 +54,18 @@ export async function readJsonBody<T extends object>(req: IncomingMessage): Prom
   }
   return parsed as Partial<T>;
 }
+
+/** The request body as raw bytes (a thumbnail image upload, not JSON) —
+ * same size-guard/BadRequestError pattern as readJsonBody, just with no
+ * parsing at the end. `maxBytes` lets the caller set a tighter cap than the
+ * generic JSON one. */
+export async function readRawBody(req: IncomingMessage, maxBytes: number): Promise<Buffer> {
+  const chunks: Buffer[] = [];
+  let size = 0;
+  for await (const chunk of req.iterator({ destroyOnReturn: false })) {
+    size += (chunk as Buffer).length;
+    if (size > maxBytes) throw new BadRequestError('body_too_large', 413);
+    chunks.push(chunk as Buffer);
+  }
+  return Buffer.concat(chunks);
+}

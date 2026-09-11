@@ -1,116 +1,277 @@
-import type { CSSProperties } from 'react';
+import { useEffect, useState, type CSSProperties } from 'react';
+import type { RoomMode, RoomSummary } from '../../net/protocol';
+import { teamSizeForMode } from '../../net/protocol';
+import { IS_MOBILE_DEVICE, resolveMatchArena } from '../../app/config';
+import { useWideArenaPreference } from '../hooks/useWideArenaPreference';
+import { FeaturedRoomPanel } from '../components/FeaturedRoomPanel';
+import { RoomCard } from '../components/RoomCard';
+import { TEAM_A_COLOR_CSS } from '../teamColors';
 
-// Reuses the in-battle Pokéball sprite (see pokeballAsset.ts) as the title-screen
-// mark — same URL-import trick Phaser's loader uses, since this project has no
-// image module typings for a plain `import x from './x.png'`.
+// Reuses the in-battle Pokéball sprite (see pokeballAsset.ts) as the title
+// mark — same URL-import trick Phaser's loader uses, since this project has
+// no image module typings for a plain `import x from './x.png'`.
 const pokeballUrl = new URL('../../render/sprites/assets/pokeball.png', import.meta.url).href;
 
+const POLL_INTERVAL_MS = 2000;
+const TEAM_MODES: RoomMode[] = ['team2', 'team3', 'team4'];
+
+/** The landing page — a Twitch-style discovery homepage: the server's one
+ * always-live showcase room featured up top (FeaturedRoomPanel), every real
+ * room below it as a grid of RoomCards, and room creation folded in here too
+ * (this replaces the old separate #/rooms screen — see Root.tsx, which now
+ * aliases that route to this one). */
 export function LandingScreen() {
+  const [rooms, setRooms] = useState<RoomSummary[]>([]);
+  const [error, setError] = useState<string | null>(null);
+  const [wideArena, setWideArena] = useWideArenaPreference();
+
+  useEffect(() => {
+    let cancelled = false;
+    const fetchRooms = () => {
+      fetch('/api/rooms')
+        .then((res) => res.json())
+        .then((data: { rooms: RoomSummary[] }) => {
+          if (!cancelled) {
+            setRooms(data.rooms);
+            setError(null);
+          }
+        })
+        .catch(() => {
+          // The game-server (npm run game-server:serve, or npm run dev:all)
+          // isn't reachable — surface this instead of leaving the page stuck
+          // with no featured room and no explanation.
+          if (!cancelled) setError('Can’t reach the multiplayer server. Is game-server running?');
+        });
+    };
+    fetchRooms();
+    const interval = setInterval(fetchRooms, POLL_INTERVAL_MS);
+    return () => {
+      cancelled = true;
+      clearInterval(interval);
+    };
+  }, []);
+
+  const featuredRoom = rooms.find((r) => r.autoPlay) ?? null;
+  const gridRooms = rooms.filter((r) => !r.autoPlay);
+
+  const createRoom = (mode: RoomMode) => {
+    fetch('/api/rooms', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ mode, arena: resolveMatchArena(wideArena) }),
+    })
+      .then((res) => res.json())
+      .then((data: { room: RoomSummary }) => {
+        window.location.hash = `#/room/${data.room.id}`;
+      })
+      .catch(() => {
+        setError('Couldn’t create a room — the multiplayer server isn’t reachable.');
+      });
+  };
+
   return (
     <div style={containerStyle}>
-      <div style={heroStyle}>
+      <header style={headerStyle}>
         <img src={pokeballUrl} alt="" aria-hidden="true" style={pokeballStyle} />
         <h1 style={titleStyle}>POKÉBETS ARENA</h1>
-        <p style={taglineStyle}>Choose how you want to play.</p>
-      </div>
-
-      <div style={menuStyle}>
-        <button onClick={() => (window.location.hash = '#/local')} style={primaryButton}>
+        <button onClick={() => (window.location.hash = '#/local')} style={soloPlayButton}>
           ⚔️ Solo Play
         </button>
-        <button onClick={() => (window.location.hash = '#/rooms')} style={secondaryButton}>
-          🌐 Play with others!
-        </button>
-      </div>
+      </header>
+
+      {error && <p style={errorText}>{error}</p>}
+
+      {featuredRoom ? (
+        <FeaturedRoomPanel roomId={featuredRoom.id} />
+      ) : (
+        !error && <p style={statusText}>Loading the live room…</p>
+      )}
+
+      <section style={sectionStyle}>
+        <div style={sectionHeaderStyle}>
+          <h2 style={sectionTitleStyle}>LIVE ROOMS</h2>
+          {!IS_MOBILE_DEVICE && (
+            <button onClick={() => setWideArena(!wideArena)} style={wideArenaToggle(wideArena)}>
+              🖥️ Wide Arena {wideArena ? 'ON' : 'OFF'}
+            </button>
+          )}
+        </div>
+
+        <div style={gridStyle}>
+          {gridRooms.map((room) => (
+            <RoomCard key={room.id} room={room} />
+          ))}
+        </div>
+        {gridRooms.length === 0 && !error && <p style={statusText}>No other rooms yet — create one below.</p>}
+
+        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', justifyContent: 'center' }}>
+          <button onClick={() => createRoom('classic')} style={primaryButton}>
+            + CLASSIC ROOM
+          </button>
+          <button onClick={() => createRoom('boss')} style={bossButton}>
+            + BOSS ROOM 👹
+          </button>
+        </div>
+        <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', justifyContent: 'center' }}>
+          {TEAM_MODES.map((mode) => {
+            const size = teamSizeForMode(mode)!;
+            return (
+              <button key={mode} onClick={() => createRoom(mode)} style={teamButton}>
+                + TEAM {size}v{size} 🛡️
+              </button>
+            );
+          })}
+        </div>
+      </section>
     </div>
   );
 }
 
 const containerStyle: CSSProperties = {
-  width: '100vw',
-  height: '100dvh',
+  width: '100%',
+  minHeight: '100dvh',
   boxSizing: 'border-box',
   display: 'flex',
   flexDirection: 'column',
+  alignItems: 'center',
+  gap: 20,
+  padding: '20px 16px calc(24px + env(safe-area-inset-bottom))',
   fontFamily: 'monospace',
   color: '#eee',
   background: '#20242c',
-  overflowY: 'auto',
 };
 
-// Fills whatever vertical room the viewport has above the menu, so the title
-// mark grows into tall phone screens instead of leaving it as dead space
-// around a small centered block.
-const heroStyle: CSSProperties = {
-  flex: 1,
-  minHeight: 0,
+const headerStyle: CSSProperties = {
+  width: '100%',
+  maxWidth: 1100,
   display: 'flex',
-  flexDirection: 'column',
   alignItems: 'center',
-  justifyContent: 'center',
-  gap: 16,
-  padding: '24px 24px 12px',
-  textAlign: 'center',
-  background: 'radial-gradient(circle at 50% 42%, #2c3140 0%, #20242c 65%)',
+  gap: 12,
 };
 
 const pokeballStyle: CSSProperties = {
-  width: 'clamp(64px, 20vmin, 120px)',
-  height: 'clamp(64px, 20vmin, 120px)',
+  width: 32,
+  height: 32,
   imageRendering: 'pixelated',
-  filter: 'drop-shadow(0 6px 10px rgba(0, 0, 0, 0.4))',
+  filter: 'drop-shadow(0 3px 6px rgba(0,0,0,0.4))',
 };
 
 const titleStyle: CSSProperties = {
-  fontSize: 'clamp(24px, 7vmin, 40px)',
+  flex: 1,
+  fontSize: 'clamp(14px, 3vw, 20px)',
   letterSpacing: 1,
   margin: 0,
 };
 
-const taglineStyle: CSSProperties = {
-  margin: 0,
-  opacity: 0.7,
-  fontSize: 'clamp(12px, 3.2vmin, 15px)',
+const soloPlayButton: CSSProperties = {
+  flexShrink: 0,
+  padding: '8px 14px',
+  fontSize: 12,
+  fontFamily: 'monospace',
+  fontWeight: 'bold',
+  letterSpacing: 0.5,
+  color: '#e0b030',
+  background: 'transparent',
+  border: '1px solid #e0b030',
+  borderRadius: 6,
+  cursor: 'pointer',
 };
 
-// Pinned to the bottom like a game title screen's menu sheet, with a safe-area
-// pad so it clears the home indicator on notched phones.
-const menuStyle: CSSProperties = {
-  flexShrink: 0,
+const errorText: CSSProperties = {
+  margin: 0,
+  fontSize: 12,
+  color: '#e06060',
+  textAlign: 'center',
+};
+
+const statusText: CSSProperties = {
+  margin: 0,
+  fontSize: 12,
+  opacity: 0.6,
+  textAlign: 'center',
+};
+
+const sectionStyle: CSSProperties = {
+  width: '100%',
+  maxWidth: 1100,
   display: 'flex',
   flexDirection: 'column',
-  alignItems: 'center',
-  gap: 12,
-  width: '100%',
-  maxWidth: 360,
-  margin: '0 auto',
-  padding: '20px 24px calc(20px + env(safe-area-inset-bottom))',
-  boxSizing: 'border-box',
-  background: '#262b35',
-  borderTop: '1px solid #383f4d',
+  gap: 14,
 };
 
-const buttonBase: CSSProperties = {
-  width: '100%',
-  padding: '14px 32px',
+const sectionHeaderStyle: CSSProperties = {
+  display: 'flex',
+  alignItems: 'center',
+  justifyContent: 'space-between',
+  gap: 10,
+  flexWrap: 'wrap',
+};
+
+const sectionTitleStyle: CSSProperties = {
+  fontSize: 13,
+  letterSpacing: 1,
+  margin: 0,
+  opacity: 0.85,
+};
+
+const gridStyle: CSSProperties = {
+  display: 'grid',
+  gridTemplateColumns: 'repeat(auto-fill, minmax(150px, 1fr))',
+  gap: 14,
+};
+
+const primaryButton: CSSProperties = {
+  marginTop: 8,
+  padding: '12px 32px',
   fontSize: 16,
   fontFamily: 'monospace',
   fontWeight: 'bold',
   letterSpacing: 1,
+  color: '#20242c',
+  background: '#e0b030',
   border: 'none',
   borderRadius: 6,
   cursor: 'pointer',
 };
 
-const primaryButton: CSSProperties = {
-  ...buttonBase,
-  color: '#20242c',
-  background: '#e0b030',
+const bossButton: CSSProperties = {
+  marginTop: 8,
+  padding: '12px 32px',
+  fontSize: 16,
+  fontFamily: 'monospace',
+  fontWeight: 'bold',
+  letterSpacing: 1,
+  color: '#e0b030',
+  background: 'rgba(224,176,48,0.16)',
+  border: '1px solid #e0b030',
+  borderRadius: 6,
+  cursor: 'pointer',
 };
 
-const secondaryButton: CSSProperties = {
-  ...buttonBase,
-  color: '#e0b030',
-  background: 'transparent',
-  border: '2px solid #e0b030',
+const teamButton: CSSProperties = {
+  marginTop: 8,
+  padding: '8px 16px',
+  fontSize: 13,
+  fontFamily: 'monospace',
+  fontWeight: 'bold',
+  letterSpacing: 1,
+  color: TEAM_A_COLOR_CSS,
+  background: 'rgba(74,157,224,0.14)',
+  border: `1px solid ${TEAM_A_COLOR_CSS}`,
+  borderRadius: 6,
+  cursor: 'pointer',
 };
+
+function wideArenaToggle(active: boolean): CSSProperties {
+  return {
+    fontSize: 11,
+    fontFamily: 'monospace',
+    fontWeight: 'bold',
+    padding: '5px 12px',
+    borderRadius: 14,
+    border: active ? '1px solid #ffd700' : '1px solid rgba(255,255,255,0.2)',
+    background: active ? 'rgba(255,215,0,0.22)' : 'rgba(255,255,255,0.05)',
+    color: active ? '#ffd700' : '#ddd',
+    cursor: 'pointer',
+  };
+}

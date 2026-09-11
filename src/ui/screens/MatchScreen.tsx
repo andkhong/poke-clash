@@ -33,6 +33,9 @@ interface MatchScreenProps {
    * viewport RoomScreen shows the chat as a sidebar beside this screen
    * instead and passes nothing here. Solo Play has no chat at all. */
   chat?: ChatOverlayProps;
+  /** Multiplayer only (see useRoomThumbnailCapture) — solo play has no room
+   * to attribute a captured frame to, so App.tsx never passes this. */
+  onCanvasReady?: (canvas: HTMLCanvasElement) => void;
 }
 
 export function MatchScreen({
@@ -43,6 +46,7 @@ export function MatchScreen({
   completeButtonLabel = 'NEW MATCH',
   highlightInstanceId = null,
   chat,
+  onCanvasReady,
 }: MatchScreenProps) {
   const state = useSimSnapshot(store);
   // Phaser's FIT scaling can letterbox the canvas within this screen's full
@@ -70,6 +74,7 @@ export function MatchScreen({
             engine={store.getEngine()}
             highlightInstanceId={highlightInstanceId}
             onStageRectChange={setStageRect}
+            onCanvasReady={onCanvasReady}
           />
         </Suspense>
 

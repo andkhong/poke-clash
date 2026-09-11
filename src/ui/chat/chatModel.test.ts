@@ -5,7 +5,17 @@ import { TEAM_A_COLOR_CSS, TEAM_B_COLOR_CSS } from '../teamColors';
 import { appendChatMessage, chatSenderColor, chatSenderLabel, countUnread, formatChatTime, latestChatId } from './chatModel';
 
 function msg(id: number, overrides: Partial<ChatMessage> = {}): ChatMessage {
-  return { id, slotIndex: 0, speciesId: null, speciesName: null, team: null, text: `m${id}`, sentAtMs: id * 1000, ...overrides };
+  return {
+    id,
+    slotIndex: 0,
+    speciesId: null,
+    speciesName: null,
+    team: null,
+    spectatorName: null,
+    text: `m${id}`,
+    sentAtMs: id * 1000,
+    ...overrides,
+  };
 }
 
 function roomWith(speciesNames: Array<string | null>): RoomSummary {
@@ -26,6 +36,8 @@ function roomWith(speciesNames: Array<string | null>): RoomSummary {
     bossSpeciesName: null,
     capacity: speciesNames.length,
     arena: { width: 900, height: 1950 },
+    autoPlay: false,
+    thumbnailUpdatedAtMs: null,
   };
 }
 
@@ -50,22 +62,31 @@ describe('appendChatMessage', () => {
 
 describe('chatSenderLabel', () => {
   it('is "You" for the local seat', () => {
-    expect(chatSenderLabel(msg(1, { slotIndex: 2 }), 2, roomWith(['Aipom', 'Litleo', 'Skiddo']))).toBe('You');
+    expect(chatSenderLabel(msg(1, { slotIndex: 2 }), 2, roomWith(['Aipom', 'Litleo', 'Skiddo']), null)).toBe('You');
   });
 
   it('prefers the seat\'s live species name, so a pre-pick message upgrades once they pick', () => {
     const message = msg(1, { slotIndex: 1, speciesName: null });
-    expect(chatSenderLabel(message, 0, roomWith(['Aipom', null]))).toBe('Seat 2');
-    expect(chatSenderLabel(message, 0, roomWith(['Aipom', 'Litleo']))).toBe('Litleo');
+    expect(chatSenderLabel(message, 0, roomWith(['Aipom', null]), null)).toBe('Seat 2');
+    expect(chatSenderLabel(message, 0, roomWith(['Aipom', 'Litleo']), null)).toBe('Litleo');
   });
 
   it('falls back to the snapshotted name, then the seat number, without a room', () => {
-    expect(chatSenderLabel(msg(1, { slotIndex: 3, speciesName: 'Burmy' }), null, null)).toBe('Burmy');
-    expect(chatSenderLabel(msg(1, { slotIndex: 3 }), null, null)).toBe('Seat 4');
+    expect(chatSenderLabel(msg(1, { slotIndex: 3, speciesName: 'Burmy' }), null, null, null)).toBe('Burmy');
+    expect(chatSenderLabel(msg(1, { slotIndex: 3 }), null, null, null)).toBe('Seat 4');
   });
 
-  it('never labels anyone "You" for a spectator', () => {
-    expect(chatSenderLabel(msg(1, { slotIndex: 0, speciesName: 'Aipom' }), null, null)).toBe('Aipom');
+  it('never labels a spectator "You" just for watching a seated player\'s message', () => {
+    expect(chatSenderLabel(msg(1, { slotIndex: 0, speciesName: 'Aipom' }), null, null, 'Eevee123')).toBe('Aipom');
+  });
+
+  it('shows an unseated sender\'s generated name, and "You" only for this tab\'s own', () => {
+    const message = msg(1, { slotIndex: null, speciesName: null, spectatorName: 'Slowpoke482' });
+    expect(chatSenderLabel(message, null, null, null)).toBe('Slowpoke482');
+    expect(chatSenderLabel(message, null, null, 'Eevee123')).toBe('Slowpoke482');
+    expect(chatSenderLabel(message, null, null, 'Slowpoke482')).toBe('You');
+    // A seated viewer's own mySlotIndex must never match an unseated sender.
+    expect(chatSenderLabel(message, 0, roomWith(['Aipom']), null)).toBe('Slowpoke482');
   });
 });
 
@@ -80,6 +101,16 @@ describe('chatSenderColor', () => {
     expect(new Set(colors).size).toBe(8);
     expect(chatSenderColor(msg(9, { slotIndex: 3 }))).toBe(colors[3]);
     expect(chatSenderColor(msg(1, { slotIndex: 8 }))).toBe(colors[0]);
+  });
+
+  it('gives an unseated sender a color stable per generated name, not per message', () => {
+    const a = msg(1, { slotIndex: null, spectatorName: 'Slowpoke482' });
+    const b = msg(2, { slotIndex: null, spectatorName: 'Slowpoke482' });
+    const other = msg(3, { slotIndex: null, spectatorName: 'Eevee123' });
+    expect(chatSenderColor(a)).toBe(chatSenderColor(b));
+    // Not guaranteed distinct (small palette), but exercised so a change to
+    // the hash isn't silently untested.
+    expect(typeof chatSenderColor(other)).toBe('string');
   });
 });
 

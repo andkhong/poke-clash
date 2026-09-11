@@ -91,7 +91,7 @@ export function ChatOverlay(props: ChatOverlayProps) {
         <div style={tickerStackStyle}>
           {ticker.map(({ message, fading }) => (
             <div key={message.id} style={{ ...tickerRowStyle, opacity: fading ? 0 : 1 }}>
-              <span style={{ color: chatSenderColor(message), fontWeight: 'bold', textTransform: 'capitalize' }}>{chatSenderLabel(message, props.mySlotIndex, props.room)}</span>
+              <span style={{ color: chatSenderColor(message), fontWeight: 'bold', textTransform: 'capitalize' }}>{chatSenderLabel(message, props.mySlotIndex, props.room, props.mySpectatorName)}</span>
               <span style={{ opacity: 0.6 }}>: </span>
               <span>{message.text}</span>
             </div>

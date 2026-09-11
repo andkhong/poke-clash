@@ -30,12 +30,23 @@ export function appendChatMessage(log: ChatMessage[], message: ChatMessage): Cha
   return next.length > CHAT_LOG_LIMIT ? next.slice(next.length - CHAT_LOG_LIMIT) : next;
 }
 
-/** Who to show as the sender. There are no display names in this game —
- * players are known by their pick — so: "You" for the local seat, otherwise
- * the seat's *current* species name (a message sent before picking upgrades
- * from "Seat N" to the species once they pick), falling back to the name
- * snapshotted on the message, then to the seat number. */
-export function chatSenderLabel(message: ChatMessage, mySlotIndex: number | null, room: RoomSummary | null): string {
+/** Who to show as the sender. A seated player is known by their pick, same
+ * as ever: "You" for the local seat, otherwise the seat's *current* species
+ * name (a message sent before picking upgrades from "Seat N" to the species
+ * once they pick), falling back to the name snapshotted on the message, then
+ * the seat number. Every room supports chat now (see spectatorIdentity.ts),
+ * so an unseated sender (message.slotIndex null) shows their generated
+ * display name instead — "You" when it's this tab's own. */
+export function chatSenderLabel(
+  message: ChatMessage,
+  mySlotIndex: number | null,
+  room: RoomSummary | null,
+  mySpectatorName: string | null
+): string {
+  if (message.slotIndex === null) {
+    if (mySpectatorName !== null && message.spectatorName === mySpectatorName) return 'You';
+    return message.spectatorName ?? 'Spectator';
+  }
   if (mySlotIndex !== null && message.slotIndex === mySlotIndex) return 'You';
   const liveName = room?.slots[message.slotIndex]?.speciesName ?? null;
   return liveName ?? message.speciesName ?? `Seat ${message.slotIndex + 1}`;
@@ -45,10 +56,22 @@ export function chatSenderLabel(message: ChatMessage, mySlotIndex: number | null
 // style, so a reader can follow a sender by color alone.
 const SENDER_PALETTE = ['#f2c14e', '#5aa9e6', '#ef6f6c', '#6fcf97', '#c084fc', '#ff9f5a', '#4dd0c4', '#f48fb1'];
 
+/** Stable string hash → palette index, so a spectator's generated name (no
+ * slotIndex to key off) still gets a consistent color across messages. */
+function hashPaletteIndex(text: string): number {
+  let hash = 0;
+  for (let i = 0; i < text.length; i++) hash = (hash * 31 + text.charCodeAt(i)) | 0;
+  return Math.abs(hash) % SENDER_PALETTE.length;
+}
+
 /** Name color: the side's color in a team room (matching the roster HUD and
- * the sprite's team ring), otherwise a stable per-seat hue. */
+ * the sprite's team ring), otherwise a stable per-seat hue, or — for an
+ * unseated sender — a hue stable per generated name instead. */
 export function chatSenderColor(message: ChatMessage): string {
-  return teamColorCss(message.team ?? undefined) ?? SENDER_PALETTE[message.slotIndex % SENDER_PALETTE.length];
+  const teamColor = teamColorCss(message.team ?? undefined);
+  if (teamColor) return teamColor;
+  if (message.slotIndex !== null) return SENDER_PALETTE[message.slotIndex % SENDER_PALETTE.length];
+  return SENDER_PALETTE[hashPaletteIndex(message.spectatorName ?? '')];
 }
 
 /** Id of the newest message, or 0 for an empty log (ids start at 1). */

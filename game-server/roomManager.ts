@@ -6,11 +6,22 @@ import { HUD_REFRESH_INTERVAL_MS } from '../src/ui/state/simStore';
 import type { ArenaBounds, MatchConfig } from '../src/sim/types';
 import type { BattleStartPayload, ChatMessage, HelloPayload, RoomMode, RoomPhase, RoomSlotSummary, RoomSummary, RoomTeam } from '../src/net/protocol';
 import { roomCapacityForMode, teamSizeForMode } from '../src/net/protocol';
-import { CHAT_LOG_LIMIT, normalizeChatText } from '../src/net/chat';
+import { CHAT_LOG_LIMIT, normalizeChatText, normalizeSpectatorName } from '../src/net/chat';
 import { broadcast } from './sse';
 
 export const ROOM_COUNTDOWN_MS = 15_000;
 export const ROOM_COMPLETE_HOLD_MS = 8_000;
+/** The always-on showcase room's countdown between cycles — short, since
+ * nobody is picking anything and the point is to stay "constantly active"
+ * rather than sit idle (see startAutoPlayCycle). */
+export const AUTO_PLAY_COUNTDOWN_MS = 5_000;
+/** Floor between accepted thumbnail uploads for the same room (see
+ * postThumbnail) — defense in depth alongside the client's own capture
+ * interval against several simultaneous viewers all uploading at once. */
+export const THUMBNAIL_MIN_INTERVAL_MS = 4_000;
+/** Largest accepted thumbnail upload — client captures are downscaled to a
+ * few hundred px wide before sending, so a real one is well under this. */
+export const MAX_THUMBNAIL_BYTES = 200 * 1024;
 // Matches SetupScreen's own default level for the local free-for-all flow.
 export const MULTIPLAYER_LEVEL = 50;
 // Reuses the HUD's own refresh cadence rather than inventing a second
@@ -56,6 +67,13 @@ interface RoomState {
   countdownEndsAtMs: number | null;
   engine: SimulationEngine | null;
   lastBroadcastSeq: number;
+  /** True only for the server's one permanent showcase room (see
+   * startAutoPlayCycle) — never joinable, loops forever. */
+  autoPlay: boolean;
+  /** Latest captured frame for this room (see the /thumbnail routes), and
+   * when it landed — null until some watching client's first capture. */
+  thumbnail: Buffer | null;
+  thumbnailUpdatedAtMs: number | null;
   /** The last CHAT_LOG_LIMIT messages, oldest first — replayed to every new
    * subscriber via HelloPayload, wiped by resetRoom. */
   chatLog: ChatMessage[];
@@ -92,9 +110,9 @@ function emptySlots(mode: RoomMode): PlayerSlot[] {
   }));
 }
 
-export function createRoom(mode: RoomMode = 'classic', arena?: ArenaBounds) {
+export function createRoom(mode: RoomMode = 'classic', arena?: ArenaBounds, opts?: { autoPlay?: boolean }) {
   const id = `room-${nextRoomNumber}`;
-  const name = `Room ${nextRoomNumber}`;
+  const name = opts?.autoPlay ? 'Featured Showcase' : `Room ${nextRoomNumber}`;
   nextRoomNumber += 1;
   const room: RoomState = {
     id,
@@ -107,6 +125,9 @@ export function createRoom(mode: RoomMode = 'classic', arena?: ArenaBounds) {
     countdownEndsAtMs: null,
     engine: null,
     lastBroadcastSeq: 0,
+    autoPlay: opts?.autoPlay ?? false,
+    thumbnail: null,
+    thumbnailUpdatedAtMs: null,
     chatLog: [],
     nextChatId: 1,
     chatBuckets: new Map(),
@@ -116,6 +137,7 @@ export function createRoom(mode: RoomMode = 'classic', arena?: ArenaBounds) {
     completeResetTimer: null,
   };
   rooms.set(id, room);
+  if (room.autoPlay) startAutoPlayCycle(room);
   return room;
 }
 
@@ -146,6 +168,8 @@ export function toRoomSummary(room: RoomState): RoomSummary {
     countdownEndsAtMs: room.countdownEndsAtMs,
     bossSpeciesName: room.bossSpeciesId !== null ? (speciesNameById.get(room.bossSpeciesId) ?? null) : null,
     capacity: roomCapacityForMode(room.mode),
+    autoPlay: room.autoPlay,
+    thumbnailUpdatedAtMs: room.thumbnailUpdatedAtMs,
   };
 }
 
@@ -161,6 +185,8 @@ export function getHelloPayload(room: RoomState): HelloPayload {
  * otherwise silently hold onto a shape nobody in the current session asked
  * for. Later joiners, and joins with no arena given, leave it alone. */
 export function joinRoom(room: RoomState, arena?: ArenaBounds): { ok: true; playerId: string } | { ok: false; error: 'room_full' | 'room_not_joinable' } {
+  // The showcase room is spectate-only, forever — see startAutoPlayCycle.
+  if (room.autoPlay) return { ok: false, error: 'room_not_joinable' };
   if (room.phase !== 'idle' && room.phase !== 'countdown') {
     return { ok: false, error: 'room_not_joinable' };
   }
@@ -195,11 +221,14 @@ export function pickSpecies(room: RoomState, playerId: string, speciesId: number
   return { ok: true };
 }
 
-function takeChatToken(room: RoomState, playerId: string, nowMs: number): boolean {
-  let bucket = room.chatBuckets.get(playerId);
+/** `key` is a seated sender's playerId, or a `spectator:<name>` key for an
+ * unseated one (see postChat) — either way just a bucket identity, opaque to
+ * this function. */
+function takeChatToken(room: RoomState, key: string, nowMs: number): boolean {
+  let bucket = room.chatBuckets.get(key);
   if (!bucket) {
     bucket = { tokens: CHAT_BURST, lastRefillMs: nowMs };
-    room.chatBuckets.set(playerId, bucket);
+    room.chatBuckets.set(key, bucket);
   }
   const refills = Math.floor((nowMs - bucket.lastRefillMs) / CHAT_REFILL_MS);
   if (refills > 0) {
@@ -215,28 +244,55 @@ function takeChatToken(room: RoomState, playerId: string, nowMs: number): boolea
 
 export type PostChatResult =
   | { ok: true; message: ChatMessage }
-  | { ok: false; error: 'not_in_room' | 'invalid_message' | 'rate_limited' };
+  | { ok: false; error: 'not_in_room' | 'invalid_message' | 'invalid_name' | 'rate_limited' };
 
-/** Posts one chat line from a seated player and broadcasts it as a `chat`
- * SSE event. No phase gate on purpose: a seat only exists from join until
- * resetRoom wipes it 8 s after the match completes, so `not_in_room` already
- * covers idle rooms, and the complete-phase hold is exactly when "GG"
- * happens. Validation runs before the rate limiter so a rejected message
- * doesn't burn any of the sender's budget. `nowMs` is injectable for tests. */
-export function postChat(room: RoomState, playerId: string, rawText: string, nowMs = Date.now()): PostChatResult {
-  const slotIndex = room.slots.findIndex((s) => s.playerId === playerId);
-  if (slotIndex === -1) return { ok: false, error: 'not_in_room' };
+/** Posts one chat line and broadcasts it as a `chat` SSE event — from a
+ * seated player (`playerId` matches one of the room's slots) or, since every
+ * room must support chat including the always-on showcase room that has no
+ * seats to give, from an unseated spectator identified by a generated
+ * `spectatorName` instead (see src/net/spectatorIdentity.ts). A `playerId`
+ * that doesn't match any seat is `not_in_room` unless a spectatorName is
+ * also given to fall back to — a stale/unknown playerId is never silently
+ * reinterpreted as a fresh spectator identity.
+ *
+ * No phase gate on purpose: a seat only exists from join until resetRoom
+ * wipes it 8 s after the match completes, so `not_in_room` already covers
+ * idle rooms, and the complete-phase hold is exactly when "GG" happens.
+ * Validation runs before the rate limiter so a rejected message doesn't burn
+ * any of the sender's budget. `nowMs` is injectable for tests. */
+export function postChat(
+  room: RoomState,
+  playerId: string | null,
+  rawText: string,
+  nowMs = Date.now(),
+  spectatorName?: string
+): PostChatResult {
+  const slotIndex = playerId !== null ? room.slots.findIndex((s) => s.playerId === playerId) : -1;
+  const seated = slotIndex !== -1;
+  if (!seated && spectatorName === undefined) return { ok: false, error: 'not_in_room' };
+
   const text = normalizeChatText(rawText);
   if (text === null) return { ok: false, error: 'invalid_message' };
-  if (!takeChatToken(room, playerId, nowMs)) return { ok: false, error: 'rate_limited' };
 
-  const slot = room.slots[slotIndex];
+  let normalizedSpectatorName: string | null = null;
+  if (!seated) {
+    normalizedSpectatorName = normalizeSpectatorName(spectatorName as string);
+    if (normalizedSpectatorName === null) return { ok: false, error: 'invalid_name' };
+  }
+
+  // Rate-limit spectators per (claimed) name rather than per-connection —
+  // good enough for a casual game chat; see protocol.ts's ChatRequest.
+  const bucketKey = seated ? (playerId as string) : `spectator:${normalizedSpectatorName}`;
+  if (!takeChatToken(room, bucketKey, nowMs)) return { ok: false, error: 'rate_limited' };
+
+  const slot = seated ? room.slots[slotIndex] : null;
   const message: ChatMessage = {
     id: room.nextChatId,
-    slotIndex,
-    speciesId: slot.speciesId,
-    speciesName: slot.speciesId !== null ? (speciesNameById.get(slot.speciesId) ?? null) : null,
-    team: slot.team,
+    slotIndex: seated ? slotIndex : null,
+    speciesId: slot?.speciesId ?? null,
+    speciesName: slot && slot.speciesId !== null ? (speciesNameById.get(slot.speciesId) ?? null) : null,
+    team: slot?.team ?? null,
+    spectatorName: seated ? null : normalizedSpectatorName,
     text,
     sentAtMs: nowMs,
   };
@@ -332,6 +388,20 @@ function registerRoomTickLoop(room: RoomState): void {
   }, BROADCAST_INTERVAL_MS);
 }
 
+/** Starts (or restarts) the always-on showcase room's cycle: a short
+ * countdown — purely cosmetic pacing, since nobody picks anything — straight
+ * into startBattle(), which already auto-fills every slot with a random
+ * species whenever it finds one still null (true here, since every slot is
+ * empty right after createRoom/resetRoom). Called once at creation and again
+ * from resetRoom every time this room completes a battle, which is what
+ * keeps it looping forever with zero real joins. */
+function startAutoPlayCycle(room: RoomState): void {
+  room.phase = 'countdown';
+  room.countdownEndsAtMs = Date.now() + AUTO_PLAY_COUNTDOWN_MS;
+  room.countdownTimer = setTimeout(() => startBattle(room), AUTO_PLAY_COUNTDOWN_MS);
+  broadcast(room.id, 'roomUpdate', toRoomSummary(room));
+}
+
 function resetRoom(room: RoomState): void {
   room.completeResetTimer = null;
   room.phase = 'idle';
@@ -343,4 +413,24 @@ function resetRoom(room: RoomState): void {
   room.chatLog = [];
   room.chatBuckets.clear();
   broadcast(room.id, 'lobbyReset', toRoomSummary(room));
+  // Never actually sits idle — starts the next cycle right away.
+  if (room.autoPlay) startAutoPlayCycle(room);
+}
+
+export type SetThumbnailResult = { ok: true } | { ok: false; error: 'too_large' | 'rate_limited' };
+
+/** Caches a watching client's latest canvas capture for this room (see
+ * src/ui/hooks/useRoomThumbnailCapture.ts) — whoever's currently watching a
+ * room is the one source of its "live" thumbnail, same as a broadcaster's
+ * own encoder is the source of a Twitch thumbnail. Throttled server-side
+ * (independent of, and in addition to, the client's own capture interval)
+ * so several simultaneous viewers all capturing at once can't spam writes. */
+export function setThumbnail(room: RoomState, image: Buffer, nowMs = Date.now()): SetThumbnailResult {
+  if (image.byteLength > MAX_THUMBNAIL_BYTES) return { ok: false, error: 'too_large' };
+  if (room.thumbnailUpdatedAtMs !== null && nowMs - room.thumbnailUpdatedAtMs < THUMBNAIL_MIN_INTERVAL_MS) {
+    return { ok: false, error: 'rate_limited' };
+  }
+  room.thumbnail = image;
+  room.thumbnailUpdatedAtMs = nowMs;
+  return { ok: true };
 }

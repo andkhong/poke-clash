@@ -19,9 +19,13 @@ interface PhaserGameProps {
    * position themselves against the visible map instead of the full
    * (possibly letterboxed) container. */
   onStageRectChange?: (rect: StageRect) => void;
+  /** Fired once, right after this Phaser instance's canvas exists — it's
+   * stable for the life of the instance, so a consumer (see
+   * useRoomThumbnailCapture) can hold onto it instead of re-reading it. */
+  onCanvasReady?: (canvas: HTMLCanvasElement) => void;
 }
 
-export function PhaserGame({ engine, highlightInstanceId = null, onStageRectChange }: PhaserGameProps) {
+export function PhaserGame({ engine, highlightInstanceId = null, onStageRectChange, onCanvasReady }: PhaserGameProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const gameRef = useRef<Phaser.Game | null>(null);
   const onStageRectChangeRef = useRef(onStageRectChange);
@@ -52,6 +56,12 @@ export function PhaserGame({ engine, highlightInstanceId = null, onStageRectChan
       width: arenaWidth,
       height: arenaHeight,
       backgroundColor: '#1a1a1a',
+      // WebGL clears its drawing buffer once a frame is presented unless
+      // told to keep it — without this, useRoomThumbnailCapture's drawImage
+      // (which runs on its own timer, well after any given frame finishes
+      // presenting) reads back an already-cleared buffer and produces a
+      // solid black capture. Standard Phaser screenshot-capture setting.
+      render: { preserveDrawingBuffer: true },
       scale: {
         mode: Phaser.Scale.FIT,
         // The container below centres the canvas with flexbox; Phaser must
@@ -72,6 +82,7 @@ export function PhaserGame({ engine, highlightInstanceId = null, onStageRectChan
       // got a chance to run. Registering with autoStart=false avoids that.
     });
     gameRef.current = game;
+    onCanvasReady?.(game.canvas);
 
     // This Phaser version has no config flag to opt out of auto-pausing on
     // blur/hidden (Phaser.Core.Game#onHidden / #onBlur call loop.pause() /

@@ -4,17 +4,24 @@ import { RemoteSimEngine } from '../../net/RemoteSimEngine';
 import type { ChatMessage, ChatRequest, JoinRoomRequest, RoomSummary } from '../../net/protocol';
 import type { SimState } from '../../sim/types';
 import { resolveMatchArena } from '../../app/config';
+import { SPECTATOR_NAME } from '../../net/spectatorIdentity';
 import { createSimStore, type SimStore } from '../state/simStore';
 import { ChatSidebar } from '../chat/ChatSidebar';
 import type { ChatPanelProps } from '../chat/ChatPanel';
 import { appendChatMessage, CHAT_SIDEBAR_MEDIA_QUERY } from '../chat/chatModel';
 import { useMediaQuery } from '../hooks/useMediaQuery';
 import { useWideArenaPreference } from '../hooks/useWideArenaPreference';
+import { useRoomThumbnailCapture } from '../hooks/useRoomThumbnailCapture';
 import { MatchScreen } from './MatchScreen';
 import { RoomLobbyScreen } from './RoomLobbyScreen';
 
 interface RoomScreenProps {
   roomId: string;
+  /** True when mounted inside the landing page's featured panel rather than
+   * at its own full route — suppresses the "← BACK" control during the
+   * brief connecting flash, since there's no separate rooms page to go back
+   * to from there. */
+  embedded?: boolean;
 }
 
 function playerIdStorageKey(roomId: string): string {
@@ -31,8 +38,9 @@ function computeHighlightInstanceId(room: RoomSummary, playerId: string | null, 
   return state.allInstanceIds[mySlot.slotIndex] ?? null;
 }
 
-export function RoomScreen({ roomId }: RoomScreenProps) {
+export function RoomScreen({ roomId, embedded = false }: RoomScreenProps) {
   const [room, setRoom] = useState<RoomSummary | null>(null);
+  const [canvas, setCanvas] = useState<HTMLCanvasElement | null>(null);
   const [playerId, setPlayerId] = useState<string | null>(() => sessionStorage.getItem(playerIdStorageKey(roomId)));
   const [store, setStore] = useState<SimStore | null>(null);
   const [highlightInstanceId, setHighlightInstanceId] = useState<string | null>(null);
@@ -160,12 +168,16 @@ export function RoomScreen({ roomId }: RoomScreenProps) {
   const handleSendChat = async (text: string): Promise<string | null> => {
     // Read from render scope, not playerIdRef — this runs on a tap, never
     // from inside the once-per-room SSE closures the ref exists for.
-    if (playerId === null) return 'not_in_room';
+    // Every room supports chat, seat or no seat (see spectatorIdentity.ts) —
+    // a seat's playerId is used when there is one, this tab's generated
+    // display name otherwise.
+    const request: ChatRequest =
+      playerId !== null ? { playerId, text } : { spectatorName: SPECTATOR_NAME, text };
     try {
       const res = await fetch(`/api/rooms/${roomId}/chat`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ playerId, text } satisfies ChatRequest),
+        body: JSON.stringify(request),
       });
       if (res.ok) return null;
       const body = (await res.json().catch(() => null)) as { error?: string } | null;
@@ -175,14 +187,23 @@ export function RoomScreen({ roomId }: RoomScreenProps) {
     }
   };
 
-  // Chat identity is the seat: "You" is whichever slot holds my playerId, and
-  // only a seated player may send (spectators read along). Both fall out of
-  // `room` + `playerId` each render, so the stale-playerId cleanup effect
-  // above keeps them right after a room reset too.
-  // (Guarded on playerId first: an open seat's playerId is null too, so a
-  // bare `s.playerId === playerId` would hand a spectator the first empty seat.)
+  // "You" is whichever slot holds my playerId when I'm seated, otherwise
+  // this tab's generated spectator identity — both fall out of `room` +
+  // `playerId` each render, so the stale-playerId cleanup effect above
+  // keeps them right after a room reset too. Every room supports chat now
+  // (see spectatorIdentity.ts), seated or not, so canSend is unconditional.
+  // (mySlotIndex is guarded on playerId first: an open seat's playerId is
+  // null too, so a bare `s.playerId === playerId` would match a spectator
+  // against the first empty seat.)
   const mySlotIndex = playerId === null ? null : (room?.slots.find((s) => s.playerId === playerId)?.slotIndex ?? null);
-  const chat: ChatPanelProps = { messages: chatLog, mySlotIndex, room, canSend: mySlotIndex !== null, onSend: handleSendChat };
+  const chat: ChatPanelProps = {
+    messages: chatLog,
+    mySlotIndex,
+    mySpectatorName: SPECTATOR_NAME,
+    room,
+    canSend: true,
+    onSend: handleSendChat,
+  };
 
   // One log, two presentations. Wide viewport: a stream-style chat column
   // beside whatever this screen is showing (lobby or match). Narrow: the
@@ -190,14 +211,21 @@ export function RoomScreen({ roomId }: RoomScreenProps) {
   const sidebar = useMediaQuery(CHAT_SIDEBAR_MEDIA_QUERY);
   const inMatch = room !== null && store !== null && (room.phase === 'battle' || room.phase === 'complete');
 
+  // Only a room nobody needs a thumbnail for skips this — see
+  // useRoomThumbnailCapture's own doc for why every other watching client
+  // (player or spectator) contributes one.
+  useRoomThumbnailCapture(roomId, room?.phase, canvas, room !== null && !room.autoPlay);
+
   return (
-    <div style={containerStyle}>
+    <div style={containerStyle(embedded)}>
       <div style={mainRegionStyle}>
         {!room && (
           <div style={connectingStyle}>
-            <button onClick={() => (window.location.hash = '#/rooms')} style={backButton}>
-              ← BACK
-            </button>
+            {!embedded && (
+              <button onClick={() => (window.location.hash = '#/rooms')} style={backButton}>
+                ← BACK
+              </button>
+            )}
             <p style={{ margin: 0, textAlign: 'center' }}>
               {connectionError ? 'Can’t reach this room — is the multiplayer server running? Retrying…' : 'Connecting…'}
             </p>
@@ -208,9 +236,10 @@ export function RoomScreen({ roomId }: RoomScreenProps) {
             store={store}
             onExit={() => (window.location.hash = '#/rooms')}
             showEndMatchControl={false}
-            leaveControlLabel="LEAVE ROOM"
+            leaveControlLabel={embedded ? undefined : 'LEAVE ROOM'}
             completeButtonLabel="BACK TO ROOMS"
             highlightInstanceId={highlightInstanceId}
+            onCanvasReady={setCanvas}
             chat={sidebar ? undefined : chat}
           />
         )}
@@ -223,12 +252,17 @@ export function RoomScreen({ roomId }: RoomScreenProps) {
   );
 }
 
-const containerStyle: CSSProperties = {
-  width: '100vw',
-  height: '100dvh',
-  overflow: 'hidden',
-  display: 'flex',
-};
+// Viewport units at the full route (`#/room/:id`); embedded in the landing
+// page's featured panel this needs to fill whatever box its parent gives it
+// instead, or it'd break out of that box to the actual viewport size.
+function containerStyle(embedded: boolean): CSSProperties {
+  return {
+    width: embedded ? '100%' : '100vw',
+    height: embedded ? '100%' : '100dvh',
+    overflow: 'hidden',
+    display: 'flex',
+  };
+}
 
 const mainRegionStyle: CSSProperties = {
   flex: 1,
