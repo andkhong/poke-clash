@@ -10,7 +10,7 @@ export function LandingScreen() {
     <div style={containerStyle}>
       <div style={heroStyle}>
         <img src={pokeballUrl} alt="" aria-hidden="true" style={pokeballStyle} />
-        <h1 style={titleStyle}>POKÉPIXEL ARENA</h1>
+        <h1 style={titleStyle}>POKÉBETS ARENA</h1>
         <p style={taglineStyle}>Choose how you want to play.</p>
       </div>
 
