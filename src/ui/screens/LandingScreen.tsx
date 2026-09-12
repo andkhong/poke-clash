@@ -14,6 +14,7 @@ const pokeballUrl = new URL('../../render/sprites/assets/pokeball.png', import.m
 
 const POLL_INTERVAL_MS = 2000;
 const TEAM_MODES: RoomMode[] = ['team2', 'team3', 'team4'];
+const KO_FI_URL = 'https://ko-fi.com/hermito';
 
 /** The landing page — a Twitch-style discovery homepage: the server's one
  * always-live showcase room featured up top (FeaturedRoomPanel), every real
@@ -77,6 +78,9 @@ export function LandingScreen() {
         <button onClick={() => (window.location.hash = '#/local')} style={soloPlayButton}>
           ⚔️ Solo Play
         </button>
+        <a href={KO_FI_URL} target="_blank" rel="noopener noreferrer" style={supportButton}>
+          ☕ Support Me
+        </a>
       </header>
 
       {error && <p style={errorText}>{error}</p>}
@@ -146,7 +150,10 @@ const headerStyle: CSSProperties = {
   maxWidth: 1100,
   display: 'flex',
   alignItems: 'center',
-  gap: 12,
+  // The title plus both action buttons overflow a ~360px phone, so let the
+  // buttons drop to their own line there rather than squashing the title.
+  flexWrap: 'wrap',
+  gap: 10,
 };
 
 const pokeballStyle: CSSProperties = {
@@ -175,6 +182,22 @@ const soloPlayButton: CSSProperties = {
   border: `1px solid ${PRIMARY}`,
   borderRadius: 6,
   cursor: 'pointer',
+};
+
+const supportButton: CSSProperties = {
+  flexShrink: 0,
+  padding: '8px 14px',
+  fontSize: 12,
+  fontFamily: 'monospace',
+  fontWeight: 'bold',
+  letterSpacing: 0.5,
+  color: ACCENT,
+  background: accentAlpha(0.16),
+  border: `1px solid ${ACCENT}`,
+  borderRadius: 6,
+  cursor: 'pointer',
+  textDecoration: 'none',
+  whiteSpace: 'nowrap',
 };
 
 const errorText: CSSProperties = {
