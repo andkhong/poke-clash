@@ -3,9 +3,16 @@ import type { ChatMessage } from '../../net/protocol';
 import { ChatPanel, type ChatPanelProps } from './ChatPanel';
 import { useKeyboardInset } from '../hooks/useKeyboardInset';
 import { CHAT_TICKER_FADE_MS, CHAT_TICKER_MAX, CHAT_TICKER_MS, chatSenderColor, chatSenderLabel, countUnread, latestChatId } from './chatModel';
+import { PredictionsPanel, type PredictionsPanelProps } from '../predictions/PredictionsPanel';
 import { PRIMARY, PRIMARY_TEXT, TEXT, bgAlpha, textAlpha } from '../theme';
 
-export type ChatOverlayProps = Omit<ChatPanelProps, 'listHeight' | 'showTimestamps'>;
+export type ChatOverlayProps = Omit<ChatPanelProps, 'listHeight' | 'showTimestamps'> & {
+  /** The room's predictions pool — gets its own 🔮 BET button beside 💬 CHAT
+   * and its own tab in the drawer (see PredictionsPanel). */
+  predictions?: PredictionsPanelProps;
+};
+
+type DrawerTab = 'chat' | 'bets';
 
 interface TickerEntry {
   message: ChatMessage;
@@ -26,9 +33,11 @@ interface TickerEntry {
  * useSimSnapshot) and none of this overlay's props come from the sim, so
  * without this the whole message list was re-rendered ten times a second.
  */
-export const ChatOverlay = memo(function ChatOverlay(props: ChatOverlayProps) {
+export const ChatOverlay = memo(function ChatOverlay({ predictions, ...props }: ChatOverlayProps) {
   const { messages } = props;
-  const [open, setOpen] = useState(false);
+  // Which drawer tab is showing, or null while the drawer is closed.
+  const [openTab, setOpenTab] = useState<DrawerTab | null>(null);
+  const open = openTab !== null;
   // Both baselines start at the newest backlog id so the hello snapshot
   // produces neither an unread badge nor a ticker flash on mount.
   const [lastSeenId, setLastSeenId] = useState(() => latestChatId(messages));
@@ -72,23 +81,39 @@ export const ChatOverlay = memo(function ChatOverlay(props: ChatOverlayProps) {
     if (open) setLastSeenId(latestChatId(messages));
   }, [open, messages]);
 
-  if (open) {
+  if (openTab !== null) {
     return (
       <div style={{ ...drawerStyle, bottom: keyboardInset, maxHeight: `calc(100% - ${keyboardInset}px)` }}>
         <div style={drawerHeaderStyle}>
-          <span style={drawerTitleStyle}>CHAT</span>
-          <button type="button" onClick={() => setOpen(false)} title="Close chat" aria-label="Close chat" style={closeButtonStyle}>
+          <div style={tabRowStyle}>
+            <button type="button" onClick={() => setOpenTab('chat')} style={tabStyle(openTab === 'chat')}>
+              💬 CHAT
+            </button>
+            {predictions && (
+              <button type="button" onClick={() => setOpenTab('bets')} style={tabStyle(openTab === 'bets')}>
+                🔮 BETS
+              </button>
+            )}
+          </div>
+          <button type="button" onClick={() => setOpenTab(null)} title="Close" aria-label="Close" style={closeButtonStyle}>
             ▾
           </button>
         </div>
-        <div style={drawerBodyStyle}>
-          <ChatPanel {...props} listHeight="flex" />
-        </div>
+        {openTab === 'chat' || !predictions ? (
+          <div style={drawerBodyStyle}>
+            <ChatPanel {...props} listHeight="flex" />
+          </div>
+        ) : (
+          <div style={{ ...drawerBodyStyle, overflowY: 'auto', overscrollBehavior: 'contain', padding: '0 4px calc(8px + env(safe-area-inset-bottom))' }}>
+            <PredictionsPanel {...predictions} />
+          </div>
+        )}
       </div>
     );
   }
 
   const unread = countUnread(messages, lastSeenId);
+  const betStatus = predictions?.prediction?.status ?? null;
 
   return (
     <>
@@ -103,21 +128,35 @@ export const ChatOverlay = memo(function ChatOverlay(props: ChatOverlayProps) {
           ))}
         </div>
       )}
-      <button type="button" onClick={() => setOpen(true)} style={chatButtonStyle}>
-        💬 CHAT
-        {unread > 0 && <span style={badgeStyle}>{unread > 99 ? '99+' : unread}</span>}
-      </button>
+      <div style={buttonRowStyle}>
+        <button type="button" onClick={() => setOpenTab('chat')} style={chatButtonStyle}>
+          💬 CHAT
+          {unread > 0 && <span style={badgeStyle}>{unread > 99 ? '99+' : unread}</span>}
+        </button>
+        {predictions && (
+          <button type="button" onClick={() => setOpenTab('bets')} style={chatButtonStyle}>
+            🔮 BET
+            {betStatus === 'open' && <span style={badgeStyle}>OPEN</span>}
+          </button>
+        )}
+      </div>
     </>
   );
 });
 
 // Same corner treatment as MatchScreen's END MATCH button, mirrored to the
 // left edge; the two never overlap, and in the complete phase the centered
-// BACK TO ROOMS button clears this one at any phone width.
-const chatButtonStyle: CSSProperties = {
+// BACK TO ROOMS button clears these at any phone width.
+const buttonRowStyle: CSSProperties = {
   position: 'absolute',
   bottom: 'max(16px, env(safe-area-inset-bottom))',
   left: 'max(16px, env(safe-area-inset-left))',
+  display: 'flex',
+  gap: 8,
+  pointerEvents: 'none',
+};
+
+const chatButtonStyle: CSSProperties = {
   display: 'inline-flex',
   alignItems: 'center',
   gap: 6,
@@ -188,13 +227,25 @@ const drawerHeaderStyle: CSSProperties = {
   padding: '8px 12px 4px',
 };
 
-const drawerTitleStyle: CSSProperties = {
-  fontSize: 12,
-  fontFamily: 'monospace',
-  fontWeight: 'bold',
-  letterSpacing: 1,
-  color: TEXT,
+const tabRowStyle: CSSProperties = {
+  display: 'flex',
+  gap: 6,
 };
+
+function tabStyle(active: boolean): CSSProperties {
+  return {
+    fontSize: 12,
+    fontFamily: 'monospace',
+    fontWeight: 'bold',
+    letterSpacing: 1,
+    padding: '4px 10px',
+    color: active ? PRIMARY_TEXT : TEXT,
+    background: active ? PRIMARY : 'transparent',
+    border: `1px solid ${active ? PRIMARY : textAlpha(0.25)}`,
+    borderRadius: 4,
+    cursor: 'pointer',
+  };
+}
 
 const closeButtonStyle: CSSProperties = {
   fontSize: 16,

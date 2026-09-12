@@ -6,6 +6,8 @@ import { useCountdown } from '../../net/useCountdown';
 import { resolveMatchArena } from '../../app/config';
 import { SpeciesPicker } from '../components/SpeciesPicker';
 import { ChatPanel, type ChatPanelProps } from '../chat/ChatPanel';
+import { PredictionsPanel, type PredictionsPanelProps } from '../predictions/PredictionsPanel';
+import { withBalance } from '../predictions/predictionModel';
 import { useWideArenaPreference } from '../hooks/useWideArenaPreference';
 import { describeArenaShape } from '../arenaShape';
 import { TEAM_A_COLOR_CSS, teamColorCss } from '../teamColors';
@@ -13,26 +15,28 @@ import { ACCENT, BG, PRIMARY, PRIMARY_TEXT, TEXT, TEXT_MUTED, YELLOW, textAlpha,
 
 interface RoomLobbyScreenProps {
   room: RoomSummary;
-  playerId: string | null;
+  /** The seat this tab holds, or null as a spectator (see HelloPayload.me). */
+  mySlotIndex: number | null;
   onJoin: () => void;
   onPick: (speciesId: number) => void;
   /** Room chat, shown inline under the seats. Only for the narrow/mobile
    * layout — on a wide viewport RoomScreen shows it as a sidebar beside
    * this screen instead and passes nothing here. */
   chat?: ChatPanelProps;
+  /** Same deal for the predictions pool — shown inline only while there's
+   * one to show (the previous match's settled result, until it resets). */
+  predictions?: PredictionsPanelProps;
 }
 
-export function RoomLobbyScreen({ room, playerId, onJoin, onPick, chat }: RoomLobbyScreenProps) {
+export function RoomLobbyScreen({ room, mySlotIndex, onJoin, onPick, chat, predictions }: RoomLobbyScreenProps) {
   const remainingMs = useCountdown(room.countdownEndsAtMs);
   const allSpecies = useMemo(() => listAllSpecies().filter((s) => hasPmdSprite(s.id)), []);
 
-  // Guarded on playerId first — an open seat's playerId is null too, and
-  // matching one would show a spectator the species picker during countdown.
-  const mySlot = playerId === null ? null : (room.slots.find((s) => s.playerId === playerId) ?? null);
+  const mySlot = mySlotIndex === null ? null : (room.slots[mySlotIndex] ?? null);
   // The always-on showcase room is spectate-only forever (see roomManager's
   // startAutoPlayCycle) — never offer a seat in it even if it's opened
   // directly at #/room/:id.
-  const canJoin = !room.autoPlay && playerId === null && room.slots.some((s) => s.playerId === null);
+  const canJoin = !room.autoPlay && mySlotIndex === null && room.slots.some((s) => !s.occupied);
   const teamSize = teamSizeForMode(room.mode);
 
   // The room's arena is whatever the session-opening join set (see
@@ -76,21 +80,27 @@ export function RoomLobbyScreen({ room, playerId, onJoin, onPick, chat }: RoomLo
             ever join. */}
         {!room.autoPlay &&
           (teamSize === null ? (
-            <SlotList slots={room.slots} playerId={playerId} />
+            <SlotList slots={room.slots} mySlotIndex={mySlotIndex} />
           ) : (
             <div style={{ width: '100%', maxWidth: 420, display: 'flex', gap: 12 }}>
               <TeamSlotColumn
                 label="Team A"
                 slots={room.slots.filter((s) => s.team === 'teamA')}
-                playerId={playerId}
+                mySlotIndex={mySlotIndex}
               />
               <TeamSlotColumn
                 label="Team B"
                 slots={room.slots.filter((s) => s.team === 'teamB')}
-                playerId={playerId}
+                mySlotIndex={mySlotIndex}
               />
             </div>
           ))}
+
+        {predictions && predictions.prediction && (
+          <section style={{ width: '100%', maxWidth: 420, borderRadius: 8, border: `1px solid ${textAlpha(0.15)}` }}>
+            <PredictionsPanel {...predictions} />
+          </section>
+        )}
 
         {chat && (
           <section style={{ width: '100%', maxWidth: 420, display: 'flex', flexDirection: 'column', gap: 6 }}>
@@ -123,23 +133,23 @@ export function RoomLobbyScreen({ room, playerId, onJoin, onPick, chat }: RoomLo
   );
 }
 
-function SlotCard({ slot, playerId, accentColor }: { slot: RoomSlotSummary; playerId: string | null; accentColor?: string }) {
+function SlotCard({ slot, mySlotIndex, accentColor }: { slot: RoomSlotSummary; mySlotIndex: number | null; accentColor?: string }) {
   return (
     <div style={slotCardStyle(accentColor)}>
       <span style={{ flex: 1 }}>
-        {slot.speciesName ?? (slot.playerId ? 'Picking…' : 'Open seat')}
+        {withBalance(slot.speciesName ?? (slot.occupied ? 'Picking…' : 'Open seat'), slot.occupied ? slot.balance : null)}
         {slot.isAutoFilled ? ' (auto)' : ''}
       </span>
-      {slot.playerId !== null && slot.playerId === playerId && <span style={youTag}>YOU</span>}
+      {slot.occupied && slot.slotIndex === mySlotIndex && <span style={youTag}>YOU</span>}
     </div>
   );
 }
 
-function SlotList({ slots, playerId }: { slots: RoomSlotSummary[]; playerId: string | null }) {
+function SlotList({ slots, mySlotIndex }: { slots: RoomSlotSummary[]; mySlotIndex: number | null }) {
   return (
     <section style={{ width: '100%', maxWidth: 420, display: 'flex', flexDirection: 'column', gap: 8 }}>
       {slots.map((slot) => (
-        <SlotCard key={slot.slotIndex} slot={slot} playerId={playerId} />
+        <SlotCard key={slot.slotIndex} slot={slot} mySlotIndex={mySlotIndex} />
       ))}
     </section>
   );
@@ -148,13 +158,13 @@ function SlotList({ slots, playerId }: { slots: RoomSlotSummary[]; playerId: str
 /** One side's seats in a Team Mode lobby — same card as the classic/boss
  * list, just grouped under a colored header and bordered to match, so it's
  * clear at a glance which seats end up fighting together. */
-function TeamSlotColumn({ label, slots, playerId }: { label: string; slots: RoomSlotSummary[]; playerId: string | null }) {
+function TeamSlotColumn({ label, slots, mySlotIndex }: { label: string; slots: RoomSlotSummary[]; mySlotIndex: number | null }) {
   const color = teamColorCss(slots[0]?.team ?? undefined);
   return (
     <div style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', gap: 8 }}>
       <span style={{ fontSize: 11, fontWeight: 'bold', letterSpacing: 1, color }}>{label}</span>
       {slots.map((slot) => (
-        <SlotCard key={slot.slotIndex} slot={slot} playerId={playerId} accentColor={color} />
+        <SlotCard key={slot.slotIndex} slot={slot} mySlotIndex={mySlotIndex} accentColor={color} />
       ))}
     </div>
   );

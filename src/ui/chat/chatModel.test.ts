@@ -12,13 +12,14 @@ function msg(id: number, overrides: Partial<ChatMessage> = {}): ChatMessage {
     speciesName: null,
     team: null,
     spectatorName: null,
+    balance: null,
     text: `m${id}`,
     sentAtMs: id * 1000,
     ...overrides,
   };
 }
 
-function roomWith(speciesNames: Array<string | null>): RoomSummary {
+function roomWith(speciesNames: Array<string | null>, balances: Array<number | null> = []): RoomSummary {
   return {
     id: 'room-1',
     name: 'Room 1',
@@ -26,11 +27,12 @@ function roomWith(speciesNames: Array<string | null>): RoomSummary {
     phase: 'countdown',
     slots: speciesNames.map((speciesName, slotIndex) => ({
       slotIndex,
-      playerId: `p${slotIndex}`,
+      occupied: true,
       speciesId: speciesName ? slotIndex + 1 : null,
       speciesName,
       isAutoFilled: false,
       team: null,
+      balance: balances[slotIndex] ?? null,
     })),
     countdownEndsAtMs: null,
     bossSpeciesName: null,
@@ -79,6 +81,19 @@ describe('chatSenderLabel', () => {
 
   it('never labels a spectator "You" just for watching a seated player\'s message', () => {
     expect(chatSenderLabel(msg(1, { slotIndex: 0, speciesName: 'Aipom' }), null, null, 'Eevee123')).toBe('Aipom');
+  });
+
+  it('shows a seated sender\'s live balance, falling back to the message\'s snapshot', () => {
+    const message = msg(1, { slotIndex: 2, speciesName: 'Skiddo', balance: 100 });
+    expect(chatSenderLabel(message, 2, roomWith(['Aipom', 'Litleo', 'Skiddo'], [null, null, 175]), null)).toBe('Skiddo ($175) (You)');
+    expect(chatSenderLabel(message, 0, roomWith(['Aipom', 'Litleo', 'Skiddo']), null)).toBe('Skiddo ($100)');
+    expect(chatSenderLabel(message, null, null, null)).toBe('Skiddo ($100)');
+    expect(chatSenderLabel(msg(1, { slotIndex: 2, speciesName: 'Skiddo' }), null, null, null)).toBe('Skiddo');
+  });
+
+  it('shows a spectator\'s balance as snapshotted on the message', () => {
+    expect(chatSenderLabel(msg(1, { slotIndex: null, spectatorName: 'Slowpoke482', balance: 1250 }), null, null, 'Slowpoke482')).toBe('Slowpoke482 ($1,250) (You)');
+    expect(chatSenderLabel(msg(1, { slotIndex: null, spectatorName: 'Slowpoke482', balance: 0 }), null, null, null)).toBe('Slowpoke482 ($0)');
   });
 
   it('shows an unseated sender\'s generated name, with " (You)" only for this tab\'s own', () => {

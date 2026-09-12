@@ -1,6 +1,7 @@
 import { useEffect, useState, type CSSProperties } from 'react';
 import { ChatPanel, type ChatPanelProps } from './ChatPanel';
 import { CHAT_SIDEBAR_WIDTH, countUnread, latestChatId } from './chatModel';
+import { PredictionsPanel, type PredictionsPanelProps } from '../predictions/PredictionsPanel';
 import { BG_ALT, PRIMARY, PRIMARY_TEXT, TEXT, textAlpha } from '../theme';
 
 const COLLAPSED_STORAGE_KEY = 'poke-clash:chat-sidebar-collapsed';
@@ -21,10 +22,17 @@ function writeCollapsed(collapsed: boolean): void {
   }
 }
 
-/** The web layout's stream-style chat column, rendered by RoomScreen to the
- * right of the arena (lobby and match alike). Collapsible to a narrow strip
- * that keeps an unread badge, like a stream page's "hide chat". */
-export function ChatSidebar(props: ChatPanelProps) {
+export type ChatSidebarProps = ChatPanelProps & {
+  /** The room's predictions pool, stacked above the chat in the same column
+   * (see PredictionsPanel). Omitted where a room has none to show. */
+  predictions?: PredictionsPanelProps;
+};
+
+/** The web layout's stream-style right column, rendered by RoomScreen to the
+ * right of the arena (lobby and match alike): the predictions pool on top,
+ * chat below. Collapsible to a narrow strip that keeps an unread badge, like
+ * a stream page's "hide chat". */
+export function ChatSidebar({ predictions, ...props }: ChatSidebarProps) {
   const { messages, room } = props;
   const [collapsed, setCollapsed] = useState(readCollapsed);
   const [lastSeenId, setLastSeenId] = useState(() => latestChatId(messages));
@@ -53,10 +61,15 @@ export function ChatSidebar(props: ChatPanelProps) {
     );
   }
 
-  const seated = room ? room.slots.filter((s) => s.playerId !== null).length : 0;
+  const seated = room ? room.slots.filter((s) => s.occupied).length : 0;
 
   return (
     <aside style={sidebarStyle}>
+      {predictions && (
+        <div style={predictionsWrapStyle}>
+          <PredictionsPanel {...predictions} />
+        </div>
+      )}
       <header style={headerStyle}>
         <button type="button" onClick={toggle} title="Hide chat" aria-label="Hide chat" style={headerButtonStyle}>
           ⇥
@@ -86,6 +99,15 @@ const sidebarStyle: CSSProperties = {
   borderLeft: `1px solid ${textAlpha(0.12)}`,
   fontFamily: 'monospace',
   color: TEXT,
+};
+
+// Capped so an 8-fighter showcase pool can't crowd the chat out entirely —
+// past the cap the pool scrolls within itself and the chat keeps its share.
+const predictionsWrapStyle: CSSProperties = {
+  flex: 'none',
+  maxHeight: '58%',
+  overflowY: 'auto',
+  overscrollBehavior: 'contain',
 };
 
 const headerStyle: CSSProperties = {

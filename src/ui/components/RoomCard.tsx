@@ -22,7 +22,7 @@ interface RoomCardProps {
  * mode tags below, the whole thing a button into that room's lobby. */
 export function RoomCard({ room }: RoomCardProps) {
   const remainingMs = useCountdown(room.countdownEndsAtMs);
-  const filled = room.slots.filter((s) => s.playerId !== null).length;
+  const filled = room.slots.filter((s) => s.occupied).length;
   const teamSize = teamSizeForMode(room.mode);
   const arenaShape = describeArenaShape(room.arena);
   const thumbnailSrc = room.thumbnailUpdatedAtMs !== null ? `/api/rooms/${room.id}/thumbnail?ts=${room.thumbnailUpdatedAtMs}` : null;

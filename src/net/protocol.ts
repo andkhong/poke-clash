@@ -46,13 +46,22 @@ export function roomCapacityForMode(mode: RoomMode): number {
 
 export interface RoomSlotSummary {
   slotIndex: number;
-  playerId: string | null;
+  /** Whether someone holds this seat. The seat's playerId is deliberately
+   * *not* here: it doubles as that player's bearer token (see ChatMessage),
+   * and this summary goes to every client in the room. A client learns its
+   * own seat from JoinRoomResponse.slotIndex / HelloPayload.me instead. */
+  occupied: boolean;
   speciesId: number | null;
   speciesName: string | null;
   isAutoFilled: boolean;
   /** Which side this slot fights on — set only in a team-mode room (see
    * RoomMode), fixed by slot index for the room's whole lifetime. */
   team: RoomTeam | null;
+  /** The seated player's wallet balance (see game-server/wallets.ts), shown
+   * next to their name everywhere ("Piplup ($100)"). Null for an empty seat
+   * or a join that carried no session id. Live: re-broadcast with every
+   * roomUpdate, including the one settlement sends. */
+  balance: number | null;
 }
 
 export interface RoomSummary {
@@ -104,6 +113,10 @@ export interface CreateRoomRequest {
 }
 
 export interface JoinRoomRequest {
+  /** This tab's session id (see src/net/sessionIdentity.ts) — links the seat
+   * to the tab's wallet so the seat can show a balance, and lets a reload
+   * recover which seat is "mine" (HelloPayload.me.mySlotIndex). */
+  sessionId: string;
   /** The joining client's own chosen arena (see CreateRoomRequest.arena).
    * Honoured only by the join that opens a session — the first seat taken
    * in an idle room, the one that starts the countdown — so whoever gets a
@@ -121,6 +134,99 @@ export interface HelloPayload {
    * a late joiner or an EventSource auto-reconnect sees the same backlog
    * everyone else does; the client replaces its log with this wholesale. */
   chatLog: ChatMessage[];
+  /** The current match's prediction pool, if a match is running or just
+   * finished (null between rounds, since resetRoom drops it with the engine). */
+  prediction: PredictionSummary | null;
+  /** This stream's own session, or null if it opened without a `?session=`
+   * — the one personalised part of an otherwise identical hello. */
+  me: SessionPrivate | null;
+}
+
+/** What only this session gets to know about itself. `hello` is per-stream
+ * so it can carry this; everything else about a session is public by design
+ * (balances are shown next to names). */
+export interface SessionPrivate {
+  balance: number;
+  /** The seat this session holds in the room, or null — replaces matching a
+   * (no longer broadcast) playerId against the slot list. */
+  mySlotIndex: number | null;
+  myBet: MyBet | null;
+}
+
+export interface MyBet {
+  optionId: string;
+  amount: number;
+}
+
+/** 'open' from battleStart until the sim hits its aggression mark (see
+ * sim/constants.ts AGGRESSION_TRIGGER_MS), 'closed' from then until the
+ * match ends, 'settled' once the pool has paid out. */
+export type PredictionStatus = 'open' | 'closed' | 'settled';
+
+/** One thing to bet on — a fighter in a free-for-all, a side in a boss/team
+ * room. `id` is the sim team key of its members (an instance id like
+ * `p2-448` in classic, `party`/`boss`, `teamA`/`teamB`). */
+export interface PredictionOptionSummary {
+  id: string;
+  label: string;
+  instanceIds: string[];
+  /** Pokémon Dollars staked on this option so far, and by how many sessions. */
+  total: number;
+  bettors: number;
+  /** Server-estimated win probability, 0–1 (see sim/odds.ts) — recomputed
+   * on every faint, so it keeps moving after betting closes. */
+  odds: number;
+  /** False once every member has fainted — no longer bettable. */
+  alive: boolean;
+}
+
+export interface PredictionSummary {
+  /** Per room, counts up with every battle — the client uses it to tell a
+   * fresh pool from the previous round's settled one. */
+  matchNo: number;
+  status: PredictionStatus;
+  openedAtMs: number;
+  /** Absolute server time the window is expected to close — drives the
+   * "Closes in MM:SS" countdown; the sim clock is the real gate. */
+  closesAtMs: number;
+  pool: number;
+  options: PredictionOptionSummary[];
+  winnerOptionId: string | null;
+  /** True when the pool was handed back instead of paid out — co-winners,
+   * no winner, or nobody had backed the winner. */
+  refunded: boolean;
+}
+
+export interface BetRequest {
+  sessionId: string;
+  optionId: string;
+  amount: number;
+}
+
+export interface WalletSummary {
+  balance: number;
+}
+
+export interface BetResponse {
+  wallet: WalletSummary;
+  myBet: MyBet;
+  prediction: PredictionSummary;
+}
+
+/** The private `wallet` SSE frame — sent to a session (every stream it has
+ * open) when its balance changes for a reason other than its own bet
+ * request, i.e. at settlement. */
+export interface WalletEventPayload {
+  balance: number;
+  myBet: MyBet | null;
+  /** Present when this frame is a match settling: what this session put in,
+   * what came back (payout or refund), and the watch reward it earned. */
+  settled?: {
+    matchNo: number;
+    staked: number;
+    returned: number;
+    watched: number;
+  };
 }
 
 export interface BattleStartPayload {
@@ -160,6 +266,9 @@ export interface CreateRoomResponse {
 
 export interface JoinRoomResponse {
   playerId: string;
+  /** The seat just taken — the client's only way to know, now that seat
+   * playerIds aren't broadcast (see RoomSlotSummary.occupied). */
+  slotIndex: number;
   room: RoomSummary;
 }
 
@@ -197,6 +306,10 @@ export interface ChatMessage {
    * set only when slotIndex is null. Seated senders are identified by their
    * pick instead (speciesName), never by this. */
   spectatorName: string | null;
+  /** The sender's wallet balance when they sent this, or null if the request
+   * carried no session. A seated sender's live balance is on their slot
+   * (RoomSlotSummary.balance) and wins over this snapshot in the client. */
+  balance: number | null;
   text: string;
   sentAtMs: number;
 }
@@ -209,6 +322,8 @@ export interface ChatRequest {
   /** An unseated sender's generated display name. Ignored if playerId
    * resolves to a real seat. */
   spectatorName?: string;
+  /** This tab's session id, so the message can be stamped with its balance. */
+  sessionId?: string;
   text: string;
 }
 

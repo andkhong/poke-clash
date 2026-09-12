@@ -7,14 +7,27 @@ import {
   listRooms,
   MAX_THUMBNAIL_BYTES,
   pickSpecies,
+  placeRoomBet,
   postChat,
   setThumbnail,
   toRoomSummary,
 } from './roomManager';
 import { broadcast, subscribe } from './sse';
+import { walletStreamClosed, walletStreamOpened } from './wallets';
 import { BadRequestError, readJsonBody, readRawBody, sendJson } from './httpUtil';
-import type { ApiErrorBody, ChatRequest, ChatResponse, CreateRoomRequest, JoinRoomRequest, PickSpeciesRequest } from '../src/net/protocol';
+import type {
+  ApiErrorBody,
+  BetRequest,
+  BetResponse,
+  ChatRequest,
+  ChatResponse,
+  CreateRoomRequest,
+  JoinRoomRequest,
+  JoinRoomResponse,
+  PickSpeciesRequest,
+} from '../src/net/protocol';
 import { isRoomMode } from '../src/net/protocol';
+import { isValidSessionId } from '../src/net/predictions';
 import type { ArenaBounds } from '../src/sim/types';
 import { DESKTOP_ARENA_HEIGHT, DESKTOP_ARENA_WIDTH } from '../src/sim/constants';
 
@@ -34,13 +47,15 @@ createRoom('team2');
 // already mid-cycle before any client connects. Wide arena: the featured
 // panel is a landing-page hero, sized more like the desktop arena's shape
 // than the portrait one the rest of the pre-seeded rooms default to.
-// 6 seats rather than classic mode's usual 4 — a livelier showcase.
-createRoom('classic', { width: DESKTOP_ARENA_WIDTH, height: DESKTOP_ARENA_HEIGHT }, { autoPlay: true, capacity: 6 });
+// 8 seats rather than classic mode's usual 4 — a livelier showcase, and a
+// wider field to bet on.
+createRoom('classic', { width: DESKTOP_ARENA_WIDTH, height: DESKTOP_ARENA_HEIGHT }, { autoPlay: true, capacity: 8 });
 
 const ID_SEGMENT = '[A-Za-z0-9_-]+';
 const JOIN_RE = new RegExp(`^/api/rooms/(${ID_SEGMENT})/join$`);
 const PICK_RE = new RegExp(`^/api/rooms/(${ID_SEGMENT})/pick$`);
 const CHAT_RE = new RegExp(`^/api/rooms/(${ID_SEGMENT})/chat$`);
+const BET_RE = new RegExp(`^/api/rooms/(${ID_SEGMENT})/bet$`);
 const STREAM_RE = new RegExp(`^/api/rooms/(${ID_SEGMENT})/stream$`);
 const THUMBNAIL_RE = new RegExp(`^/api/rooms/(${ID_SEGMENT})/thumbnail$`);
 
@@ -71,8 +86,18 @@ function parseArena(value: unknown): ArenaBounds | undefined {
   return { width, height };
 }
 
+/** Optional session id off a request body — absent is fine, malformed is not. */
+function parseOptionalSessionId(value: unknown): string | undefined {
+  if (value === undefined) return undefined;
+  if (!isValidSessionId(value)) throw new BadRequestError('invalid_session');
+  return value;
+}
+
 async function handle(req: IncomingMessage, res: ServerResponse): Promise<void> {
-  const url = req.url ?? '';
+  // Routed on the path alone: a query string (`/thumbnail?ts=…` cache-busting,
+  // `/stream?session=…`) must never turn a known route into a 404.
+  const { pathname, searchParams } = new URL(req.url ?? '/', 'http://localhost');
+  const url = pathname;
   const method = req.method ?? 'GET';
 
   if (method === 'OPTIONS') {
@@ -113,12 +138,13 @@ async function handle(req: IncomingMessage, res: ServerResponse): Promise<void> 
       return;
     }
     const body = await readJsonBody<JoinRoomRequest>(req);
-    const result = joinRoom(room, parseArena(body.arena));
+    if (!isValidSessionId(body.sessionId)) throw new BadRequestError('invalid_session');
+    const result = joinRoom(room, parseArena(body.arena), body.sessionId);
     if (!result.ok) {
       sendJson(res, 409, { error: result.error } satisfies ApiErrorBody);
       return;
     }
-    sendJson(res, 200, { playerId: result.playerId, room: toRoomSummary(room) });
+    sendJson(res, 200, { playerId: result.playerId, slotIndex: result.slotIndex, room: toRoomSummary(room) } satisfies JoinRoomResponse);
     return;
   }
 
@@ -151,7 +177,7 @@ async function handle(req: IncomingMessage, res: ServerResponse): Promise<void> 
     if (typeof body.text !== 'string') throw new BadRequestError('invalid_request');
     if (body.playerId !== undefined && typeof body.playerId !== 'string') throw new BadRequestError('invalid_request');
     if (body.spectatorName !== undefined && typeof body.spectatorName !== 'string') throw new BadRequestError('invalid_request');
-    const result = postChat(room, body.playerId ?? null, body.text, undefined, body.spectatorName);
+    const result = postChat(room, body.playerId ?? null, body.text, undefined, body.spectatorName, parseOptionalSessionId(body.sessionId));
     if (!result.ok) {
       // 429 for the rate limit so a client can tell "slow down" apart from
       // "that was malformed" by status alone.
@@ -162,6 +188,26 @@ async function handle(req: IncomingMessage, res: ServerResponse): Promise<void> 
     return;
   }
 
+  const betMatch = BET_RE.exec(url);
+  if (method === 'POST' && betMatch) {
+    const room = getRoom(betMatch[1]);
+    if (!room) {
+      notFound(res, 'room not found');
+      return;
+    }
+    const body = await readJsonBody<BetRequest>(req);
+    if (!isValidSessionId(body.sessionId) || typeof body.optionId !== 'string' || !isInteger(body.amount)) {
+      throw new BadRequestError('invalid_request');
+    }
+    const result = placeRoomBet(room, body.sessionId, body.optionId, body.amount);
+    if (!result.ok) {
+      sendJson(res, 400, { error: result.error } satisfies ApiErrorBody);
+      return;
+    }
+    sendJson(res, 200, { wallet: { balance: result.balance }, myBet: result.bet, prediction: result.prediction } satisfies BetResponse);
+    return;
+  }
+
   const streamMatch = STREAM_RE.exec(url);
   if (method === 'GET' && streamMatch) {
     const room = getRoom(streamMatch[1]);
@@ -169,6 +215,11 @@ async function handle(req: IncomingMessage, res: ServerResponse): Promise<void> 
       notFound(res, 'room not found');
       return;
     }
+    // The tab's session (see src/net/sessionIdentity.ts) rides on the stream
+    // URL — an EventSource can't send headers or a body. A stream without
+    // one still works, it just has no wallet.
+    const rawSession = searchParams.get('session');
+    const sessionId = isValidSessionId(rawSession) ? rawSession : null;
 
     res.writeHead(200, {
       'Content-Type': 'text/event-stream',
@@ -177,15 +228,19 @@ async function handle(req: IncomingMessage, res: ServerResponse): Promise<void> 
       'Access-Control-Allow-Origin': '*',
     });
     res.socket?.setNoDelay(true);
-    res.write(`event: hello\ndata: ${JSON.stringify(getHelloPayload(room))}\n\n`);
-    subscribe(room.id, req, res);
+    if (sessionId !== null) walletStreamOpened(sessionId);
+    res.write(`event: hello\ndata: ${JSON.stringify(getHelloPayload(room, sessionId))}\n\n`);
+    subscribe(room.id, req, res, sessionId);
     // RoomSummary.viewerCount is read off the subscriber set, so everyone
     // watching learns of a viewer arriving or leaving the moment it happens
     // (the match HUD shows it live), not only when a seat or the phase next
     // changes. sse.ts's own close listener runs first (registered inside
     // subscribe), so the count broadcast here already excludes the leaver.
     broadcast(room.id, 'roomUpdate', toRoomSummary(room));
-    req.on('close', () => broadcast(room.id, 'roomUpdate', toRoomSummary(room)));
+    req.on('close', () => {
+      if (sessionId !== null) walletStreamClosed(sessionId);
+      broadcast(room.id, 'roomUpdate', toRoomSummary(room));
+    });
     return;
   }
 

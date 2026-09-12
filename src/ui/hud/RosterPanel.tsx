@@ -6,6 +6,9 @@ import { RosterRow } from './RosterRow';
 
 interface RosterPanelProps {
   state: SimState;
+  /** Wallet balance per instance id for fighters a seated player owns (see
+   * MatchScreen.slotBalances); absent or null → the bare species name. */
+  balances?: Record<string, number | null>;
 }
 
 const COLUMN_GAP_PX = 4;
@@ -34,9 +37,9 @@ function panelWidthStyle(state: SimState, columns: number, gapPx: number): CSSPr
  * SideRosterPanel) — a top strip reads fine on the tall portrait arena but
  * gets lost above a much wider stage, and the extra width comfortably fits
  * a column down each edge instead. */
-export function RosterPanel({ state }: RosterPanelProps) {
-  if (!isMobileArena(state.arena)) return <SideRosterPanel state={state} />;
-  if (state.teams) return <TeamRosterPanel state={state} />;
+export function RosterPanel({ state, balances }: RosterPanelProps) {
+  if (!isMobileArena(state.arena)) return <SideRosterPanel state={state} balances={balances} />;
+  if (state.teams) return <TeamRosterPanel state={state} balances={balances} />;
 
   const columns = state.allInstanceIds.length > 10 ? 3 : state.allInstanceIds.length > 4 ? 2 : 1;
 
@@ -54,7 +57,7 @@ export function RosterPanel({ state }: RosterPanelProps) {
       {state.allInstanceIds.map((id) => {
         const pokemon = state.pokemon[id];
         const fainted = !state.livingOrder.includes(id);
-        return <RosterRow key={id} pokemon={pokemon} fainted={fainted} />;
+        return <RosterRow key={id} pokemon={pokemon} fainted={fainted} balance={balances?.[id]} />;
       })}
     </div>
   );
@@ -63,19 +66,19 @@ export function RosterPanel({ state }: RosterPanelProps) {
 /** Team Mode's roster layout: each side gets its own labeled column instead
  * of one undifferentiated grid, so a spectator can tell at a glance which
  * Pokémon are on the same side without reading every row. */
-function TeamRosterPanel({ state }: RosterPanelProps) {
+function TeamRosterPanel({ state, balances }: RosterPanelProps) {
   const teamAIds = state.allInstanceIds.filter((id) => state.pokemon[id].team === 'teamA');
   const teamBIds = state.allInstanceIds.filter((id) => state.pokemon[id].team === 'teamB');
 
   return (
     <div style={{ display: 'flex', gap: TEAM_COLUMN_GAP_PX, padding: 6, pointerEvents: 'none', ...panelWidthStyle(state, 2, TEAM_COLUMN_GAP_PX) }}>
-      <TeamColumn label="TEAM A" color={TEAM_A_COLOR_CSS} ids={teamAIds} state={state} />
-      <TeamColumn label="TEAM B" color={TEAM_B_COLOR_CSS} ids={teamBIds} state={state} />
+      <TeamColumn label="TEAM A" color={TEAM_A_COLOR_CSS} ids={teamAIds} state={state} balances={balances} />
+      <TeamColumn label="TEAM B" color={TEAM_B_COLOR_CSS} ids={teamBIds} state={state} balances={balances} />
     </div>
   );
 }
 
-function TeamColumn({ label, color, ids, state }: { label: string; color: string; ids: string[]; state: SimState }) {
+function TeamColumn({ label, color, ids, state, balances }: { label: string; color: string; ids: string[]; state: SimState; balances?: Record<string, number | null> }) {
   return (
     <div style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', gap: 4 }}>
       <span
@@ -92,7 +95,7 @@ function TeamColumn({ label, color, ids, state }: { label: string; color: string
       {ids.map((id) => {
         const pokemon = state.pokemon[id];
         const fainted = !state.livingOrder.includes(id);
-        return <RosterRow key={id} pokemon={pokemon} fainted={fainted} accentColor={color} />;
+        return <RosterRow key={id} pokemon={pokemon} fainted={fainted} accentColor={color} balance={balances?.[id]} />;
       })}
     </div>
   );
@@ -104,7 +107,7 @@ function TeamColumn({ label, color, ids, state }: { label: string; color: string
  * list in half. Rendered as two independently-positioned full-height
  * columns (not one flex row) so each hugs its own edge regardless of how
  * much horizontal space is between them. */
-function SideRosterPanel({ state }: RosterPanelProps) {
+function SideRosterPanel({ state, balances }: RosterPanelProps) {
   let leftIds: string[];
   let rightIds: string[];
   let leftLabel: string | undefined;
@@ -127,8 +130,8 @@ function SideRosterPanel({ state }: RosterPanelProps) {
 
   return (
     <>
-      <SideColumn side="left" ids={leftIds} state={state} label={leftLabel} color={leftColor} />
-      <SideColumn side="right" ids={rightIds} state={state} label={rightLabel} color={rightColor} />
+      <SideColumn side="left" ids={leftIds} state={state} label={leftLabel} color={leftColor} balances={balances} />
+      <SideColumn side="right" ids={rightIds} state={state} label={rightLabel} color={rightColor} balances={balances} />
     </>
   );
 }
@@ -139,12 +142,14 @@ function SideColumn({
   state,
   label,
   color,
+  balances,
 }: {
   side: 'left' | 'right';
   ids: string[];
   state: SimState;
   label?: string;
   color?: string;
+  balances?: Record<string, number | null>;
 }) {
   return (
     <div
@@ -179,7 +184,7 @@ function SideColumn({
       {ids.map((id) => {
         const pokemon = state.pokemon[id];
         const fainted = !state.livingOrder.includes(id);
-        return <RosterRow key={id} pokemon={pokemon} fainted={fainted} accentColor={color} />;
+        return <RosterRow key={id} pokemon={pokemon} fainted={fainted} accentColor={color} balance={balances?.[id]} />;
       })}
     </div>
   );

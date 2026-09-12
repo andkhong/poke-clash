@@ -57,6 +57,9 @@ interface MatchScreenProps {
    * frame there is one "open this room" button, and a BACK TO ROOMS button
    * inside it led to the room list from a page that never was a room. */
   showCompleteControl?: boolean;
+  /** Multiplayer: wallet balance per instance id for the fighters a seated
+   * player owns, so the roster HUD can read "PIPLUP ($100)" like chat does. */
+  slotBalances?: Record<string, number | null>;
 }
 
 export function MatchScreen({
@@ -72,6 +75,7 @@ export function MatchScreen({
   onCanvasReady,
   captureFrames = false,
   bannerOverrideText,
+  slotBalances,
 }: MatchScreenProps) {
   const state = useSimSnapshot(store);
   // Phaser's FIT scaling can letterbox the canvas within this screen's full
@@ -131,7 +135,7 @@ export function MatchScreen({
                 (see RosterPanel's own isMobileArena branch), which needs a
                 containing block sized to the whole stage, not one that
                 auto-collapses to the timer's height. */}
-            <RosterPanel state={state} />
+            <RosterPanel state={state} balances={slotBalances} />
 
             <BannerOverlay state={state} overrideText={bannerOverrideText} />
 

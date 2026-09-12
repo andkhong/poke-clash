@@ -2,6 +2,7 @@ import type { ChatMessage, RoomSummary } from '../../net/protocol';
 import { CHAT_LOG_LIMIT } from '../../net/chat';
 import { teamColorCss } from '../teamColors';
 import { SOLARIZED_ACCENTS } from '../theme';
+import { withBalance } from '../predictions/predictionModel';
 
 /** Pure chat-presentation logic, kept out of the components so it can be
  * unit-tested under Vitest's node environment (no DOM). */
@@ -36,9 +37,12 @@ export function appendChatMessage(log: ChatMessage[], message: ChatMessage): Cha
  * upgrades from "Seat N" to the species once they pick), falling back to the
  * name snapshotted on the message, then the seat number. Every room supports
  * chat now (see spectatorIdentity.ts), so an unseated sender
- * (message.slotIndex null) shows their generated display name instead. Each
- * viewer's own messages get a " (You)" suffix appended to their name, so
- * they can still see who they are while spotting their own lines. */
+ * (message.slotIndex null) shows their generated display name instead. The
+ * name carries the sender's wallet balance — "Piplup ($100)" — live from the
+ * seat for a seated sender (so it moves as they bet and win), snapshotted at
+ * send time for a spectator. Each viewer's own messages get a " (You)"
+ * suffix appended, so they can still see who they are while spotting their
+ * own lines. */
 export function chatSenderLabel(
   message: ChatMessage,
   mySlotIndex: number | null,
@@ -46,12 +50,13 @@ export function chatSenderLabel(
   mySpectatorName: string | null
 ): string {
   if (message.slotIndex === null) {
-    const name = message.spectatorName ?? 'Spectator';
+    const name = withBalance(message.spectatorName ?? 'Spectator', message.balance);
     const isSelf = mySpectatorName !== null && message.spectatorName === mySpectatorName;
     return isSelf ? `${name} (You)` : name;
   }
-  const liveName = room?.slots[message.slotIndex]?.speciesName ?? null;
-  const name = liveName ?? message.speciesName ?? `Seat ${message.slotIndex + 1}`;
+  const slot = room?.slots[message.slotIndex] ?? null;
+  const liveName = slot?.speciesName ?? null;
+  const name = withBalance(liveName ?? message.speciesName ?? `Seat ${message.slotIndex + 1}`, slot?.balance ?? message.balance);
   const isSelf = mySlotIndex !== null && message.slotIndex === mySlotIndex;
   return isSelf ? `${name} (You)` : name;
 }

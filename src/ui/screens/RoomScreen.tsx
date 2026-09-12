@@ -1,14 +1,26 @@
-import { useCallback, useEffect, useRef, useState, type CSSProperties } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from 'react';
 import { RoomConnection } from '../../net/RoomConnection';
 import { RemoteSimEngine } from '../../net/RemoteSimEngine';
-import type { ChatMessage, ChatRequest, JoinRoomRequest, RoomSummary } from '../../net/protocol';
-import type { SimState } from '../../sim/types';
+import type {
+  BetRequest,
+  BetResponse,
+  ChatMessage,
+  ChatRequest,
+  JoinRoomRequest,
+  JoinRoomResponse,
+  MyBet,
+  PredictionSummary,
+  RoomSummary,
+  WalletEventPayload,
+} from '../../net/protocol';
 import { resolveMatchArena } from '../../app/config';
 import { SPECTATOR_NAME } from '../../net/spectatorIdentity';
+import { SESSION_ID } from '../../net/sessionIdentity';
 import { createSimStore, type SimStore } from '../state/simStore';
 import { ChatSidebar } from '../chat/ChatSidebar';
 import type { ChatPanelProps } from '../chat/ChatPanel';
 import { appendChatMessage, CHAT_SIDEBAR_MEDIA_QUERY } from '../chat/chatModel';
+import type { PredictionsPanelProps } from '../predictions/PredictionsPanel';
 import { useMediaQuery } from '../hooks/useMediaQuery';
 import { useWideArenaPreference } from '../hooks/useWideArenaPreference';
 import { useRoomThumbnailCapture } from '../hooks/useRoomThumbnailCapture';
@@ -22,7 +34,8 @@ interface RoomScreenProps {
   /** True when mounted inside the landing page's featured panel rather than
    * at its own full route — suppresses the "← BACK" control during the
    * brief connecting flash, since there's no separate rooms page to go back
-   * to from there. */
+   * to from there, and marks the predictions panel read-only (the embed is
+   * covered by a click-through button anyway). */
   embedded?: boolean;
 }
 
@@ -30,50 +43,55 @@ function playerIdStorageKey(roomId: string): string {
   return `poke-clash:player:${roomId}`;
 }
 
-/** My slot's instance id in the battle roster — instance ids are `p${slotIndex}-${speciesId}`
- * (see matchSetup.ts), and game-server builds MatchConfig.speciesIds in slot order, so my
- * slot's index into `state.allInstanceIds` always points at my own Pokémon. */
-function computeHighlightInstanceId(room: RoomSummary, playerId: string | null, state: SimState): string | null {
-  if (playerId === null) return null;
-  const mySlot = room.slots.find((s) => s.playerId === playerId);
-  if (!mySlot) return null;
-  return state.allInstanceIds[mySlot.slotIndex] ?? null;
-}
-
 export function RoomScreen({ roomId, embedded = false }: RoomScreenProps) {
   const [room, setRoom] = useState<RoomSummary | null>(null);
   const [canvas, setCanvas] = useState<HTMLCanvasElement | null>(null);
+  // The seat's bearer token (for pick/chat), remembered per room so a reload
+  // keeps the seat. Which seat it is comes from the server (HelloPayload.me /
+  // JoinRoomResponse.slotIndex) — seat tokens are never broadcast.
   const [playerId, setPlayerId] = useState<string | null>(() => sessionStorage.getItem(playerIdStorageKey(roomId)));
+  const [mySlotIndex, setMySlotIndex] = useState<number | null>(null);
   const [store, setStore] = useState<SimStore | null>(null);
-  const [highlightInstanceId, setHighlightInstanceId] = useState<string | null>(null);
   // Plain state is enough for chat: even a full room mashing quick reactions
   // is a few renders a second, well under the HUD's own 10 Hz refresh.
   const [chatLog, setChatLog] = useState<ChatMessage[]>([]);
+  // The predictions pool and this tab's own wallet view of it. `prediction`
+  // is kept through a lobby reset (so the settled result stays readable
+  // until the next battle opens a fresh pool) but replaced wholesale by
+  // every hello, same as the chat backlog.
+  const [prediction, setPrediction] = useState<PredictionSummary | null>(null);
+  const [balance, setBalance] = useState<number | null>(null);
+  const [myBet, setMyBet] = useState<MyBet | null>(null);
+  const [settled, setSettled] = useState<WalletEventPayload['settled'] | null>(null);
   // The stream failed to (re)open — shown instead of a bare "Connecting…"
   // that would otherwise sit there forever for a dead server or a stale
   // room link, with no way out. EventSource retries by itself; a `hello`
   // clears this.
   const [connectionError, setConnectionError] = useState(false);
   const [wideArena] = useWideArenaPreference();
+  // The live engine behind `store`, for the 10 Hz stateUpdate handler to
+  // feed without going through React state at all.
   const engineRef = useRef<RemoteSimEngine | null>(null);
-  // The SSE handlers below are created once per roomId (see the effect's dep
-  // array) and read this instead of the `playerId` state directly, so a join
-  // that happens after the connection is already open doesn't get missed by
-  // a stale closure.
-  const playerIdRef = useRef(playerId);
-  useEffect(() => {
-    playerIdRef.current = playerId;
-  }, [playerId]);
+
+  const forgetSeat = useCallback(() => {
+    sessionStorage.removeItem(playerIdStorageKey(roomId));
+    setPlayerId(null);
+    setMySlotIndex(null);
+  }, [roomId]);
 
   useEffect(() => {
     setRoom(null);
     setStore(null);
-    setHighlightInstanceId(null);
+    setMySlotIndex(null);
     setChatLog([]);
+    setPrediction(null);
+    setBalance(null);
+    setMyBet(null);
+    setSettled(null);
     setConnectionError(false);
     engineRef.current = null;
 
-    const conn = new RoomConnection(roomId, {
+    const conn = new RoomConnection(roomId, SESSION_ID, {
       onHello(payload) {
         setConnectionError(false);
         setRoom(payload.room);
@@ -81,11 +99,21 @@ export function RoomScreen({ roomId, embedded = false }: RoomScreenProps) {
         // (re)connect and the server's backlog is the authority on what was
         // said while this client was away.
         setChatLog(payload.chatLog);
+        setPrediction(payload.prediction);
+        if (payload.me) {
+          setBalance(payload.me.balance);
+          setMyBet(payload.me.myBet);
+          setMySlotIndex(payload.me.mySlotIndex);
+          // A seat remembered from an earlier session in this room no longer
+          // exists once the room has reset — without this, the stale token
+          // would permanently hide JOIN ROOM (canJoin needs no seat) even
+          // though the room is actually empty.
+          if (payload.me.mySlotIndex === null) forgetSeat();
+        }
         if (payload.engineState) {
           const engine = new RemoteSimEngine(payload.engineState);
           engineRef.current = engine;
           setStore(createSimStore(engine));
-          setHighlightInstanceId(computeHighlightInstanceId(payload.room, playerIdRef.current, payload.engineState));
         }
       },
       onRoomUpdate(summary) {
@@ -96,7 +124,7 @@ export function RoomScreen({ roomId, embedded = false }: RoomScreenProps) {
         const engine = new RemoteSimEngine(payload.initialState);
         engineRef.current = engine;
         setStore(createSimStore(engine));
-        setHighlightInstanceId(computeHighlightInstanceId(payload.room, playerIdRef.current, payload.initialState));
+        setSettled(null);
       },
       onStateUpdate(payload) {
         engineRef.current?.applyServerUpdate(payload.state, payload.events);
@@ -107,6 +135,10 @@ export function RoomScreen({ roomId, embedded = false }: RoomScreenProps) {
       onLobbyReset(summary) {
         setRoom(summary);
         setChatLog([]);
+        // Seats are wiped with the reset (see roomManager's resetRoom), so
+        // whatever this tab held is gone; its bet, if any, was settled.
+        forgetSeat();
+        setMyBet(null);
         // The always-on showcase room keeps its arena on screen through the
         // gap between rounds (see the `inMatch` / `postMatchCountdownLabel`
         // below) — tearing the store/engine down here would blank the map
@@ -115,12 +147,19 @@ export function RoomScreen({ roomId, embedded = false }: RoomScreenProps) {
         // it keeps resetting to the lobby/seat-picking screen as before.
         if (!summary.autoPlay) {
           setStore(null);
-          setHighlightInstanceId(null);
           engineRef.current = null;
         }
       },
       onChat(message) {
         setChatLog((log) => appendChatMessage(log, message));
+      },
+      onPrediction(summary) {
+        setPrediction(summary);
+      },
+      onWallet(payload) {
+        setBalance(payload.balance);
+        setMyBet(payload.myBet);
+        if (payload.settled) setSettled(payload.settled);
       },
       onError() {
         setConnectionError(true);
@@ -128,37 +167,25 @@ export function RoomScreen({ roomId, embedded = false }: RoomScreenProps) {
     });
 
     return () => conn.close();
-  }, [roomId]);
-
-  // A slot claimed in an earlier match in this room (before it looped back
-  // to idle) no longer exists once the room resets — without this, a
-  // returning player's remembered playerId matches no current slot, which
-  // permanently hides the JOIN ROOM button (canJoin requires playerId ===
-  // null) even though the room is actually empty.
-  useEffect(() => {
-    if (!room || playerId === null) return;
-    if (!room.slots.some((s) => s.playerId === playerId)) {
-      sessionStorage.removeItem(playerIdStorageKey(roomId));
-      setPlayerId(null);
-    }
-  }, [room, playerId, roomId]);
+  }, [roomId, forgetSeat]);
 
   const handleJoin = () => {
     // My own arena choice rides along: if this join is what gets the room
     // going, the room takes it (see JoinRoomRequest.arena) — so the Wide
     // Arena toggle applies to a pre-seeded room too, not only to rooms I
     // created myself.
-    const body: JoinRoomRequest = { arena: resolveMatchArena(wideArena) };
+    const body: JoinRoomRequest = { sessionId: SESSION_ID, arena: resolveMatchArena(wideArena) };
     fetch(`/api/rooms/${roomId}/join`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(body),
     })
       .then((res) =>
-        res.json().then((data: { playerId?: string }) => {
-          if (!res.ok || !data.playerId) return; // room filled/started first — stay a spectator, JOIN stays available
+        res.json().then((data: Partial<JoinRoomResponse>) => {
+          if (!res.ok || !data.playerId || data.slotIndex === undefined) return; // room filled/started first — stay a spectator, JOIN stays available
           sessionStorage.setItem(playerIdStorageKey(roomId), data.playerId);
           setPlayerId(data.playerId);
+          setMySlotIndex(data.slotIndex);
         })
       )
       .catch(() => {
@@ -179,13 +206,11 @@ export function RoomScreen({ roomId, embedded = false }: RoomScreenProps) {
   // stable across this screen's re-renders (room updates, the showcase
   // room's 4 Hz between-round countdown).
   const handleSendChat = useCallback(async (text: string): Promise<string | null> => {
-    // Read from render scope, not playerIdRef — this runs on a tap, never
-    // from inside the once-per-room SSE closures the ref exists for.
     // Every room supports chat, seat or no seat (see spectatorIdentity.ts) —
     // a seat's playerId is used when there is one, this tab's generated
-    // display name otherwise.
+    // display name otherwise. The session id just stamps the balance.
     const request: ChatRequest =
-      playerId !== null ? { playerId, text } : { spectatorName: SPECTATOR_NAME, text };
+      playerId !== null ? { playerId, sessionId: SESSION_ID, text } : { spectatorName: SPECTATOR_NAME, sessionId: SESSION_ID, text };
     try {
       const res = await fetch(`/api/rooms/${roomId}/chat`, {
         method: 'POST',
@@ -200,15 +225,29 @@ export function RoomScreen({ roomId, embedded = false }: RoomScreenProps) {
     }
   }, [playerId, roomId]);
 
-  // "You" is whichever slot holds my playerId when I'm seated, otherwise
-  // this tab's generated spectator identity — both fall out of `room` +
-  // `playerId` each render, so the stale-playerId cleanup effect above
-  // keeps them right after a room reset too. Every room supports chat now
-  // (see spectatorIdentity.ts), seated or not, so canSend is unconditional.
-  // (mySlotIndex is guarded on playerId first: an open seat's playerId is
-  // null too, so a bare `s.playerId === playerId` would match a spectator
-  // against the first empty seat.)
-  const mySlotIndex = playerId === null ? null : (room?.slots.find((s) => s.playerId === playerId)?.slotIndex ?? null);
+  const handleBet = useCallback(async (optionId: string, amount: number): Promise<string | null> => {
+    const request: BetRequest = { sessionId: SESSION_ID, optionId, amount };
+    try {
+      const res = await fetch(`/api/rooms/${roomId}/bet`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(request),
+      });
+      const body = (await res.json().catch(() => null)) as (Partial<BetResponse> & { error?: string }) | null;
+      if (!res.ok || !body?.wallet || !body.myBet || !body.prediction) return body?.error ?? 'bet_failed';
+      setBalance(body.wallet.balance);
+      setMyBet(body.myBet);
+      setPrediction(body.prediction);
+      return null;
+    } catch {
+      return 'bet_failed';
+    }
+  }, [roomId]);
+
+  // "You" is whichever seat the server says is mine (HelloPayload.me /
+  // JoinRoomResponse), otherwise this tab's generated spectator identity.
+  // Every room supports chat now (see spectatorIdentity.ts), seated or not,
+  // so canSend is unconditional.
   const chat: ChatPanelProps = {
     messages: chatLog,
     mySlotIndex,
@@ -216,6 +255,17 @@ export function RoomScreen({ roomId, embedded = false }: RoomScreenProps) {
     room,
     canSend: true,
     onSend: handleSendChat,
+  };
+
+  // The landing page's embed is covered by one big "open this room" button,
+  // so its panel is a preview: same numbers, no taps.
+  const predictions: PredictionsPanelProps = {
+    prediction,
+    balance,
+    myBet,
+    settled,
+    canBet: !embedded,
+    onBet: handleBet,
   };
 
   // One log, two presentations. Wide viewport: a stream-style chat column
@@ -226,6 +276,24 @@ export function RoomScreen({ roomId, embedded = false }: RoomScreenProps) {
   // onLobbyReset above); the always-on showcase room keeps its store through
   // idle/countdown too, so `room.autoPlay` alone covers its whole loop here.
   const inMatch = room !== null && store !== null && (room.phase === 'battle' || room.phase === 'complete' || room.autoPlay);
+
+  // My own Pokémon in the battle roster — instance ids are `p${slotIndex}-${speciesId}`
+  // (see matchSetup.ts) and game-server builds MatchConfig.speciesIds in slot
+  // order, so my seat's index into `allInstanceIds` is my own Pokémon. The
+  // roster is fixed for a match, so reading it off the engine at render is safe.
+  const allInstanceIds = store?.getEngine().getState().allInstanceIds ?? null;
+  const highlightInstanceId = allInstanceIds && mySlotIndex !== null ? (allInstanceIds[mySlotIndex] ?? null) : null;
+  // Balance per fighter for the roster HUD ("PIPLUP ($100)") — only seats a
+  // human holds have one; the showcase room's auto-filled seats stay bare.
+  const slotBalances = useMemo(() => {
+    if (!allInstanceIds || !room) return undefined;
+    const balances: Record<string, number | null> = {};
+    room.slots.forEach((slot, index) => {
+      const id = allInstanceIds[index];
+      if (id !== undefined && slot.occupied) balances[id] = slot.balance;
+    });
+    return balances;
+  }, [allInstanceIds, room]);
 
   // The showcase room's "next round in Ns" banner, shown in place of the
   // frozen previous match's own WINS banner during that gap (see
@@ -266,17 +334,25 @@ export function RoomScreen({ roomId, embedded = false }: RoomScreenProps) {
             highlightInstanceId={highlightInstanceId}
             onCanvasReady={setCanvas}
             captureFrames={!room.autoPlay}
-            chat={sidebar ? undefined : chat}
+            chat={sidebar ? undefined : { ...chat, predictions }}
             bannerOverrideText={postMatchCountdownLabel}
             viewerCount={embedded ? undefined : room.viewerCount}
             showCompleteControl={!embedded}
+            slotBalances={slotBalances}
           />
         )}
         {room && !inMatch && (
-          <RoomLobbyScreen room={room} playerId={playerId} onJoin={handleJoin} onPick={handlePick} chat={sidebar ? undefined : chat} />
+          <RoomLobbyScreen
+            room={room}
+            mySlotIndex={mySlotIndex}
+            onJoin={handleJoin}
+            onPick={handlePick}
+            chat={sidebar ? undefined : chat}
+            predictions={sidebar ? undefined : predictions}
+          />
         )}
       </div>
-      {room && sidebar && <ChatSidebar {...chat} />}
+      {room && sidebar && <ChatSidebar {...chat} predictions={predictions} />}
     </div>
   );
 }

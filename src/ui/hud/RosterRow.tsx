@@ -1,4 +1,5 @@
 import type { PokemonInstance } from '../../sim/types';
+import { withBalance } from '../predictions/predictionModel';
 import { ACCENT, DESTRUCTIVE } from '../theme';
 
 interface RosterRowProps {
@@ -8,9 +9,12 @@ interface RosterRowProps {
    * default neutral one — lets a row visually read as part of its team's
    * column even on its own. */
   accentColor?: string;
+  /** The seated player's wallet behind this fighter, if a human holds its
+   * seat (see RoomSlotSummary.balance) — shown as "PIPLUP ($100)". */
+  balance?: number | null;
 }
 
-export function RosterRow({ pokemon, fainted, accentColor }: RosterRowProps) {
+export function RosterRow({ pokemon, fainted, accentColor, balance }: RosterRowProps) {
   const ratio = pokemon.maxHp > 0 ? Math.max(0, pokemon.currentHp / pokemon.maxHp) : 0;
   const barColor = fainted ? '#5a3030' : ratio > 0.5 ? '#4caf50' : ratio > 0.2 ? ACCENT : DESTRUCTIVE;
 
@@ -41,7 +45,7 @@ export function RosterRow({ pokemon, fainted, accentColor }: RosterRowProps) {
           minWidth: 0,
         }}
       >
-        {pokemon.name}
+        {withBalance(pokemon.name, balance)}
       </span>
       <div
         style={{

@@ -1,4 +1,13 @@
-import type { BattleCompletePayload, BattleStartPayload, ChatMessage, HelloPayload, RoomSummary, StateUpdatePayload } from './protocol';
+import type {
+  BattleCompletePayload,
+  BattleStartPayload,
+  ChatMessage,
+  HelloPayload,
+  PredictionSummary,
+  RoomSummary,
+  StateUpdatePayload,
+  WalletEventPayload,
+} from './protocol';
 
 interface RoomConnectionHandlers {
   onHello: (payload: HelloPayload) => void;
@@ -8,6 +17,12 @@ interface RoomConnectionHandlers {
   onBattleComplete: (payload: BattleCompletePayload) => void;
   onLobbyReset: (room: RoomSummary) => void;
   onChat: (message: ChatMessage) => void;
+  /** The room's betting pool changed — opened, a bet landed, odds moved on
+   * a faint, closed, or settled. Always the whole public summary. */
+  onPrediction: (prediction: PredictionSummary) => void;
+  /** This session's own balance changed for a reason other than its own
+   * bet request (settlement) — private to this tab's streams. */
+  onWallet: (payload: WalletEventPayload) => void;
   /** The stream dropped or never opened (server down, unknown room id) —
    * EventSource keeps retrying on its own, so this is a hint to show, not
    * something to act on; a later `hello` means it recovered. */
@@ -17,12 +32,13 @@ interface RoomConnectionHandlers {
 /** Thin EventSource wrapper around one room's SSE stream. EventSource's
  * built-in auto-reconnect (plus the server always re-sending a fresh `hello`
  * snapshot on connect) is what makes tab refreshes and late joins "just
- * work" with no extra reconnection logic here. */
+ * work" with no extra reconnection logic here. The session id rides on the
+ * URL (see sessionIdentity.ts) — an EventSource can't send a header. */
 export class RoomConnection {
   private readonly source: EventSource;
 
-  constructor(roomId: string, handlers: RoomConnectionHandlers) {
-    this.source = new EventSource(`/api/rooms/${roomId}/stream`);
+  constructor(roomId: string, sessionId: string, handlers: RoomConnectionHandlers) {
+    this.source = new EventSource(`/api/rooms/${roomId}/stream?session=${encodeURIComponent(sessionId)}`);
     this.on('hello', handlers.onHello);
     this.on('roomUpdate', handlers.onRoomUpdate);
     this.on('battleStart', handlers.onBattleStart);
@@ -30,6 +46,8 @@ export class RoomConnection {
     this.on('battleComplete', handlers.onBattleComplete);
     this.on('lobbyReset', handlers.onLobbyReset);
     this.on('chat', handlers.onChat);
+    this.on('prediction', handlers.onPrediction);
+    this.on('wallet', handlers.onWallet);
     if (handlers.onError) this.source.addEventListener('error', handlers.onError);
   }
 
