@@ -32,6 +32,14 @@ export function appendChatMessage(log: ChatMessage[], message: ChatMessage): Cha
   return next.length > CHAT_LOG_LIMIT ? next.slice(next.length - CHAT_LOG_LIMIT) : next;
 }
 
+/** A line the server wrote itself (a shop purchase announcement — see
+ * ChatMessage.kind), which has no sender at all: it renders as a single
+ * centred, italic note rather than a name/colon/text row, so nobody reads it
+ * as something a viewer typed. */
+export function isSystemMessage(message: ChatMessage): boolean {
+  return message.kind === 'system';
+}
+
 /** Who to show as the sender. A seated player is known by their pick, same
  * as ever: the seat's *current* species name (a message sent before picking
  * upgrades from "Seat N" to the species once they pick), falling back to the

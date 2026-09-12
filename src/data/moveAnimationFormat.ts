@@ -145,6 +145,12 @@ export function playableFrameCount(frames: readonly MoveAnimationFrame[]): numbe
 /** The pack's status-condition animations the arena plays as ambient VFX
  * (see PokemonSprite.ts's updateStatusVfx), keyed by the sim's status.
  * Sleep keeps its text "Z"s instead. */
+/** The pack's generic "health restored" animation, played one-shot on a
+ * Pokémon healed by a shop item (see PokemonSprite's playHealVfx). Already
+ * built and shipped as public/move-anims/common/HealthUp.json; it just had
+ * no caller until the shop. */
+export const HEAL_COMMON_ANIMATION = 'HealthUp';
+
 export const STATUS_COMMON_ANIMATIONS = {
   poison: 'Poison',
   burn: 'Burn',

@@ -8,6 +8,7 @@ import {
   MAX_THUMBNAIL_BYTES,
   pickSpecies,
   placeRoomBet,
+  purchaseRoomItem,
   postChat,
   setThumbnail,
   toRoomSummary,
@@ -19,6 +20,8 @@ import type {
   ApiErrorBody,
   BetRequest,
   BetResponse,
+  BuyItemRequest,
+  BuyItemResponse,
   ChatRequest,
   ChatResponse,
   CreateRoomRequest,
@@ -28,6 +31,7 @@ import type {
 } from '../src/net/protocol';
 import { isRoomMode } from '../src/net/protocol';
 import { isValidSessionId } from '../src/net/predictions';
+import { isItemId, isValidInstanceId } from '../src/net/shop';
 import type { ArenaBounds } from '../src/sim/types';
 import { DESKTOP_ARENA_HEIGHT, DESKTOP_ARENA_WIDTH } from '../src/sim/constants';
 
@@ -56,6 +60,7 @@ const JOIN_RE = new RegExp(`^/api/rooms/(${ID_SEGMENT})/join$`);
 const PICK_RE = new RegExp(`^/api/rooms/(${ID_SEGMENT})/pick$`);
 const CHAT_RE = new RegExp(`^/api/rooms/(${ID_SEGMENT})/chat$`);
 const BET_RE = new RegExp(`^/api/rooms/(${ID_SEGMENT})/bet$`);
+const ITEM_RE = new RegExp(`^/api/rooms/(${ID_SEGMENT})/item$`);
 const STREAM_RE = new RegExp(`^/api/rooms/(${ID_SEGMENT})/stream$`);
 const THUMBNAIL_RE = new RegExp(`^/api/rooms/(${ID_SEGMENT})/thumbnail$`);
 
@@ -205,6 +210,31 @@ async function handle(req: IncomingMessage, res: ServerResponse): Promise<void> 
       return;
     }
     sendJson(res, 200, { wallet: { balance: result.balance }, myBet: result.bet, prediction: result.prediction } satisfies BetResponse);
+    return;
+  }
+
+  const itemMatch = ITEM_RE.exec(url);
+  if (method === 'POST' && itemMatch) {
+    const room = getRoom(itemMatch[1]);
+    if (!room) {
+      notFound(res, 'room not found');
+      return;
+    }
+    const body = await readJsonBody<BuyItemRequest>(req);
+    if (!isValidSessionId(body.sessionId) || !isItemId(body.itemId) || !isValidInstanceId(body.targetInstanceId)) {
+      throw new BadRequestError('invalid_request');
+    }
+    const result = purchaseRoomItem(room, body.sessionId, body.itemId, body.targetInstanceId, body.spectatorName);
+    if (!result.ok) {
+      sendJson(res, result.error === 'rate_limited' ? 429 : 400, { error: result.error } satisfies ApiErrorBody);
+      return;
+    }
+    sendJson(res, 200, {
+      wallet: { balance: result.balance },
+      myItemUses: result.myItemUses,
+      use: result.use,
+      shop: result.shop,
+    } satisfies BuyItemResponse);
     return;
   }
 

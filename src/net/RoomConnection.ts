@@ -5,6 +5,7 @@ import type {
   HelloPayload,
   PredictionSummary,
   RoomSummary,
+  ShopSummary,
   StateUpdatePayload,
   WalletEventPayload,
 } from './protocol';
@@ -20,6 +21,10 @@ interface RoomConnectionHandlers {
   /** The room's betting pool changed — opened, a bet landed, odds moved on
    * a faint, closed, or settled. Always the whole public summary. */
   onPrediction: (prediction: PredictionSummary) => void;
+  /** The room's item shop changed — opened with a fresh shelf at battle
+   * start, or stock consumed by someone's purchase. Always the whole public
+   * summary; whether it's *trading* isn't in it (see ShopSummary). */
+  onShop: (shop: ShopSummary) => void;
   /** This session's own balance changed for a reason other than its own
    * bet request (settlement) — private to this tab's streams. */
   onWallet: (payload: WalletEventPayload) => void;
@@ -47,6 +52,7 @@ export class RoomConnection {
     this.on('lobbyReset', handlers.onLobbyReset);
     this.on('chat', handlers.onChat);
     this.on('prediction', handlers.onPrediction);
+    this.on('shop', handlers.onShop);
     this.on('wallet', handlers.onWallet);
     if (handlers.onError) this.source.addEventListener('error', handlers.onError);
   }

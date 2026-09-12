@@ -1199,3 +1199,97 @@ describe('full paralysis', () => {
     expect(sawWhiff).toBe(true); // the fixture actually exercised a whiff
   });
 });
+
+describe('applyItemHeal (the shop\'s out-of-band heal)', () => {
+  function engineAtBattle(): SimulationEngine {
+    const engine = new SimulationEngine(
+      { level: 100, speciesIds: [1, 2, 3, 4], arena: { width: 960, height: 1600 }, shiny: false },
+      FIXTURE_SPECIES,
+      moveLookup,
+      11
+    );
+    // Step past the intro parade so the match is genuinely being fought.
+    while (engine.getState().phase === 'intro') engine.tick(TICK_MS);
+    return engine;
+  }
+
+  function healEvents(engine: SimulationEngine): Extract<SimEvent, { type: 'itemUsed' }>[] {
+    return engine.getEventsSince(0).filter((e): e is Extract<SimEvent, { type: 'itemUsed' }> => e.type === 'itemUsed');
+  }
+
+  it('restores the requested fraction of maxHp and logs an itemUsed event', () => {
+    const engine = engineAtBattle();
+    const state = engine.getState();
+    const [id] = state.allInstanceIds;
+    const target = state.pokemon[id];
+    target.currentHp = Math.round(target.maxHp * 0.2);
+    const before = target.currentHp;
+
+    const healed = engine.applyItemHeal(id, 0.25, 'potion', 'Slowpoke482');
+
+    expect(healed).toBe(Math.round(target.maxHp * 0.25));
+    expect(target.currentHp).toBe(before + (healed as number));
+    expect(healEvents(engine)).toHaveLength(1);
+    expect(healEvents(engine)[0]).toMatchObject({ type: 'itemUsed', instanceId: id, itemId: 'potion', amount: healed, buyerName: 'Slowpoke482' });
+  });
+
+  it('clamps to maxHp and reports only the HP actually restored', () => {
+    const engine = engineAtBattle();
+    const state = engine.getState();
+    const [id] = state.allInstanceIds;
+    const target = state.pokemon[id];
+    target.currentHp = target.maxHp - 3;
+
+    expect(engine.applyItemHeal(id, 0.5, 'superPotion', 'Tester')).toBe(3);
+    expect(target.currentHp).toBe(target.maxHp);
+    expect(healEvents(engine)[0].amount).toBe(3);
+  });
+
+  it('restores at least 1 HP, so a small fraction is never a wasted purchase', () => {
+    const engine = engineAtBattle();
+    const state = engine.getState();
+    const [id] = state.allInstanceIds;
+    state.pokemon[id].currentHp = 1;
+
+    expect(engine.applyItemHeal(id, 0.0001, 'potion', 'Tester')).toBe(1);
+  });
+
+  it('refuses a full-HP target, an unknown one, and never revives a fainted one', () => {
+    const engine = engineAtBattle();
+    const state = engine.getState();
+    const [full, downed] = state.allInstanceIds;
+    state.pokemon[downed].currentHp = 0;
+
+    expect(engine.applyItemHeal(full, 0.25, 'potion', 'Tester')).toBeNull();
+    expect(engine.applyItemHeal('p9-999', 0.25, 'potion', 'Tester')).toBeNull();
+    expect(engine.applyItemHeal(downed, 0.5, 'superPotion', 'Tester')).toBeNull();
+    expect(state.pokemon[downed].currentHp).toBe(0);
+    expect(healEvents(engine)).toHaveLength(0);
+  });
+
+  it('refuses once the match is complete', () => {
+    const engine = runFullMatch(5, [1, 2]);
+    const state = engine.getState();
+    expect(state.phase).toBe('complete');
+    const hurt = state.allInstanceIds.find((id) => state.pokemon[id].currentHp > 0) as string;
+    state.pokemon[hurt].currentHp = 1;
+
+    expect(engine.applyItemHeal(hurt, 0.5, 'superPotion', 'Tester')).toBeNull();
+    expect(state.pokemon[hurt].currentHp).toBe(1);
+  });
+
+  it('keeps the event log seq strictly increasing alongside the sim\'s own events', () => {
+    const engine = engineAtBattle();
+    const state = engine.getState();
+    const [id] = state.allInstanceIds;
+    state.pokemon[id].currentHp = 1;
+    engine.applyItemHeal(id, 0.25, 'potion', 'Tester');
+    engine.tick(TICK_MS * 20);
+    state.pokemon[id].currentHp = 1;
+    engine.applyItemHeal(id, 0.25, 'potion', 'Tester');
+
+    const seqs = engine.getEventsSince(0).map((e) => e.seq);
+    expect(seqs).toEqual([...seqs].sort((a, b) => a - b));
+    expect(new Set(seqs).size).toBe(seqs.length);
+  });
+});

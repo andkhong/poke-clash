@@ -204,7 +204,6 @@ const panelStyle: CSSProperties = {
   boxSizing: 'border-box',
   fontFamily: 'monospace',
   color: TEXT,
-  borderBottom: `1px solid ${textAlpha(0.12)}`,
 };
 
 const headerStyle: CSSProperties = {

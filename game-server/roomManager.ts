@@ -9,6 +9,7 @@ import type {
   BattleStartPayload,
   ChatMessage,
   HelloPayload,
+  ItemUse,
   MyBet,
   PredictionSummary,
   RoomMode,
@@ -16,6 +17,7 @@ import type {
   RoomSlotSummary,
   RoomSummary,
   RoomTeam,
+  ShopSummary,
   WalletEventPayload,
 } from '../src/net/protocol';
 import { roomCapacityForMode, teamSizeForMode } from '../src/net/protocol';
@@ -24,6 +26,7 @@ import { containsBlockedLanguage } from '../src/net/chatFilter';
 import { broadcast, sendToSession, subscribedSessionIds, subscriberCount } from './sse';
 import { toLeanState } from '../src/net/leanState';
 import { openPrediction, placeBet, settlePrediction, toPredictionSummary, type PlaceBetError, type PredictionState } from './predictions';
+import { itemUsesForSession, openShop, purchaseItem, toShopSummary, type PurchaseItemError, type ShopState } from './shop';
 import { adjustBalance, getBalance, MATCH_WATCHED_REWARD, touchWallet } from './wallets';
 
 export const ROOM_COUNTDOWN_MS = 15_000;
@@ -51,9 +54,14 @@ const BROADCAST_INTERVAL_MS = HUD_REFRESH_INTERVAL_MS;
 export const CHAT_BURST = 4;
 export const CHAT_REFILL_MS = 1500;
 
+/** Item-shop rate limit, per session — far tighter than chat's, because a
+ * purchase is a rare, deliberate act (see takeItemToken). */
+export const ITEM_BURST = 3;
+export const ITEM_REFILL_MS = 3000;
+
 /** A lazy token bucket — nothing ticks; it's refilled from the clock whenever
- * it's next consulted (see takeChatToken). */
-interface ChatBucket {
+ * it's next consulted (see takeToken). */
+interface RateBucket {
   tokens: number;
   lastRefillMs: number;
 }
@@ -108,11 +116,17 @@ interface RoomState {
    * frame still holds the old session's ids, and restarting at 1 would make
    * its id-based dedupe silently drop the new session's first messages. */
   nextChatId: number;
-  chatBuckets: Map<string, ChatBucket>;
+  chatBuckets: Map<string, RateBucket>;
+  /** Per-session item-purchase buckets (see takeItemToken). */
+  itemBuckets: Map<string, RateBucket>;
   /** The running/just-finished match's betting pool (see predictions.ts) —
    * opened by startBattle, settled when the match completes, dropped by
    * resetRoom along with the engine. Null between rounds. */
   prediction: PredictionState | null;
+  /** The running match's item shop (see shop.ts) — opened by startBattle
+   * alongside the prediction pool and dropped by resetRoom with the engine,
+   * so a new round always starts with a full shelf. Null between rounds. */
+  shop: ShopState | null;
   /** Battles started in this room so far, ever — PredictionSummary.matchNo. */
   matchCount: number;
   countdownTimer: ReturnType<typeof setTimeout> | null;
@@ -166,7 +180,9 @@ export function createRoom(mode: RoomMode = 'classic', arena?: ArenaBounds, opts
     chatLog: [],
     nextChatId: 1,
     chatBuckets: new Map(),
+    itemBuckets: new Map(),
     prediction: null,
+    shop: null,
     matchCount: 0,
     countdownTimer: null,
     simTimer: null,
@@ -218,6 +234,10 @@ function predictionSummary(room: RoomState): PredictionSummary | null {
   return room.prediction && room.engine ? toPredictionSummary(room.prediction, room.engine.getState()) : null;
 }
 
+function shopSummary(room: RoomState): ShopSummary | null {
+  return room.shop && room.engine ? toShopSummary(room.shop) : null;
+}
+
 /** The connect-time snapshot for one stream. `sessionId` is the session the
  * stream was opened with (see server.ts), or null — only `me` depends on it,
  * and a session that's never been seen gets its wallet minted right here so
@@ -230,6 +250,7 @@ export function getHelloPayload(room: RoomState, sessionId: string | null = null
       balance: touchWallet(sessionId).balance,
       mySlotIndex: mySlotIndex === -1 ? null : mySlotIndex,
       myBet: room.prediction?.bets.get(sessionId) ?? null,
+      myItemUses: itemUsesForSession(room.shop, sessionId),
     };
   }
   return {
@@ -237,6 +258,7 @@ export function getHelloPayload(room: RoomState, sessionId: string | null = null
     engineState: room.engine ? room.engine.getState() : null,
     chatLog: room.chatLog,
     prediction: predictionSummary(room),
+    shop: shopSummary(room),
     me,
   };
 }
@@ -296,25 +318,40 @@ export function pickSpecies(room: RoomState, playerId: string, speciesId: number
   return { ok: true };
 }
 
-/** `key` is a seated sender's playerId, or a `spectator:<name>` key for an
- * unseated one (see postChat) — either way just a bucket identity, opaque to
- * this function. */
-function takeChatToken(room: RoomState, key: string, nowMs: number): boolean {
-  let bucket = room.chatBuckets.get(key);
+/** Consumes one token from `key`'s bucket in `buckets`, refilling it from the
+ * clock first. `key` is just a bucket identity, opaque here. */
+function takeToken(buckets: Map<string, RateBucket>, key: string, burst: number, refillMs: number, nowMs: number): boolean {
+  let bucket = buckets.get(key);
   if (!bucket) {
-    bucket = { tokens: CHAT_BURST, lastRefillMs: nowMs };
-    room.chatBuckets.set(key, bucket);
+    bucket = { tokens: burst, lastRefillMs: nowMs };
+    buckets.set(key, bucket);
   }
-  const refills = Math.floor((nowMs - bucket.lastRefillMs) / CHAT_REFILL_MS);
+  const refills = Math.floor((nowMs - bucket.lastRefillMs) / refillMs);
   if (refills > 0) {
-    bucket.tokens = Math.min(CHAT_BURST, bucket.tokens + refills);
+    bucket.tokens = Math.min(burst, bucket.tokens + refills);
     // Once full, time stops accruing — otherwise a long quiet stretch would
     // bank a partial refill and hand out the next token early.
-    bucket.lastRefillMs = bucket.tokens === CHAT_BURST ? nowMs : bucket.lastRefillMs + refills * CHAT_REFILL_MS;
+    bucket.lastRefillMs = bucket.tokens === burst ? nowMs : bucket.lastRefillMs + refills * refillMs;
   }
   if (bucket.tokens <= 0) return false;
   bucket.tokens -= 1;
   return true;
+}
+
+/** `key` is a seated sender's playerId, or a `spectator:<name>` key for an
+ * unseated one (see postChat). */
+function takeChatToken(room: RoomState, key: string, nowMs: number): boolean {
+  return takeToken(room.chatBuckets, key, CHAT_BURST, CHAT_REFILL_MS, nowMs);
+}
+
+/** Item-shop bucket, keyed by session id and kept separate from chat's so
+ * neither can eat the other's budget. MATCH_ITEM_LIMIT_PER_SESSION already
+ * caps *successful* buys; this caps the failures — a rejected purchase is
+ * cheap for the server but a hammered endpoint would still broadcast a frame
+ * to every subscriber each time it succeeded, so this is the amplification
+ * guard. (/bet has no equivalent today.) */
+function takeItemToken(room: RoomState, sessionId: string, nowMs: number): boolean {
+  return takeToken(room.itemBuckets, sessionId, ITEM_BURST, ITEM_REFILL_MS, nowMs);
 }
 
 export type PostChatResult =
@@ -380,11 +417,43 @@ export function postChat(
     text,
     sentAtMs: nowMs,
   };
+  appendChatMessage(room, message);
+  return { ok: true, message };
+}
+
+/** Adds a built message to the room's log (trimmed to CHAT_LOG_LIMIT, which
+ * is also what HelloPayload replays) and broadcasts it. Shared by postChat
+ * and postSystemChat so there's one place that owns the id counter and the
+ * trim. */
+function appendChatMessage(room: RoomState, message: ChatMessage): void {
   room.nextChatId += 1;
   room.chatLog.push(message);
   if (room.chatLog.length > CHAT_LOG_LIMIT) room.chatLog.splice(0, room.chatLog.length - CHAT_LOG_LIMIT);
   broadcast(room.id, 'chat', message);
-  return { ok: true, message };
+}
+
+/** Announces something the server did, with no sender: every identity field
+ * is null and the client renders the text on its own (see ChatMessage.kind),
+ * so it can't be mistaken for a viewer's line. Skips the language filter and
+ * the rate limiter deliberately — the server wrote the text, and the action
+ * that produced it is already capped far below chat's budget.
+ *
+ * Goes through the chat log rather than a bespoke event so one write reaches
+ * the mobile ticker, the drawer, the desktop sidebar and every late joiner's
+ * hello backlog at once. */
+function postSystemChat(room: RoomState, text: string, nowMs: number): void {
+  appendChatMessage(room, {
+    id: room.nextChatId,
+    slotIndex: null,
+    speciesId: null,
+    speciesName: null,
+    team: null,
+    spectatorName: null,
+    balance: null,
+    kind: 'system',
+    text,
+    sentAtMs: nowMs,
+  });
 }
 
 function startBattle(room: RoomState): void {
@@ -444,6 +513,11 @@ function startBattle(room: RoomState): void {
   room.matchCount += 1;
   room.prediction = openPrediction(room.mode, engine.getState(), room.matchCount, Date.now(), moveLookup);
   broadcast(room.id, 'prediction', toPredictionSummary(room.prediction, engine.getState()));
+  // A full shelf every round. Unlike the pool this has no close deadline —
+  // it stays open for the whole fight, which is the point: it's what's left
+  // to spend on once betting closes at the aggression mark.
+  room.shop = openShop(room.matchCount);
+  broadcast(room.id, 'shop', toShopSummary(room.shop));
 
   registerRoomTickLoop(room);
 }
@@ -468,6 +542,75 @@ export function placeRoomBet(room: RoomState, sessionId: string, optionId: strin
   broadcast(room.id, 'prediction', prediction);
   if (room.slots.some((s) => s.sessionId === sessionId)) broadcast(room.id, 'roomUpdate', toRoomSummary(room));
   return { ok: true, balance, bet: result.bet, prediction };
+}
+
+export type PurchaseRoomItemResult =
+  | { ok: true; balance: number; myItemUses: number; use: ItemUse; shop: ShopSummary }
+  | { ok: false; error: PurchaseItemError | 'rate_limited' };
+
+/** Buys one shop item and uses it on a living fighter (see shop.ts's
+ * purchaseItem for the rules), debits the wallet, heals the target, and tells
+ * the room. The sibling of placeRoomBet, and deliberately the same shape.
+ *
+ * Two differences worth noting. The heal reaches every spectator's screen on
+ * its own: currentHp is already a LEAN_POKEMON_FIELD, so the 10 Hz
+ * stateUpdate carries it, and the `itemUsed` event the engine logs rides that
+ * same broadcast for the VFX — neither needs anything from here. And the
+ * purchase is announced in chat, because a room-wide resource being spent by
+ * one viewer should be visible to all of them, not just to the buyer. */
+export function purchaseRoomItem(
+  room: RoomState,
+  sessionId: string,
+  itemId: string,
+  targetInstanceId: string,
+  spectatorName?: string,
+  nowMs = Date.now()
+): PurchaseRoomItemResult {
+  const engine = room.engine;
+  if (!room.shop || !engine) return { ok: false, error: 'no_shop' };
+  if (!takeItemToken(room, sessionId, nowMs)) return { ok: false, error: 'rate_limited' };
+  const state = engine.getState();
+  const wallet = touchWallet(sessionId);
+  const buyerName = resolveBuyerName(room, sessionId, spectatorName);
+
+  const result = purchaseItem(
+    room.shop,
+    state,
+    sessionId,
+    itemId,
+    targetInstanceId,
+    wallet.balance,
+    buyerName,
+    nowMs,
+    // Only called once every rule above has passed, so a null here means the
+    // match ended underneath the request — nothing is charged either way.
+    (item) => engine.applyItemHeal(targetInstanceId, item.healFraction, item.id, buyerName)
+  );
+  if (!result.ok) return result;
+
+  const balance = adjustBalance(sessionId, -result.item.price) ?? 0;
+  const shop = toShopSummary(room.shop);
+  broadcast(room.id, 'shop', shop);
+  // A seated buyer's balance rides on the slot list too, same as a bet.
+  if (room.slots.some((s) => s.sessionId === sessionId)) broadcast(room.id, 'roomUpdate', toRoomSummary(room));
+  postSystemChat(room, `${buyerName} used ${result.item.label} on ${result.use.targetName} (+${result.use.amount} HP)`, nowMs);
+
+  return { ok: true, balance, myItemUses: itemUsesForSession(room.shop, sessionId), use: result.use, shop };
+}
+
+/** How a buyer is named in the announcement and the activity line: their
+ * seat's pick if they hold one, otherwise the generated spectator name their
+ * client sends (see src/net/spectatorIdentity.ts). A seated buyer's name
+ * always comes from the seat, never from the request, so nobody can announce
+ * themselves as another player's Pokémon. */
+function resolveBuyerName(room: RoomState, sessionId: string, spectatorName?: string): string {
+  const slotIndex = room.slots.findIndex((s) => s.sessionId === sessionId);
+  if (slotIndex !== -1) {
+    const speciesId = room.slots[slotIndex].speciesId;
+    const name = speciesId !== null ? speciesNameById.get(speciesId) : undefined;
+    return name ?? `Seat ${slotIndex + 1}`;
+  }
+  return (spectatorName !== undefined ? normalizeSpectatorName(spectatorName) : null) ?? 'A spectator';
 }
 
 /** Pays the finished match's pool out (see predictions.ts's settlePrediction
@@ -585,9 +728,11 @@ function resetRoom(room: RoomState): void {
   room.lastBroadcastSeq = 0;
   room.chatLog = [];
   room.chatBuckets.clear();
+  room.itemBuckets.clear();
   // The settled pool goes with the engine it was scored against; wallets
   // (wallets.ts) live on — they're the tab's, not the room's.
   room.prediction = null;
+  room.shop = null;
   broadcast(room.id, 'lobbyReset', toRoomSummary(room));
   // Never actually sits idle — starts the next cycle right away.
   if (room.autoPlay) startAutoPlayCycle(room);

@@ -8,8 +8,11 @@ import {
   joinRoom,
   MAX_THUMBNAIL_BYTES,
   pickSpecies,
+  ITEM_BURST,
+  ITEM_REFILL_MS,
   placeRoomBet,
   postChat,
+  purchaseRoomItem,
   ROOM_COMPLETE_HOLD_MS,
   ROOM_COUNTDOWN_MS,
   setThumbnail,
@@ -17,8 +20,9 @@ import {
   toRoomSummary,
 } from './roomManager';
 import { broadcast, sendToSession, subscribedSessionIds } from './sse';
-import { getBalance, MATCH_WATCHED_REWARD, resetWalletsForTests, touchWallet } from './wallets';
-import type { PredictionSummary, WalletEventPayload } from '../src/net/protocol';
+import { adjustBalance, getBalance, MATCH_WATCHED_REWARD, resetWalletsForTests, STARTING_BALANCE, touchWallet } from './wallets';
+import type { ChatMessage, PredictionSummary, ShopSummary, WalletEventPayload } from '../src/net/protocol';
+import { getItem, MAX_HEALS_PER_TARGET } from '../src/net/shop';
 import { ROOM_MODES, roomCapacityForMode } from '../src/net/protocol';
 import { CHAT_LOG_LIMIT, CHAT_MAX_LENGTH, SPECTATOR_NAME_MAX_LENGTH } from '../src/net/chat';
 import { hasPmdSprite, listAllSpecies } from '../src/data/loader';
@@ -531,7 +535,7 @@ describe('roomManager predictions', () => {
     expect(option.total).toBe(50);
     expect(option.bettors).toBe(1);
     expect(getBalance('sess-a')).toBe(50);
-    expect(getHelloPayload(room, 'sess-a').me).toEqual({ balance: 50, mySlotIndex: null, myBet: { optionId: first, amount: 50 } });
+    expect(getHelloPayload(room, 'sess-a').me).toEqual({ balance: 50, mySlotIndex: null, myBet: { optionId: first, amount: 50 }, myItemUses: 0 });
   });
 
   it('shows a seated bettor\'s balance on their slot and re-broadcasts the room when it changes', () => {
@@ -690,5 +694,250 @@ describe('roomManager predictions', () => {
     expect(room.phase).toBe('battle');
     expect(lastPrediction()).toMatchObject({ matchNo: 2, status: 'open' });
     expect(lastPrediction().options).toHaveLength(8);
+  });
+});
+
+describe('roomManager shop', () => {
+  beforeEach(() => {
+    vi.useFakeTimers();
+    vi.mocked(broadcast).mockClear();
+    vi.mocked(sendToSession).mockClear();
+    vi.mocked(subscribedSessionIds).mockReturnValue(new Set());
+    resetWalletsForTests();
+  });
+
+  afterEach(() => {
+    vi.clearAllTimers();
+    vi.useRealTimers();
+  });
+
+  function frames(event: string) {
+    return vi.mocked(broadcast).mock.calls.filter(([, e]) => e === event);
+  }
+
+  function lastShop(): ShopSummary {
+    const calls = frames('shop');
+    return calls[calls.length - 1][2] as ShopSummary;
+  }
+
+  /** A room past the intro and mid-battle, every fighter unkillable by
+   * ordinary combat so the test decides HP, not the AI's dice. */
+  function battle() {
+    const room = createRoom('classic');
+    joinRoom(room, undefined, 'sess-seated');
+    vi.advanceTimersByTime(ROOM_COUNTDOWN_MS);
+    const state = room.engine!.getState() as SimState;
+    for (const id of state.allInstanceIds) {
+      state.pokemon[id].maxHp = 1000;
+      state.pokemon[id].currentHp = 1000;
+    }
+    vi.advanceTimersByTime(state.introDurationMs + TICK_MS);
+    expect(state.phase).toBe('battle');
+    return { room, state };
+  }
+
+  function hurt(state: SimState, id: string, hp = 200) {
+    state.pokemon[id].currentHp = hp;
+  }
+
+  /** Each buy needs its own session (MATCH_ITEM_LIMIT_PER_SESSION is 1) with
+   * a wallet big enough not to be the binding constraint. */
+  function fund(sessionId: string, balance = 1000) {
+    touchWallet(sessionId);
+    adjustBalance(sessionId, balance - STARTING_BALANCE);
+    return sessionId;
+  }
+
+  it('opens a full shelf right after battleStart and puts it in the hello payload', () => {
+    const { room } = battle();
+    const events = vi.mocked(broadcast).mock.calls.map(([, e]) => e);
+    expect(events.indexOf('shop')).toBeGreaterThan(events.indexOf('battleStart'));
+
+    const summary = lastShop();
+    expect(summary.matchNo).toBe(1);
+    expect(summary.stockLeft).toEqual({ potion: getItem('potion').stock, superPotion: getItem('superPotion').stock });
+    expect(summary.recent).toEqual([]);
+    expect(getHelloPayload(room).shop).toEqual(summary);
+  });
+
+  it('heals the target, debits the buyer exactly once, and broadcasts the shop', () => {
+    const { room, state } = battle();
+    const [id] = state.allInstanceIds;
+    hurt(state, id, 200);
+    fund('sess-a', 500);
+
+    const result = purchaseRoomItem(room, 'sess-a', 'potion', id);
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(state.pokemon[id].currentHp).toBe(200 + Math.round(1000 * getItem('potion').healFraction));
+    expect(result.use.amount).toBe(Math.round(1000 * getItem('potion').healFraction));
+    expect(getBalance('sess-a')).toBe(500 - getItem('potion').price);
+    expect(result.balance).toBe(500 - getItem('potion').price);
+    expect(result.myItemUses).toBe(1);
+    expect(lastShop().stockLeft.potion).toBe(getItem('potion').stock - 1);
+  });
+
+  it('announces the purchase as a senderless system chat line', () => {
+    const { room, state } = battle();
+    const [id] = state.allInstanceIds;
+    hurt(state, id);
+    fund('sess-a');
+
+    purchaseRoomItem(room, 'sess-a', 'potion', id, 'Slowpoke482');
+
+    const chat = frames('chat');
+    const message = chat[chat.length - 1][2] as ChatMessage;
+    expect(message.kind).toBe('system');
+    expect(message.slotIndex).toBeNull();
+    expect(message.spectatorName).toBeNull();
+    expect(message.speciesName).toBeNull();
+    expect(message.text).toContain('Slowpoke482');
+    expect(message.text).toContain(state.pokemon[id].name);
+    expect(message.text).toContain('Potion');
+    // It lands in the backlog every late joiner replays, like any other line.
+    expect(room.chatLog.at(-1)).toEqual(message);
+  });
+
+  it('names a seated buyer by their own pick, ignoring any spectator name they send', () => {
+    const { room, state } = battle();
+    const [id] = state.allInstanceIds;
+    hurt(state, id);
+    // 'sess-seated' holds slot 0 (see battle()); its pick was auto-filled.
+    fund('sess-seated');
+    const myName = state.pokemon[state.allInstanceIds[0]].name;
+
+    purchaseRoomItem(room, 'sess-seated', 'potion', id, 'ImposterName');
+
+    const chat = frames('chat');
+    const message = chat[chat.length - 1][2] as ChatMessage;
+    expect(message.text).toContain(myName);
+    expect(message.text).not.toContain('ImposterName');
+  });
+
+  it('re-broadcasts the roster when the buyer holds a seat, so their balance updates for everyone', () => {
+    const { room, state } = battle();
+    const [id] = state.allInstanceIds;
+    hurt(state, id);
+    fund('sess-seated');
+    vi.mocked(broadcast).mockClear();
+
+    purchaseRoomItem(room, 'sess-seated', 'potion', id);
+    expect(frames('roomUpdate')).toHaveLength(1);
+
+    // A spectator has no slot to update, so no roster frame goes out.
+    hurt(state, state.allInstanceIds[1]);
+    fund('sess-spectator');
+    vi.mocked(broadcast).mockClear();
+    purchaseRoomItem(room, 'sess-spectator', 'potion', state.allInstanceIds[1]);
+    expect(frames('roomUpdate')).toHaveLength(0);
+  });
+
+  it('runs the room-wide stock out no matter how many wallets show up', () => {
+    const { room, state } = battle();
+    const stock = getItem('potion').stock;
+    for (let i = 0; i < stock; i += 1) {
+      const id = state.allInstanceIds[i % state.allInstanceIds.length];
+      hurt(state, id);
+      expect(purchaseRoomItem(room, fund(`sess-${i}`), 'potion', id).ok).toBe(true);
+    }
+    const spare = state.allInstanceIds[state.allInstanceIds.length - 1];
+    hurt(state, spare);
+    expect(purchaseRoomItem(room, fund('sess-late'), 'potion', spare)).toEqual({ ok: false, error: 'out_of_stock' });
+    expect(getBalance('sess-late')).toBe(1000); // refused buys cost nothing
+  });
+
+  it('caps one session at a single purchase per match', () => {
+    const { room, state } = battle();
+    const [first, second] = state.allInstanceIds;
+    hurt(state, first);
+    hurt(state, second);
+    fund('sess-whale');
+
+    expect(purchaseRoomItem(room, 'sess-whale', 'potion', first).ok).toBe(true);
+    const balanceAfterFirst = getBalance('sess-whale');
+    expect(purchaseRoomItem(room, 'sess-whale', 'potion', second)).toEqual({ ok: false, error: 'session_limit' });
+    expect(getBalance('sess-whale')).toBe(balanceAfterFirst);
+  });
+
+  it('caps heals on one Pokémon, whoever is paying', () => {
+    const { room, state } = battle();
+    const [id] = state.allInstanceIds;
+    for (let i = 0; i < MAX_HEALS_PER_TARGET; i += 1) {
+      hurt(state, id);
+      expect(purchaseRoomItem(room, fund(`sess-heal-${i}`), 'potion', id).ok).toBe(true);
+    }
+    hurt(state, id);
+    expect(purchaseRoomItem(room, fund('sess-heal-last'), 'potion', id)).toEqual({ ok: false, error: 'target_limit' });
+  });
+
+  it('rate-limits a session hammering the endpoint', () => {
+    const { room, state } = battle();
+    const [id] = state.allInstanceIds;
+    fund('sess-spam');
+    // Every one of these is refused on its merits (full HP), but each still
+    // costs a token — that is the point of the bucket.
+    for (let i = 0; i < ITEM_BURST; i += 1) {
+      expect(purchaseRoomItem(room, 'sess-spam', 'potion', id)).toEqual({ ok: false, error: 'target_full_hp' });
+    }
+    expect(purchaseRoomItem(room, 'sess-spam', 'potion', id)).toEqual({ ok: false, error: 'rate_limited' });
+
+    // It refills from the clock.
+    vi.advanceTimersByTime(ITEM_REFILL_MS);
+    hurt(state, id);
+    expect(purchaseRoomItem(room, 'sess-spam', 'potion', id).ok).toBe(true);
+  });
+
+  it('is closed before the intro ends and again once the match completes', () => {
+    const room = createRoom('classic');
+    joinRoom(room, undefined, 'sess-seated');
+    vi.advanceTimersByTime(ROOM_COUNTDOWN_MS);
+    const state = room.engine!.getState() as SimState;
+    for (const id of state.allInstanceIds) {
+      state.pokemon[id].maxHp = 1000;
+      state.pokemon[id].currentHp = 200;
+    }
+    const [id] = state.allInstanceIds;
+    fund('sess-a');
+
+    expect(state.phase).toBe('intro');
+    expect(purchaseRoomItem(room, 'sess-a', 'potion', id)).toEqual({ ok: false, error: 'closed' });
+
+    vi.advanceTimersByTime(state.introDurationMs + TICK_MS);
+    expect(purchaseRoomItem(room, 'sess-a', 'potion', id).ok).toBe(true);
+
+    // Finish the match; the completion frame flips the shop to closed.
+    for (const other of state.allInstanceIds.slice(1)) state.pokemon[other].currentHp = 0;
+    vi.advanceTimersByTime(TICK_MS * 2);
+    expect(state.phase).toBe('complete');
+    expect(purchaseRoomItem(room, fund('sess-b'), 'potion', id)).toEqual({ ok: false, error: 'closed' });
+  });
+
+  it('drops the shop with the engine on reset, so the next round starts with a full shelf', () => {
+    const { room, state } = battle();
+    const [id] = state.allInstanceIds;
+    hurt(state, id);
+    purchaseRoomItem(room, fund('sess-a'), 'potion', id);
+    expect(room.shop!.stockLeft.potion).toBe(getItem('potion').stock - 1);
+
+    for (const other of state.allInstanceIds.slice(1)) state.pokemon[other].currentHp = 0;
+    vi.advanceTimersByTime(TICK_MS * 2);
+    vi.advanceTimersByTime(ROOM_COMPLETE_HOLD_MS);
+
+    expect(room.shop).toBeNull();
+    expect(getHelloPayload(room).shop).toBeNull();
+    // A purchase count from the finished match doesn't follow the session.
+    expect(getHelloPayload(room, 'sess-a').me!.myItemUses).toBe(0);
+  });
+
+  it('reports each session its own purchase count and never leaks a session id', () => {
+    const { room, state } = battle();
+    const [id] = state.allInstanceIds;
+    hurt(state, id);
+    purchaseRoomItem(room, fund('sess-buyer'), 'potion', id);
+
+    expect(getHelloPayload(room, 'sess-buyer').me!.myItemUses).toBe(1);
+    expect(getHelloPayload(room, 'sess-other').me!.myItemUses).toBe(0);
+    expect(JSON.stringify(lastShop())).not.toContain('sess-buyer');
   });
 });

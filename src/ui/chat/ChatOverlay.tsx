@@ -2,17 +2,21 @@ import { memo, useEffect, useRef, useState, type CSSProperties } from 'react';
 import type { ChatMessage } from '../../net/protocol';
 import { ChatPanel, type ChatPanelProps } from './ChatPanel';
 import { useKeyboardInset } from '../hooks/useKeyboardInset';
-import { CHAT_TICKER_FADE_MS, CHAT_TICKER_MAX, CHAT_TICKER_MS, chatSenderColor, chatSenderLabel, countUnread, latestChatId } from './chatModel';
+import { CHAT_TICKER_FADE_MS, CHAT_TICKER_MAX, CHAT_TICKER_MS, chatSenderColor, chatSenderLabel, countUnread, isSystemMessage, latestChatId } from './chatModel';
 import { PredictionsPanel, type PredictionsPanelProps } from '../predictions/PredictionsPanel';
-import { PRIMARY, PRIMARY_TEXT, TEXT, bgAlpha, textAlpha } from '../theme';
+import { ShopPanel, type ShopPanelProps } from '../shop/ShopPanel';
+import { PRIMARY, PRIMARY_TEXT, SUCCESS, TEXT, bgAlpha, textAlpha } from '../theme';
 
 export type ChatOverlayProps = Omit<ChatPanelProps, 'listHeight' | 'showTimestamps'> & {
   /** The room's predictions pool — gets its own 🔮 BET button beside 💬 CHAT
    * and its own tab in the drawer (see PredictionsPanel). */
   predictions?: PredictionsPanelProps;
+  /** The room's item shop — a third tab beside CHAT and BETS, and a 🎒
+   * button when collapsed (see ShopPanel). */
+  shop?: ShopPanelProps;
 };
 
-type DrawerTab = 'chat' | 'bets';
+type DrawerTab = 'chat' | 'bets' | 'shop';
 
 interface TickerEntry {
   message: ChatMessage;
@@ -33,7 +37,7 @@ interface TickerEntry {
  * useSimSnapshot) and none of this overlay's props come from the sim, so
  * without this the whole message list was re-rendered ten times a second.
  */
-export const ChatOverlay = memo(function ChatOverlay({ predictions, ...props }: ChatOverlayProps) {
+export const ChatOverlay = memo(function ChatOverlay({ predictions, shop, ...props }: ChatOverlayProps) {
   const { messages } = props;
   // Which drawer tab is showing, or null while the drawer is closed.
   const [openTab, setOpenTab] = useState<DrawerTab | null>(null);
@@ -94,18 +98,27 @@ export const ChatOverlay = memo(function ChatOverlay({ predictions, ...props }: 
                 🔮 BETS
               </button>
             )}
+            {shop && (
+              <button type="button" onClick={() => setOpenTab('shop')} style={tabStyle(openTab === 'shop')}>
+                🎒 SHOP
+              </button>
+            )}
           </div>
           <button type="button" onClick={() => setOpenTab(null)} title="Close" aria-label="Close" style={closeButtonStyle}>
             ▾
           </button>
         </div>
-        {openTab === 'chat' || !predictions ? (
-          <div style={drawerBodyStyle}>
-            <ChatPanel {...props} listHeight="flex" />
+        {openTab === 'bets' && predictions ? (
+          <div style={panelBodyStyle}>
+            <PredictionsPanel {...predictions} />
+          </div>
+        ) : openTab === 'shop' && shop ? (
+          <div style={panelBodyStyle}>
+            <ShopPanel {...shop} />
           </div>
         ) : (
-          <div style={{ ...drawerBodyStyle, overflowY: 'auto', overscrollBehavior: 'contain', padding: '0 4px calc(8px + env(safe-area-inset-bottom))' }}>
-            <PredictionsPanel {...predictions} />
+          <div style={drawerBodyStyle}>
+            <ChatPanel {...props} listHeight="flex" />
           </div>
         )}
       </div>
@@ -114,6 +127,14 @@ export const ChatOverlay = memo(function ChatOverlay({ predictions, ...props }: 
 
   const unread = countUnread(messages, lastSeenId);
   const betStatus = predictions?.prediction?.status ?? null;
+  const shopHasStock = Object.values(shop?.shop?.stockLeft ?? {}).some((left) => left > 0);
+  /** Three labelled buttons don't fit: the portrait arena's stage is only
+   * ~360px wide on a phone, and `💬 CHAT` + `🔮 BET OPEN` + `🎒` measured
+   * 255px against the ~218px the row has before it runs into MatchScreen's
+   * bottom-right LEAVE ROOM control. With all three present they drop to
+   * icons (and the bet badge to a dot), which is how a phone toolbar reads
+   * anyway; with only two, the labels stay exactly as they were. */
+  const compact = predictions !== undefined && shop !== undefined;
 
   return (
     <>
@@ -121,22 +142,35 @@ export const ChatOverlay = memo(function ChatOverlay({ predictions, ...props }: 
         <div style={tickerStackStyle}>
           {ticker.map(({ message, fading }) => (
             <div key={message.id} style={{ ...tickerRowStyle, opacity: fading ? 0 : 1 }}>
-              <span style={{ color: chatSenderColor(message), fontWeight: 'bold', textTransform: 'capitalize' }}>{chatSenderLabel(message, props.mySlotIndex, props.room, props.mySpectatorName)}</span>
-              <span style={{ opacity: 0.6 }}>: </span>
-              <span>{message.text}</span>
+              {isSystemMessage(message) ? (
+                // No sender — a shop announcement the server wrote.
+                <span style={{ color: SUCCESS, fontStyle: 'italic' }}>{message.text}</span>
+              ) : (
+                <>
+                  <span style={{ color: chatSenderColor(message), fontWeight: 'bold', textTransform: 'capitalize' }}>{chatSenderLabel(message, props.mySlotIndex, props.room, props.mySpectatorName)}</span>
+                  <span style={{ opacity: 0.6 }}>: </span>
+                  <span>{message.text}</span>
+                </>
+              )}
             </div>
           ))}
         </div>
       )}
       <div style={buttonRowStyle}>
-        <button type="button" onClick={() => setOpenTab('chat')} style={chatButtonStyle}>
-          💬 CHAT
+        <button type="button" onClick={() => setOpenTab('chat')} title="Chat" aria-label="Chat" style={chatButtonStyle}>
+          {compact ? '💬' : '💬 CHAT'}
           {unread > 0 && <span style={badgeStyle}>{unread > 99 ? '99+' : unread}</span>}
         </button>
         {predictions && (
-          <button type="button" onClick={() => setOpenTab('bets')} style={chatButtonStyle}>
-            🔮 BET
-            {betStatus === 'open' && <span style={badgeStyle}>OPEN</span>}
+          <button type="button" onClick={() => setOpenTab('bets')} title="Predictions" aria-label="Predictions" style={chatButtonStyle}>
+            {compact ? '🔮' : '🔮 BET'}
+            {betStatus === 'open' && (compact ? <span style={dotStyle} aria-hidden /> : <span style={badgeStyle}>OPEN</span>)}
+          </button>
+        )}
+        {shop && (
+          <button type="button" onClick={() => setOpenTab('shop')} title="Item shop" aria-label="Item shop" style={chatButtonStyle}>
+            🎒
+            {shopHasStock && <span style={dotStyle} aria-hidden />}
           </button>
         )}
       </div>
@@ -182,6 +216,15 @@ const badgeStyle: CSSProperties = {
   borderRadius: 8,
 };
 
+/** A bare dot instead of a count — the shop has nothing to count, only
+ * "there is still something on the shelf". */
+const dotStyle: CSSProperties = {
+  width: 6,
+  height: 6,
+  borderRadius: '50%',
+  background: SUCCESS,
+};
+
 const tickerStackStyle: CSSProperties = {
   position: 'absolute',
   left: 'max(16px, env(safe-area-inset-left))',
@@ -218,6 +261,17 @@ const drawerStyle: CSSProperties = {
   borderRadius: '12px 12px 0 0',
   pointerEvents: 'auto',
   zIndex: 2,
+};
+
+/** A drawer body holding a panel rather than the chat list: panels lay
+ * themselves out and scroll as one block, and need the safe-area padding the
+ * chat's own composer would otherwise provide. */
+const panelBodyStyle: CSSProperties = {
+  flex: 1,
+  minHeight: 0,
+  overflowY: 'auto',
+  overscrollBehavior: 'contain',
+  padding: '0 4px calc(8px + env(safe-area-inset-bottom))',
 };
 
 const drawerHeaderStyle: CSSProperties = {

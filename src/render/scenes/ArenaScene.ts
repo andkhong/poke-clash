@@ -14,7 +14,7 @@ import { playFallbackFlash } from '../vfx/anim/fallbackFlash';
 import { getMoveVfxAdjustment } from '../vfx/moveVfxAdjustments';
 import { resolveMoveVfxSource } from '../vfx/moveVfxSource';
 import { familyAnchorsAtBodyCenter, playFamilyVfx, preloadFamilyVfxAssets } from '../vfx/moves/playFamilyVfx';
-import { STATUS_COMMON_ANIMATIONS, playableFrameCount } from '../../data/moveAnimationFormat';
+import { HEAL_COMMON_ANIMATION, STATUS_COMMON_ANIMATIONS, playableFrameCount } from '../../data/moveAnimationFormat';
 import { playMoveSound, type MoveSoundHandle } from '../sound/moveSound';
 import { playBattleMusic } from '../sound/battleMusic';
 import { installMasterLimiter } from '../sound/masterBus';
@@ -211,7 +211,7 @@ export class ArenaScene extends Phaser.Scene {
       for (const id of state.livingOrder) {
         for (const slot of state.pokemon[id]?.moves ?? []) moveIds.add(slot.moveId);
       }
-      queueAnimationLoads(this, moveIds, Object.values(STATUS_COMMON_ANIMATIONS));
+      queueAnimationLoads(this, moveIds, [...Object.values(STATUS_COMMON_ANIMATIONS), HEAL_COMMON_ANIMATION]);
     }
   }
 
@@ -277,6 +277,12 @@ export class ArenaScene extends Phaser.Scene {
       if (event.type === 'moveUsed') {
         if (import.meta.env.DEV) logBattleEvent(event, state);
         this.enqueueAttack(event, state);
+      } else if (event.type === 'itemUsed') {
+        // Straight to the sprite, deliberately not through enqueueAttack: the
+        // attack queue is gated to one attack arena-wide (see
+        // MAX_SIMULTANEOUS_ATTACKS), and a heal is nobody's turn — it should
+        // land the moment it was bought, the way status VFX do.
+        this.sprites.get(event.instanceId)?.playHealVfx(event.amount);
       } else if (event.type === 'fainted') {
         const sprite = this.sprites.get(event.instanceId);
         sprite?.playFaintAndDestroy(() => this.sprites.delete(event.instanceId));

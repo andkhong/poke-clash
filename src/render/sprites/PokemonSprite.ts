@@ -13,7 +13,7 @@ import { createShinyAura, playSparkleReveal } from '../vfx/sparkle';
 import { frameDurationMs, playAnimation, type AnimationHandle } from '../vfx/anim/AnimPlayer';
 import { animationScaleFor } from '../vfx/anim/geometry';
 import { getLoadedCommonAnimation } from '../vfx/anim/moveAnimLoader';
-import { STATUS_COMMON_ANIMATIONS, playableFrameCount } from '../../data/moveAnimationFormat';
+import { HEAL_COMMON_ANIMATION, STATUS_COMMON_ANIMATIONS, playableFrameCount } from '../../data/moveAnimationFormat';
 import type { MoveDefinition } from '../../sim/types';
 import {
   ARENA_TOP_PADDING,
@@ -167,6 +167,15 @@ const STATUS_VFX_GAP_MS: Record<StatusCondition, number> = {
 const STATUS_ANIM_PLAYBACK_SPEED = 1.5;
 /** Retry cadence while a status animation's data is still downloading. */
 const STATUS_ANIM_RETRY_MS = 500;
+/** The heal one-shot runs a touch quicker than the ambient status loops —
+ * it marks a single moment rather than an ongoing condition. */
+const HEAL_ANIM_PLAYBACK_SPEED = 1.2;
+const HEAL_NUMBER_FONT_SIZE = 14;
+const HEAL_NUMBER_RISE_PX = 40;
+const HEAL_NUMBER_LIFESPAN_MS = 1100;
+/** The same green the HUD's healthy HP bar uses, so "+87" reads as healing
+ * at a glance. */
+const HEAL_NUMBER_COLOR = '#859900';
 const SLEEP_Z_FONT_SIZE = 12;
 const SLEEP_Z_LIFESPAN_MS = 1500;
 /** Body tint while frozen — pale ice-blue, light enough that the sprite's
@@ -1297,6 +1306,73 @@ export class PokemonSprite {
       alpha: 0,
       delay: SLEEP_Z_LIFESPAN_MS * 0.55,
       duration: SLEEP_Z_LIFESPAN_MS * 0.45,
+    });
+  }
+
+  /** A shop item landed on this Pokémon (see the sim's `itemUsed` event):
+   * plays the pack's Common:HealthUp one-shot over the body and floats the
+   * HP restored above it. Purely cosmetic and fire-and-forget — the HP change
+   * itself arrives through currentHp like any other, so a missed or
+   * still-downloading animation costs nothing but the flourish.
+   *
+   * Anchored the same way playStatusAnimation is (body centre, not the
+   * container's origin at the feet — see bodyCenterLift), so the sparkle
+   * rises through the Pokémon rather than out of the floor. */
+  playHealVfx(amount: number): void {
+    if (this.container.scene === undefined) return; // destroyed mid-flight
+    this.playHealAnimation();
+    this.spawnHealNumber(amount);
+  }
+
+  private playHealAnimation(): void {
+    const loaded = getLoadedCommonAnimation(this.scene, HEAL_COMMON_ANIMATION);
+    if (!loaded) return; // not downloaded yet — the floating number still shows
+    const anchor = (): Vec2 => ({ x: this.container.x, y: this.container.y - this.bodyCenterLift() });
+    const depth = (): number => this.container.y;
+    // Kept off this.statusAnimation: a heal is a one-shot that must not
+    // cancel, or be cancelled by, the ambient status loop running alongside
+    // it (a burned Pokémon can be healed).
+    playAnimation({
+      scene: this.scene,
+      data: loaded.data,
+      sheetKey: loaded.sheetKey,
+      getAttacker: anchor,
+      getTarget: anchor,
+      getAttackerDepth: depth,
+      getTargetDepth: depth,
+      scale: animationScaleFor(this.targetOnScreenSize),
+      msPerFrame: frameDurationMs(playableFrameCount(loaded.data.frames), Number.POSITIVE_INFINITY, HEAL_ANIM_PLAYBACK_SPEED),
+    });
+  }
+
+  /** "+87" rising off the body — same trick as the sleep Z's, in the labels'
+   * pixel font, so the amount reads even on a phone-sized arena. */
+  private spawnHealNumber(amount: number): void {
+    const startY = this.topOfBodyY() + 6;
+    const label = this.scene.add
+      .text(0, startY, `+${amount}`, {
+        fontSize: `${HEAL_NUMBER_FONT_SIZE}px`,
+        fontFamily: MOVE_LABEL_FONT_FAMILY,
+        color: HEAL_NUMBER_COLOR,
+        stroke: '#1a1a1a',
+        strokeThickness: 3,
+      })
+      .setOrigin(0.5, 1)
+      .setScale(0.6);
+    this.container.add(label);
+    this.scene.tweens.add({
+      targets: label,
+      y: startY - HEAL_NUMBER_RISE_PX,
+      scale: 1,
+      duration: HEAL_NUMBER_LIFESPAN_MS,
+      ease: 'Sine.easeOut',
+      onComplete: () => label.destroy(),
+    });
+    this.scene.tweens.add({
+      targets: label,
+      alpha: 0,
+      delay: HEAL_NUMBER_LIFESPAN_MS * 0.55,
+      duration: HEAL_NUMBER_LIFESPAN_MS * 0.45,
     });
   }
 

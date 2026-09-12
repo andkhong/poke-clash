@@ -93,6 +93,44 @@ export class SimulationEngine implements EngineLike {
     this.forceMatchEnd(this.state.elapsedMs);
   }
 
+  /** Restores `fraction` of `instanceId`'s maxHp and logs an `itemUsed`
+   * event, for the shop (see game-server/shop.ts). Returns the HP actually
+   * restored, or null if the heal was refused — the caller only takes the
+   * buyer's money on a number.
+   *
+   * The sibling of endMatchNow(): both are public mutators driven from
+   * outside the tick rather than by the sim's own rules, because the thing
+   * asking is a person, not the simulation. Node is single-threaded, so a
+   * call arriving on the HTTP thread always lands between two stepOnce()
+   * ticks — there is no partially-stepped state to guard against.
+   *
+   * Refuses a finished match, an unknown or already-fainted target, and a
+   * target already at full HP (so nobody pays for nothing). Never revives:
+   * a fainted Pokémon is out of livingOrder and stays out. */
+  applyItemHeal(instanceId: string, fraction: number, itemId: string, buyerName: string): number | null {
+    if (this.state.phase === 'complete') return null;
+    const target = this.state.pokemon[instanceId];
+    if (!target || target.currentHp <= 0) return null;
+    if (target.currentHp >= target.maxHp) return null;
+
+    // At least 1 HP, so a tiny fraction on a small health pool is still worth
+    // the money; capped by the room actually missing that much.
+    const requested = Math.max(1, Math.round(target.maxHp * fraction));
+    const amount = Math.min(requested, target.maxHp - target.currentHp);
+    target.currentHp += amount;
+
+    this.events.push({
+      seq: this.nextSeq(),
+      atMs: this.state.elapsedMs,
+      type: 'itemUsed',
+      instanceId,
+      itemId,
+      amount,
+      buyerName,
+    });
+    return amount;
+  }
+
   tick(dtMs: number): void {
     if (this.state.phase === 'complete') return;
     this.accumulatorMs += dtMs;

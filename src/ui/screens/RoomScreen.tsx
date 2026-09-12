@@ -4,6 +4,8 @@ import { RemoteSimEngine } from '../../net/RemoteSimEngine';
 import type {
   BetRequest,
   BetResponse,
+  BuyItemRequest,
+  BuyItemResponse,
   ChatMessage,
   ChatRequest,
   JoinRoomRequest,
@@ -11,8 +13,10 @@ import type {
   MyBet,
   PredictionSummary,
   RoomSummary,
+  ShopSummary,
   WalletEventPayload,
 } from '../../net/protocol';
+import type { ItemId } from '../../net/shop';
 import { resolveMatchArena } from '../../app/config';
 import { SPECTATOR_NAME } from '../../net/spectatorIdentity';
 import { SESSION_ID } from '../../net/sessionIdentity';
@@ -21,6 +25,7 @@ import { ChatSidebar } from '../chat/ChatSidebar';
 import type { ChatPanelProps } from '../chat/ChatPanel';
 import { appendChatMessage, CHAT_SIDEBAR_MEDIA_QUERY } from '../chat/chatModel';
 import type { PredictionsPanelProps } from '../predictions/PredictionsPanel';
+import type { ShopPanelProps } from '../shop/ShopPanel';
 import { useMediaQuery } from '../hooks/useMediaQuery';
 import { useWideArenaPreference } from '../hooks/useWideArenaPreference';
 import { useRoomThumbnailCapture } from '../hooks/useRoomThumbnailCapture';
@@ -63,6 +68,10 @@ export function RoomScreen({ roomId, embedded = false }: RoomScreenProps) {
   const [balance, setBalance] = useState<number | null>(null);
   const [myBet, setMyBet] = useState<MyBet | null>(null);
   const [settled, setSettled] = useState<WalletEventPayload['settled'] | null>(null);
+  // The room's item shop for the running match, and how much of this tab's
+  // per-match allowance is spent (see SessionPrivate.myItemUses).
+  const [shop, setShop] = useState<ShopSummary | null>(null);
+  const [myItemUses, setMyItemUses] = useState(0);
   // The stream failed to (re)open — shown instead of a bare "Connecting…"
   // that would otherwise sit there forever for a dead server or a stale
   // room link, with no way out. EventSource retries by itself; a `hello`
@@ -72,6 +81,10 @@ export function RoomScreen({ roomId, embedded = false }: RoomScreenProps) {
   // The live engine behind `store`, for the 10 Hz stateUpdate handler to
   // feed without going through React state at all.
   const engineRef = useRef<RemoteSimEngine | null>(null);
+  /** The match the shop frames seen so far belong to — a change means a new
+   * round, which resets this tab's per-match item allowance. A ref rather
+   * than state because it's only ever read inside the handler that sets it. */
+  const shopMatchNoRef = useRef<number | null>(null);
 
   const forgetSeat = useCallback(() => {
     sessionStorage.removeItem(playerIdStorageKey(roomId));
@@ -100,9 +113,11 @@ export function RoomScreen({ roomId, embedded = false }: RoomScreenProps) {
         // said while this client was away.
         setChatLog(payload.chatLog);
         setPrediction(payload.prediction);
+        setShop(payload.shop);
         if (payload.me) {
           setBalance(payload.me.balance);
           setMyBet(payload.me.myBet);
+          setMyItemUses(payload.me.myItemUses);
           setMySlotIndex(payload.me.mySlotIndex);
           // A seat remembered from an earlier session in this room no longer
           // exists once the room has reset — without this, the stale token
@@ -139,6 +154,10 @@ export function RoomScreen({ roomId, embedded = false }: RoomScreenProps) {
         // whatever this tab held is gone; its bet, if any, was settled.
         forgetSeat();
         setMyBet(null);
+        // The shelf belongs to the match it was stocked for; the next round
+        // gets a fresh one (and a fresh allowance) from its own battleStart.
+        setShop(null);
+        setMyItemUses(0);
         // The always-on showcase room keeps its arena on screen through the
         // gap between rounds (see the `inMatch` / `postMatchCountdownLabel`
         // below) — tearing the store/engine down here would blank the map
@@ -155,6 +174,14 @@ export function RoomScreen({ roomId, embedded = false }: RoomScreenProps) {
       },
       onPrediction(summary) {
         setPrediction(summary);
+      },
+      onShop(summary) {
+        setShop(summary);
+        // A fresh shelf means a new match, so this tab's allowance resets
+        // with it — the hello is the only other thing that sets this, and a
+        // reconnect mid-match must not hand out a second purchase.
+        setMyItemUses((current) => (summary.matchNo !== shopMatchNoRef.current ? 0 : current));
+        shopMatchNoRef.current = summary.matchNo;
       },
       onWallet(payload) {
         setBalance(payload.balance);
@@ -244,6 +271,29 @@ export function RoomScreen({ roomId, embedded = false }: RoomScreenProps) {
     }
   }, [roomId]);
 
+  const handleBuyItem = useCallback(async (itemId: ItemId, targetInstanceId: string): Promise<string | null> => {
+    // The spectator name rides along for the announcement; the server ignores
+    // it when this session holds a seat (see resolveBuyerName).
+    const request: BuyItemRequest = { sessionId: SESSION_ID, itemId, targetInstanceId, spectatorName: SPECTATOR_NAME };
+    try {
+      const res = await fetch(`/api/rooms/${roomId}/item`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(request),
+      });
+      const body = (await res.json().catch(() => null)) as (Partial<BuyItemResponse> & { error?: string }) | null;
+      if (!res.ok || !body?.wallet || !body.shop || body.myItemUses === undefined) return body?.error ?? 'buy_failed';
+      // Optimistic, exactly like handleBet: the broadcast confirms the same
+      // numbers for everyone else a moment later.
+      setBalance(body.wallet.balance);
+      setMyItemUses(body.myItemUses);
+      setShop(body.shop);
+      return null;
+    } catch {
+      return 'buy_failed';
+    }
+  }, [roomId]);
+
   // "You" is whichever seat the server says is mine (HelloPayload.me /
   // JoinRoomResponse), otherwise this tab's generated spectator identity.
   // Every room supports chat now (see spectatorIdentity.ts), seated or not,
@@ -266,6 +316,18 @@ export function RoomScreen({ roomId, embedded = false }: RoomScreenProps) {
     settled,
     canBet: !embedded,
     onBet: handleBet,
+  };
+
+  // `store` is passed through rather than the sim state itself: the panel
+  // subscribes to it on its own, which keeps the 10 Hz HUD tick out of this
+  // screen and out of the memoized ChatOverlay (see ShopPanel).
+  const shopPanel: ShopPanelProps = {
+    shop,
+    store,
+    balance,
+    myItemUses,
+    canBuy: !embedded,
+    onBuy: handleBuyItem,
   };
 
   // One log, two presentations. Wide viewport: a stream-style chat column
@@ -334,7 +396,7 @@ export function RoomScreen({ roomId, embedded = false }: RoomScreenProps) {
             highlightInstanceId={highlightInstanceId}
             onCanvasReady={setCanvas}
             captureFrames={!room.autoPlay}
-            chat={sidebar ? undefined : { ...chat, predictions }}
+            chat={sidebar ? undefined : { ...chat, predictions, shop: shopPanel }}
             bannerOverrideText={postMatchCountdownLabel}
             viewerCount={embedded ? undefined : room.viewerCount}
             showCompleteControl={!embedded}
@@ -352,7 +414,7 @@ export function RoomScreen({ roomId, embedded = false }: RoomScreenProps) {
           />
         )}
       </div>
-      {room && sidebar && <ChatSidebar {...chat} predictions={predictions} />}
+      {room && sidebar && <ChatSidebar {...chat} predictions={predictions} shop={shopPanel} />}
     </div>
   );
 }

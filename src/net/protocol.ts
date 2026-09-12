@@ -1,4 +1,5 @@
 import type { MatchConfig, SimEvent, SimState } from '../sim/types';
+import type { ItemId } from './shop';
 import type { LeanSimState } from './leanState';
 
 /** Shared wire types between game-server/ and the client's multiplayer UI.
@@ -137,6 +138,9 @@ export interface HelloPayload {
   /** The current match's prediction pool, if a match is running or just
    * finished (null between rounds, since resetRoom drops it with the engine). */
   prediction: PredictionSummary | null;
+  /** The current match's item shop, or null between rounds (resetRoom drops
+   * it with the engine, exactly like `prediction` above). */
+  shop: ShopSummary | null;
   /** This stream's own session, or null if it opened without a `?session=`
    * — the one personalised part of an otherwise identical hello. */
   me: SessionPrivate | null;
@@ -151,6 +155,10 @@ export interface SessionPrivate {
    * (no longer broadcast) playerId against the slot list. */
   mySlotIndex: number | null;
   myBet: MyBet | null;
+  /** Shop purchases this session has already made in the current match —
+   * checked against MATCH_ITEM_LIMIT_PER_SESSION. Sent rather than derived
+   * so a reload or an EventSource reconnect can't reset the cap. */
+  myItemUses: number;
 }
 
 export interface MyBet {
@@ -211,6 +219,61 @@ export interface BetResponse {
   wallet: WalletSummary;
   myBet: MyBet;
   prediction: PredictionSummary;
+}
+
+/** One item actually used on a Pokémon, for the panel's activity line and
+ * the system chat announcement. Carries names rather than ids for the
+ * buyer because a spectator has no seat to look up (see ChatMessage's
+ * spectatorName) — and never a session id, same rule toPredictionSummary
+ * follows. */
+export interface ItemUse {
+  itemId: ItemId;
+  targetInstanceId: string;
+  targetName: string;
+  /** The buyer's display name — their seat's species in a seated room, their
+   * generated spectator name otherwise. */
+  buyerName: string;
+  /** HP actually restored, after clamping to maxHp. */
+  amount: number;
+  atMs: number;
+}
+
+/** The room's shop for the current match. Public: everyone sees the same
+ * stock draining, which is half the drama and all of the accountability. */
+export interface ShopSummary {
+  /** Matches PredictionSummary.matchNo — lets the client tell this match's
+   * shop from the last one's leftovers. */
+  matchNo: number;
+  /** Whether the shop is trading is deliberately *not* here: it's a function
+   * of the sim phase (see isShopOpenForPhase), and every client already holds
+   * the live sim state, so deriving it there is always fresh — a flag stamped
+   * at broadcast time would say "closed" for the whole match, since the shop
+   * opens with battleStart while the intro parade is still running. */
+  /** Units left of each item, room-wide, for this match. */
+  stockLeft: Record<ItemId, number>;
+  /** The most recent uses, newest last, capped at ITEM_USE_LOG_LIMIT. */
+  recent: ItemUse[];
+}
+
+export interface BuyItemRequest {
+  sessionId: string;
+  itemId: ItemId;
+  /** Which Pokémon to use it on (a sim instance id, `p0-393`-shaped). */
+  targetInstanceId: string;
+  /** An unseated buyer's generated display name, for the announcement (see
+   * ChatRequest.spectatorName — same convention). Ignored when the session
+   * holds a seat: that seat's species name is used instead, so a buyer can't
+   * announce themselves as someone else's Pokémon. */
+  spectatorName?: string;
+}
+
+export interface BuyItemResponse {
+  wallet: WalletSummary;
+  /** This session's purchase count after the buy — the client tracks its own
+   * cap from this rather than counting optimistically. */
+  myItemUses: number;
+  use: ItemUse;
+  shop: ShopSummary;
 }
 
 /** The private `wallet` SSE frame — sent to a session (every stream it has
@@ -310,6 +373,12 @@ export interface ChatMessage {
    * carried no session. A seated sender's live balance is on their slot
    * (RoomSlotSummary.balance) and wins over this snapshot in the client. */
   balance: number | null;
+  /** 'system' for a line the server wrote itself — today, a shop purchase
+   * announcement (see game-server/roomManager.ts's purchaseRoomItem). Such a
+   * line has no sender at all: every identity field above is null and the
+   * client renders `text` on its own, so it can never be mistaken for
+   * something a viewer typed. Absent on an ordinary message. */
+  kind?: 'system';
   text: string;
   sentAtMs: number;
 }

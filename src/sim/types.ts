@@ -271,6 +271,23 @@ export type SimEvent =
   | { seq: number; atMs: number; type: 'statusApplied'; instanceId: string; status: StatusCondition }
   | { seq: number; atMs: number; type: 'statusTick'; instanceId: string; status: StatusCondition; amount: number }
   | { seq: number; atMs: number; type: 'statusCleared'; instanceId: string; status: StatusCondition }
+  | {
+      seq: number;
+      atMs: number;
+      /** A viewer spent Pokémon Dollars on a shop item for this Pokémon (see
+       * game-server/shop.ts). Unlike every other event here this one isn't
+       * produced by the sim's own tick — the server calls
+       * SimulationEngine.applyItemHeal out of band, the same way the UI
+       * already calls endMatchNow. Renderers hang the heal VFX on it; the
+       * HP change itself rides currentHp like any other. */
+      type: 'itemUsed';
+      instanceId: string;
+      itemId: string;
+      /** HP actually restored, after clamping to maxHp. */
+      amount: number;
+      /** Who paid, for the floating label and the system chat line. */
+      buyerName: string;
+    }
   | { seq: number; atMs: number; type: 'fainted'; instanceId: string; byInstanceId: string | null }
   | { seq: number; atMs: number; type: 'milestone'; kind: 'matchStart' | 'finalTwo' | 'matchEnd' };
 

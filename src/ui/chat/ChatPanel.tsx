@@ -2,8 +2,8 @@ import { useCallback, useEffect, useLayoutEffect, useRef, useState, type CSSProp
 import type { ChatMessage, RoomSummary } from '../../net/protocol';
 import { CHAT_MAX_LENGTH, normalizeChatText, QUICK_REACTIONS } from '../../net/chat';
 import { containsBlockedLanguage } from '../../net/chatFilter';
-import { chatSenderColor, chatSenderLabel, formatChatTime } from './chatModel';
-import { DESTRUCTIVE, PRIMARY, PRIMARY_TEXT, TEXT, textAlpha } from '../theme';
+import { chatSenderColor, chatSenderLabel, formatChatTime, isSystemMessage } from './chatModel';
+import { DESTRUCTIVE, PRIMARY, PRIMARY_TEXT, SUCCESS, TEXT, textAlpha } from '../theme';
 
 export interface ChatPanelProps {
   messages: ChatMessage[];
@@ -126,14 +126,22 @@ export function ChatPanel({
       <div style={listWrapStyle}>
         <div ref={listRef} onScroll={handleScroll} style={listStyle}>
           {messages.length === 0 && <p style={emptyStyle}>No messages yet.</p>}
-          {messages.map((message) => (
-            <div key={message.id} style={rowStyle}>
-              {showTimestamps && <span style={timeStyle}>{formatChatTime(message.sentAtMs)}</span>}
-              <span style={{ color: chatSenderColor(message), fontWeight: 'bold', textTransform: 'capitalize' }}>{chatSenderLabel(message, mySlotIndex, room, mySpectatorName)}</span>
-              <span style={{ opacity: 0.6 }}>: </span>
-              <span>{message.text}</span>
-            </div>
-          ))}
+          {messages.map((message) =>
+            isSystemMessage(message) ? (
+              // No sender, no colon — see isSystemMessage.
+              <div key={message.id} style={systemRowStyle}>
+                {showTimestamps && <span style={timeStyle}>{formatChatTime(message.sentAtMs)}</span>}
+                <span>{message.text}</span>
+              </div>
+            ) : (
+              <div key={message.id} style={rowStyle}>
+                {showTimestamps && <span style={timeStyle}>{formatChatTime(message.sentAtMs)}</span>}
+                <span style={{ color: chatSenderColor(message), fontWeight: 'bold', textTransform: 'capitalize' }}>{chatSenderLabel(message, mySlotIndex, room, mySpectatorName)}</span>
+                <span style={{ opacity: 0.6 }}>: </span>
+                <span>{message.text}</span>
+              </div>
+            )
+          )}
         </div>
         {newBelow && (
           <button type="button" onClick={scrollToBottom} style={newBelowStyle}>
@@ -223,6 +231,12 @@ const rowStyle: CSSProperties = {
   lineHeight: 1.45,
   padding: '2px 0',
   overflowWrap: 'anywhere',
+};
+
+const systemRowStyle: CSSProperties = {
+  ...rowStyle,
+  color: SUCCESS,
+  fontStyle: 'italic',
 };
 
 const timeStyle: CSSProperties = {
