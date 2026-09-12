@@ -20,6 +20,7 @@ import type {
 } from '../src/net/protocol';
 import { roomCapacityForMode, teamSizeForMode } from '../src/net/protocol';
 import { CHAT_LOG_LIMIT, normalizeChatText, normalizeSpectatorName } from '../src/net/chat';
+import { containsBlockedLanguage } from '../src/net/chatFilter';
 import { broadcast, sendToSession, subscribedSessionIds, subscriberCount } from './sse';
 import { toLeanState } from '../src/net/leanState';
 import { openPrediction, placeBet, settlePrediction, toPredictionSummary, type PlaceBetError, type PredictionState } from './predictions';
@@ -318,7 +319,7 @@ function takeChatToken(room: RoomState, key: string, nowMs: number): boolean {
 
 export type PostChatResult =
   | { ok: true; message: ChatMessage }
-  | { ok: false; error: 'not_in_room' | 'invalid_message' | 'invalid_name' | 'rate_limited' };
+  | { ok: false; error: 'not_in_room' | 'invalid_message' | 'invalid_name' | 'blocked_language' | 'rate_limited' };
 
 /** Posts one chat line and broadcasts it as a `chat` SSE event — from a
  * seated player (`playerId` matches one of the room's slots) or, since every
@@ -332,8 +333,8 @@ export type PostChatResult =
  * No phase gate on purpose: a seat only exists from join until resetRoom
  * wipes it 8 s after the match completes, so `not_in_room` already covers
  * idle rooms, and the complete-phase hold is exactly when "GG" happens.
- * Validation runs before the rate limiter so a rejected message doesn't burn
- * any of the sender's budget. `nowMs` is injectable for tests. `sessionId`
+ * Validation (including the language filter) runs before the rate limiter so
+ * a rejected message doesn't burn any of the sender's budget. `nowMs` is injectable for tests. `sessionId`
  * only stamps the message with the sender's balance (ChatMessage.balance);
  * a seated sender's comes from their seat's session instead. */
 export function postChat(
@@ -350,6 +351,10 @@ export function postChat(
 
   const text = normalizeChatText(rawText);
   if (text === null) return { ok: false, error: 'invalid_message' };
+  // Slurs and swearing are rejected outright rather than starred out (see
+  // chatFilter.ts). The client checks the same rule before sending, so this
+  // is the tampered-request path — and the authoritative one.
+  if (containsBlockedLanguage(text)) return { ok: false, error: 'blocked_language' };
 
   let normalizedSpectatorName: string | null = null;
   if (!seated) {

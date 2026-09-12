@@ -180,6 +180,22 @@ describe('roomManager chat', () => {
     expect(chatFrames()).toHaveLength(1);
   });
 
+  it('rejects a message with a slur or swearing without logging or broadcasting it', () => {
+    const room = createRoom('classic');
+    const playerId = seat(room);
+    expect(postChat(room, playerId, 'f u c k this', 1000)).toEqual({ ok: false, error: 'blocked_language' });
+    expect(postChat(room, null, 'xxniggerxx', 1000, 'Slowpoke482')).toEqual({ ok: false, error: 'blocked_language' });
+    expect(postChat(room, playerId, 'gg wp', 1000).ok).toBe(true);
+    expect(getHelloPayload(room).chatLog.map((m) => m.text)).toEqual(['gg wp']);
+    expect(chatFrames()).toHaveLength(1);
+  });
+
+  it('rejects a spectator name carrying a slur, however it reaches the server', () => {
+    const room = createRoom('classic');
+    expect(postChat(room, null, 'hi', 0, 'Sh1tMunchr')).toEqual({ ok: false, error: 'invalid_name' });
+    expect(chatFrames()).toHaveLength(0);
+  });
+
   it('rejects a blank or over-long spectator name without logging or charging the rate limit', () => {
     const room = createRoom('classic');
     expect(postChat(room, null, 'hi', 0, '   ')).toEqual({ ok: false, error: 'invalid_name' });

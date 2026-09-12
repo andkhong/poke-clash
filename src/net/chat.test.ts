@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { CHAT_MAX_LENGTH, normalizeChatText, QUICK_REACTIONS } from './chat';
+import { CHAT_MAX_LENGTH, normalizeChatText, normalizeSpectatorName, QUICK_REACTIONS } from './chat';
 
 const BELL = String.fromCharCode(7);
 const NEWLINE = String.fromCharCode(10);
@@ -33,5 +33,15 @@ describe('normalizeChatText', () => {
 
   it('passes every quick reaction through unchanged', () => {
     for (const reaction of QUICK_REACTIONS) expect(normalizeChatText(reaction)).toBe(reaction);
+  });
+});
+
+describe('normalizeSpectatorName', () => {
+  it('keeps a generated species name', () => {
+    expect(normalizeSpectatorName(' Slowpoke482 ')).toBe('Slowpoke482');
+  });
+
+  it('rejects a name carrying a slur or swearing, however it is spelled', () => {
+    for (const name of ['Fuck482', 'Sh1tMunchr', 'xXn1ggerXx']) expect(normalizeSpectatorName(name)).toBeNull();
   });
 });

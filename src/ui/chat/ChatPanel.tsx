@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState, type CSSProperties } from 'react';
 import type { ChatMessage, RoomSummary } from '../../net/protocol';
 import { CHAT_MAX_LENGTH, normalizeChatText, QUICK_REACTIONS } from '../../net/chat';
+import { containsBlockedLanguage } from '../../net/chatFilter';
 import { chatSenderColor, chatSenderLabel, formatChatTime } from './chatModel';
 import { DESTRUCTIVE, PRIMARY, PRIMARY_TEXT, TEXT, textAlpha } from '../theme';
 
@@ -14,7 +15,8 @@ export interface ChatPanelProps {
   room: RoomSummary | null;
   canSend: boolean;
   /** Resolves to null on success, or a machine error code (`rate_limited`,
-   * `not_in_room`, `send_failed`, …) the panel turns into a short notice. */
+   * `not_in_room`, `blocked_language`, `send_failed`, …) the panel turns into
+   * a short notice. */
   onSend: (text: string) => Promise<string | null>;
   /** A fixed list height in px (the mobile lobby, which scrolls as a page),
    * or 'flex' to fill whatever flex column the panel is placed in (the web
@@ -26,6 +28,7 @@ export interface ChatPanelProps {
 }
 
 const STATUS_NOTICE_MS = 2000;
+const BLOCKED_NOTICE = 'Keep it clean — that message wasn’t sent';
 // "Near enough" to the bottom that a new message should auto-scroll — a
 // reader who has scrolled up to re-read keeps their place instead.
 const NEAR_BOTTOM_PX = 40;
@@ -88,6 +91,13 @@ export function ChatPanel({
   const send = async (raw: string) => {
     const text = normalizeChatText(raw);
     if (text === null || !canSend || sending) return;
+    // Same filter the server enforces (see chatFilter.ts), run here so the
+    // sender is told immediately and the line never leaves the device. The
+    // draft is left in the box to be edited rather than wiped.
+    if (containsBlockedLanguage(text)) {
+      flashNotice(BLOCKED_NOTICE);
+      return;
+    }
     setSending(true);
     const error = await onSend(text);
     setSending(false);
@@ -97,7 +107,15 @@ export function ChatPanel({
       scrollToBottom();
       return;
     }
-    flashNotice(error === 'rate_limited' ? 'Slow down' : error === 'not_in_room' ? 'Join the room to chat' : 'Couldn’t send');
+    flashNotice(
+      error === 'rate_limited'
+        ? 'Slow down'
+        : error === 'not_in_room'
+          ? 'Join the room to chat'
+          : error === 'blocked_language'
+            ? BLOCKED_NOTICE
+            : 'Couldn’t send'
+    );
   };
 
   const listWrapStyle: CSSProperties =
