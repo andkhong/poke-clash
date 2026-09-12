@@ -2,6 +2,7 @@ import { randomUUID } from 'node:crypto';
 import { SimulationEngine } from '../src/sim/engine';
 import { buildSpeciesMapForLevel, hasPmdSprite, listAllSpecies, moveLookup, pickRandomSpeciesIds } from '../src/data/loader';
 import { AGGRESSION_TRIGGER_MS, ARENA_HEIGHT, ARENA_WIDTH, TICK_MS } from '../src/sim/constants';
+import { rngIntInclusive } from '../src/sim/rng';
 import { HUD_REFRESH_INTERVAL_MS } from '../src/ui/state/simStore';
 import type { ArenaBounds, MatchConfig, SimState } from '../src/sim/types';
 import { computeWinOdds } from '../src/sim/odds';
@@ -25,9 +26,24 @@ import { CHAT_LOG_LIMIT, normalizeChatText, normalizeSpectatorName } from '../sr
 import { containsBlockedLanguage } from '../src/net/chatFilter';
 import { broadcast, sendToSession, subscribedSessionIds, subscriberCount } from './sse';
 import { toLeanState } from '../src/net/leanState';
-import { openPrediction, placeBet, settlePrediction, toPredictionSummary, type PlaceBetError, type PredictionState } from './predictions';
+import { isOptionAlive, openPrediction, placeBet, settlePrediction, toPredictionSummary, type PlaceBetError, type PredictionState } from './predictions';
 import { itemUsesForSession, openShop, purchaseItem, toShopSummary, type PurchaseItemError, type ShopState } from './shop';
-import { adjustBalance, getBalance, MATCH_WATCHED_REWARD, touchWallet } from './wallets';
+import { adjustBalance, getBalance, MATCH_WATCHED_REWARD, touchWallet, walletStreamClosed, walletStreamOpened } from './wallets';
+import {
+  BOT_BALANCE_CEILING,
+  BOT_BALANCE_FLOOR,
+  BOT_TICK_MS,
+  botSessionIds,
+  createBotState,
+  isBotSession,
+  liveBotCount,
+  resetBotMatch,
+  startBotMatch,
+  tickBots,
+  type BotContext,
+  type BotState,
+  type BotTarget,
+} from './bots';
 
 export const ROOM_COUNTDOWN_MS = 15_000;
 export const ROOM_COMPLETE_HOLD_MS = 8_000;
@@ -119,6 +135,17 @@ interface RoomState {
   chatBuckets: Map<string, RateBucket>;
   /** Per-session item-purchase buckets (see takeItemToken). */
   itemBuckets: Map<string, RateBucket>;
+  /** When a real person (not a bot) last posted here, or null if none has
+   * this match — bots hold off for a moment after it (see bots.ts's
+   * BOT_CHAT_HUMAN_FREEZE_MS). Reset with the chat log. */
+  lastHumanChatAtMs: number | null;
+  /** This room's fake audience, or null for a room without one (see bots.ts).
+   * Only the showcase room gets one, and only because server.ts asks. Unlike
+   * `prediction`/`shop` this is NOT dropped by resetRoom: the roster has to
+   * still be there during the countdown, and the viewer count it feeds must
+   * not blink to zero between rounds — the same carve-out nextChatId has. */
+  bots: BotState | null;
+  botTimer: ReturnType<typeof setInterval> | null;
   /** The running/just-finished match's betting pool (see predictions.ts) —
    * opened by startBattle, settled when the match completes, dropped by
    * resetRoom along with the engine. Null between rounds. */
@@ -138,6 +165,9 @@ interface RoomState {
 const rooms = new Map<string, RoomState>();
 let nextRoomNumber = 1;
 const speciesNameById = new Map(listAllSpecies().map((s) => [s.id, s.name]));
+/** The name pool bot spectators draw from — the same species list a real
+ * tab's generated name comes from (see src/net/spectatorIdentity.ts). */
+const botNames = listAllSpecies().map((s) => s.name);
 
 // A team room's slots are always laid out with all of Team A's seats first
 // (index 0..teamSize-1) then all of Team B's (teamSize..capacity-1) — joinRoom
@@ -157,7 +187,11 @@ function emptySlots(mode: RoomMode, capacity: number): PlayerSlot[] {
   }));
 }
 
-export function createRoom(mode: RoomMode = 'classic', arena?: ArenaBounds, opts?: { autoPlay?: boolean; capacity?: number }) {
+export function createRoom(
+  mode: RoomMode = 'classic',
+  arena?: ArenaBounds,
+  opts?: { autoPlay?: boolean; capacity?: number; bots?: boolean; botSeed?: number }
+) {
   const id = `room-${nextRoomNumber}`;
   const name = opts?.autoPlay ? 'Featured Showcase' : `Room ${nextRoomNumber}`;
   nextRoomNumber += 1;
@@ -181,6 +215,9 @@ export function createRoom(mode: RoomMode = 'classic', arena?: ArenaBounds, opts
     nextChatId: 1,
     chatBuckets: new Map(),
     itemBuckets: new Map(),
+    lastHumanChatAtMs: null,
+    bots: null,
+    botTimer: null,
     prediction: null,
     shop: null,
     matchCount: 0,
@@ -190,6 +227,17 @@ export function createRoom(mode: RoomMode = 'classic', arena?: ArenaBounds, opts
     completeResetTimer: null,
   };
   rooms.set(id, room);
+  // Opt-in rather than implied by autoPlay: every existing autoPlay test
+  // drives fake timers and asserts exact broadcast counts, so a room that
+  // starts chatting on its own would break them. server.ts is the only
+  // caller that turns this on, and it reads the kill switch (see its PORT).
+  if (opts?.bots) {
+    room.bots = createBotState(opts.botSeed ?? Math.floor(Math.random() * 0xffffffff), Date.now(), botNames);
+    for (const sessionId of botSessionIds(room.bots)) openBotWallet(sessionId);
+    registerBotLoop(room);
+  }
+  // After the roster, so the very first roomUpdate already carries a
+  // plausible viewer count rather than zero.
   if (room.autoPlay) startAutoPlayCycle(room);
   return room;
 }
@@ -226,7 +274,7 @@ export function toRoomSummary(room: RoomState): RoomSummary {
     capacity: room.capacity,
     autoPlay: room.autoPlay,
     thumbnailUpdatedAtMs: room.thumbnailUpdatedAtMs,
-    viewerCount: subscriberCount(room.id),
+    viewerCount: subscriberCount(room.id) + liveBotCount(room.bots),
   };
 }
 
@@ -418,6 +466,10 @@ export function postChat(
     sentAtMs: nowMs,
   };
   appendChatMessage(room, message);
+  // Bots back off for a moment after a real person speaks (see bots.ts's
+  // BOT_CHAT_HUMAN_FREEZE_MS). They always send their own session id, so
+  // this tells the two apart exactly rather than by heuristic.
+  if (!isBotSession(room.bots, balanceSessionId)) room.lastHumanChatAtMs = nowMs;
   return { ok: true, message };
 }
 
@@ -518,6 +570,13 @@ function startBattle(room: RoomState): void {
   // to spend on once betting closes at the aggression mark.
   room.shop = openShop(room.matchCount);
   broadcast(room.id, 'shop', toShopSummary(room.shop));
+
+  // After the pool and the shelf exist: the roster's bets are picked from
+  // this match's actual options.
+  if (room.bots) {
+    topUpBotWallets(room);
+    startBotMatch(room.bots, buildBotContext(room, Date.now()), Date.now());
+  }
 
   registerRoomTickLoop(room);
 }
@@ -704,6 +763,146 @@ function registerRoomTickLoop(room: RoomState): void {
   }, BROADCAST_INTERVAL_MS);
 }
 
+/** Bot spectators (see bots.ts) — everything impure about them lives here,
+ * the same way this file owns the timers and money for predictions.ts and
+ * shop.ts. bots.ts decides what the audience does; these functions build it
+ * a view of the room and carry out the result through the very same
+ * postChat/placeRoomBet/purchaseRoomItem a real client's request reaches.
+ */
+
+/** A bot holds no SSE stream, so its wallet would be reaped by
+ * WALLET_GRACE_MS. Opening a stream for it is the existing way to pin one —
+ * walletStreamOpened mints the wallet itself if it has to, so this is also
+ * how a bot gets its starting balance. Every call is paired with
+ * closeBotWallet when the bot churns out, or the map grows without bound. */
+function openBotWallet(sessionId: string): void {
+  walletStreamOpened(sessionId);
+}
+
+function closeBotWallet(sessionId: string): void {
+  walletStreamClosed(sessionId);
+}
+
+/** Bots never earn MATCH_WATCHED_REWARD — settlement pays open streams, and
+ * theirs is a fiction — so a broke bot would stay broke forever. Floored and
+ * capped rather than reset: winnings should show, but balances are rendered
+ * beside names in chat, so an unbounded one reads as exactly what it is. */
+function topUpBotWallets(room: RoomState): void {
+  if (!room.bots) return;
+  for (const sessionId of botSessionIds(room.bots)) {
+    const balance = getBalance(sessionId);
+    if (balance === null) {
+      // Reaped despite the pinned stream (a restart, a test reset) — mint it
+      // again rather than leave this bot unable to bet for good.
+      openBotWallet(sessionId);
+      continue;
+    }
+    // A spread rather than a flat number at both ends: balances are rendered
+    // beside names in chat, and a roster that all reads ($100) every round is
+    // the tell that gives the whole thing away.
+    if (balance < BOT_BALANCE_FLOOR || balance > BOT_BALANCE_CEILING) {
+      adjustBalance(sessionId, rngIntInclusive(room.bots.rng, BOT_BALANCE_FLOOR, 260) - balance);
+    }
+  }
+}
+
+function buildBotContext(room: RoomState, nowMs: number): BotContext {
+  const bots = room.bots as BotState;
+  const state = room.engine?.getState() ?? null;
+  const targets: BotTarget[] = [];
+  if (state) {
+    // Every fighter, not just state.livingOrder: a bot reacting to a faint
+    // has to be able to name the one that just went down, and by then it is
+    // no longer in the living list. BotTarget.alive is what gates healing.
+    const living = new Set(state.livingOrder);
+    for (const instanceId of state.allInstanceIds) {
+      const pokemon = state.pokemon[instanceId];
+      if (!pokemon) continue;
+      targets.push({
+        instanceId,
+        name: pokemon.name,
+        hpFraction: pokemon.currentHp / pokemon.maxHp,
+        alive: living.has(instanceId),
+      });
+    }
+  }
+  const balances = new Map<string, number>();
+  for (const sessionId of botSessionIds(bots)) balances.set(sessionId, getBalance(sessionId) ?? 0);
+
+  return {
+    roomPhase: room.phase,
+    simPhase: state?.phase ?? null,
+    elapsedMs: state?.elapsedMs ?? null,
+    // Real connections only — liveBotCount is added in toRoomSummary, not
+    // here, precisely so bots never react to their own padding.
+    humanViewerCount: subscriberCount(room.id),
+    msSinceHumanChat: room.lastHumanChatAtMs === null ? null : nowMs - room.lastHumanChatAtMs,
+    prediction: room.prediction
+      ? {
+          status: room.prediction.status,
+          options: room.prediction.options.map((option) => ({
+            id: option.id,
+            alive: state ? isOptionAlive(option, state) : true,
+            odds: room.prediction?.odds[option.id] ?? 0,
+          })),
+        }
+      : null,
+    shop: room.shop ? { stockLeft: room.shop.stockLeft, healsByTarget: room.shop.usesByTarget } : null,
+    targets,
+    // The bots' own cursor, never room.lastBroadcastSeq — reading events for
+    // a reaction must not disturb what the 10 Hz broadcast has still to send.
+    events: room.engine?.getEventsSince(bots.eventCursor) ?? [],
+    balances,
+  };
+}
+
+function runBotTick(room: RoomState, nowMs: number): void {
+  const bots = room.bots;
+  if (!bots) return;
+  const { actions, joined, left } = tickBots(bots, buildBotContext(room, nowMs), nowMs);
+  for (const sessionId of joined) openBotWallet(sessionId);
+  for (const sessionId of left) closeBotWallet(sessionId);
+
+  for (const action of actions) {
+    switch (action.kind) {
+      case 'chat':
+        postChat(room, null, action.text, nowMs, action.name, action.sessionId);
+        break;
+      case 'bet':
+        placeRoomBet(room, action.sessionId, action.optionId, action.amount);
+        break;
+      case 'buy':
+        purchaseRoomItem(room, action.sessionId, action.itemId, action.targetInstanceId, action.name, nowMs);
+        break;
+    }
+    // A refusal is dropped on purpose: bots.ts pre-checks every rule these
+    // enforce, so a rejection means the room moved underneath the tick, and
+    // the right response to that is to do nothing rather than retry.
+  }
+
+  // The viewer count only moves when the roster does; everything else the
+  // tick did already broadcast for itself.
+  if (joined.length > 0 || left.length > 0) broadcast(room.id, 'roomUpdate', toRoomSummary(room));
+}
+
+function registerBotLoop(room: RoomState): void {
+  // Registered once at creation, never from startAutoPlayCycle — that runs
+  // again on every loop (createRoom and resetRoom both call it), which would
+  // leak one interval per match.
+  room.botTimer = setInterval(() => runBotTick(room, Date.now()), BOT_TICK_MS);
+  room.botTimer.unref?.();
+}
+
+/** Stops a room's audience and releases its wallets — for teardown and tests;
+ * nothing in the running server ever removes the showcase room. */
+export function stopRoomBots(room: RoomState): void {
+  if (room.botTimer) clearInterval(room.botTimer);
+  room.botTimer = null;
+  if (!room.bots) return;
+  for (const sessionId of botSessionIds(room.bots)) closeBotWallet(sessionId);
+  room.bots = null;
+}
+
 /** Starts (or restarts) the always-on showcase room's cycle: a short
  * countdown — purely cosmetic pacing, since nobody picks anything — straight
  * into startBattle(), which already auto-fills every slot with a random
@@ -727,8 +926,12 @@ function resetRoom(room: RoomState): void {
   room.engine = null;
   room.lastBroadcastSeq = 0;
   room.chatLog = [];
+  room.lastHumanChatAtMs = null;
   room.chatBuckets.clear();
   room.itemBuckets.clear();
+  // Per-match planning only — the roster itself outlives the match on
+  // purpose (see RoomState.bots).
+  if (room.bots) resetBotMatch(room.bots, Date.now());
   // The settled pool goes with the engine it was scored against; wallets
   // (wallets.ts) live on — they're the tab's, not the room's.
   room.prediction = null;

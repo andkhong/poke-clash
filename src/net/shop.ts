@@ -11,6 +11,12 @@
  * therefore the load-bearing limit: it caps total heals no matter how many
  * wallets exist. The per-session and per-target caps only shape *who* gets
  * the stock and *where* it can land.
+ *
+ * The shelf is sized for a room with bot spectators in it (see
+ * game-server/bots.ts): the showcase room's bots buy alongside real viewers,
+ * so eleven units rather than four is what keeps a human from finding it
+ * already cleared. It is still small enough that the stock, not the price,
+ * is what runs out first.
  */
 
 import type { MatchPhase } from '../sim/types';
@@ -54,8 +60,8 @@ export interface ShopItem {
 }
 
 export const ITEMS: readonly ShopItem[] = [
-  { id: 'potion', label: 'Potion', emoji: '🧪', price: 40, healFraction: 0.25, stock: 3 },
-  { id: 'superPotion', label: 'Super Potion', emoji: '🍶', price: 90, healFraction: 0.5, stock: 1 },
+  { id: 'potion', label: 'Potion', emoji: '🧪', price: 40, healFraction: 0.25, stock: 8 },
+  { id: 'superPotion', label: 'Super Potion', emoji: '🍶', price: 90, healFraction: 0.5, stock: 3 },
 ];
 
 export const ITEM_IDS: readonly ItemId[] = ITEMS.map((item) => item.id);
@@ -71,9 +77,10 @@ export function isItemId(value: unknown): value is ItemId {
   return typeof value === 'string' && (ITEM_IDS as readonly string[]).includes(value);
 }
 
-/** Purchases one session may make per match, across all items. With a total
- * stock of 4 that spreads the shelf over up to 4 different people instead of
- * letting the first viewer with $210 clear it in two taps. */
+/** Purchases one session may make per match, across all items. It is what
+ * spreads the shelf over as many different people as there are units, instead
+ * of letting the first viewer with a deep wallet clear it in a few taps — the
+ * reason it stays at 1 even now the shelf is eleven units deep. */
 export const MATCH_ITEM_LIMIT_PER_SESSION = 1;
 
 /** How many times one Pokémon may be healed in a match, by anyone. Without
@@ -81,7 +88,10 @@ export const MATCH_ITEM_LIMIT_PER_SESSION = 1;
  * effectively unkillable. */
 export const MAX_HEALS_PER_TARGET = 2;
 
-/** Recent uses kept on ShopSummary for the panel's activity line. */
+/** Recent uses kept on ShopSummary for the panel's activity line. Purely a
+ * display length — it used to double as the client's heal-per-target count,
+ * which quietly required it to exceed the total stock; ShopSummary carries
+ * healsByTarget for that now, so this can stay short. */
 export const ITEM_USE_LOG_LIMIT = 5;
 
 /** An instance id is built by the sim as `p${slotIndex}-${speciesId}` (see

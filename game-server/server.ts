@@ -36,6 +36,10 @@ import type { ArenaBounds } from '../src/sim/types';
 import { DESKTOP_ARENA_HEIGHT, DESKTOP_ARENA_WIDTH } from '../src/sim/constants';
 
 const PORT = Number(process.env.GAME_SERVER_PORT ?? 4311);
+// The showcase room's bot audience (see game-server/bots.ts). The kill switch
+// lives here, at the composition root, rather than inside roomManager — which
+// keeps every room a test builds silent and deterministic by default.
+const BOTS_ENABLED = process.env.GAME_SERVER_BOTS !== '0';
 // Keeps the previously-requested "4 rooms by default" while making Boss
 // Mode / Team Mode discoverable without anyone needing to create a room for
 // it first. Only one team size is seeded (matching Boss Mode's single
@@ -53,7 +57,14 @@ createRoom('team2');
 // than the portrait one the rest of the pre-seeded rooms default to.
 // 8 seats rather than classic mode's usual 4 — a livelier showcase, and a
 // wider field to bet on.
-createRoom('classic', { width: DESKTOP_ARENA_WIDTH, height: DESKTOP_ARENA_HEIGHT }, { autoPlay: true, capacity: 8 });
+// Bots give it an audience: chat, bets and shop purchases from generated
+// spectators, so a first-time visitor doesn't land on a match nobody appears
+// to be watching. GAME_SERVER_BOTS=0 turns them off.
+createRoom(
+  'classic',
+  { width: DESKTOP_ARENA_WIDTH, height: DESKTOP_ARENA_HEIGHT },
+  { autoPlay: true, capacity: 8, bots: BOTS_ENABLED }
+);
 
 const ID_SEGMENT = '[A-Za-z0-9_-]+';
 const JOIN_RE = new RegExp(`^/api/rooms/(${ID_SEGMENT})/join$`);

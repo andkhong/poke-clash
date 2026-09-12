@@ -16,13 +16,15 @@ import {
   ROOM_COMPLETE_HOLD_MS,
   ROOM_COUNTDOWN_MS,
   setThumbnail,
+  stopRoomBots,
   THUMBNAIL_MIN_INTERVAL_MS,
   toRoomSummary,
 } from './roomManager';
-import { broadcast, sendToSession, subscribedSessionIds } from './sse';
-import { adjustBalance, getBalance, MATCH_WATCHED_REWARD, resetWalletsForTests, STARTING_BALANCE, touchWallet } from './wallets';
+import { broadcast, sendToSession, subscribedSessionIds, subscriberCount } from './sse';
+import { adjustBalance, getBalance, MATCH_WATCHED_REWARD, resetWalletsForTests, STARTING_BALANCE, touchWallet, WALLET_GRACE_MS } from './wallets';
 import type { ChatMessage, PredictionSummary, ShopSummary, WalletEventPayload } from '../src/net/protocol';
 import { getItem, MAX_HEALS_PER_TARGET } from '../src/net/shop';
+import { botSessionIds, BOT_CHAT_HUMAN_FREEZE_MS, BOT_STOCK_RESERVE } from './bots';
 import { ROOM_MODES, roomCapacityForMode } from '../src/net/protocol';
 import { CHAT_LOG_LIMIT, CHAT_MAX_LENGTH, SPECTATOR_NAME_MAX_LENGTH } from '../src/net/chat';
 import { hasPmdSprite, listAllSpecies } from '../src/data/loader';
@@ -415,6 +417,169 @@ describe('roomManager autoPlay', () => {
   }
 });
 
+describe('roomManager bots', () => {
+  beforeEach(() => {
+    vi.useFakeTimers();
+    vi.mocked(broadcast).mockClear();
+    vi.mocked(subscriberCount).mockReturnValue(0);
+    resetWalletsForTests();
+  });
+
+  afterEach(() => {
+    vi.clearAllTimers();
+    vi.useRealTimers();
+  });
+
+  function botRoom() {
+    return createRoom('classic', undefined, { autoPlay: true, capacity: 8, bots: true, botSeed: 7 });
+  }
+
+  function chatFrames(): ChatMessage[] {
+    return vi.mocked(broadcast).mock.calls.filter(([, e]) => e === 'chat').map(([, , data]) => data as ChatMessage);
+  }
+
+  it('stays silent unless the room was created with bots', () => {
+    // The guard for every other test in this file: an autoPlay room is
+    // deterministic and quiet by default, and only server.ts opts in.
+    const room = createRoom('classic', undefined, { autoPlay: true, capacity: 8 });
+    vi.advanceTimersByTime(AUTO_PLAY_COUNTDOWN_MS + 30_000);
+    expect(chatFrames()).toHaveLength(0);
+    expect(toRoomSummary(room).viewerCount).toBe(0);
+    expect(room.bots).toBeNull();
+  });
+
+  it('counts its audience as viewers on top of the real connections', () => {
+    const room = botRoom();
+    const bots = toRoomSummary(room).viewerCount;
+    expect(bots).toBeGreaterThan(0);
+
+    // Real subscribers add to it rather than replacing it.
+    vi.mocked(subscriberCount).mockReturnValue(3);
+    expect(toRoomSummary(room).viewerCount).toBe(bots + 3);
+    stopRoomBots(room);
+    expect(toRoomSummary(room).viewerCount).toBe(3);
+  });
+
+  it('chats as unseated spectators, with a balance and no seat', () => {
+    botRoom();
+    vi.advanceTimersByTime(AUTO_PLAY_COUNTDOWN_MS + 60_000);
+    const messages = chatFrames().filter((m) => m.kind !== 'system');
+    expect(messages.length).toBeGreaterThan(0);
+    for (const message of messages) {
+      expect(message.slotIndex).toBeNull();
+      expect(message.spectatorName).toMatch(/^[A-Za-z]+\d{2}$/);
+      expect(message.balance).not.toBeNull();
+    }
+  });
+
+  it('backs off once a real person is talking', () => {
+    // With a real audience present the roster is at its chattiest, which is
+    // what makes the silence after a human line meaningful.
+    vi.mocked(subscriberCount).mockReturnValue(3);
+    const room = botRoom();
+    vi.advanceTimersByTime(AUTO_PLAY_COUNTDOWN_MS + 60_000);
+    expect(chatFrames().length).toBeGreaterThan(1);
+
+    postChat(room, null, 'hello', Date.now(), 'Piplup482', 'sess-human');
+    const before = chatFrames().length;
+    vi.advanceTimersByTime(BOT_CHAT_HUMAN_FREEZE_MS - 1_000);
+    expect(chatFrames()).toHaveLength(before);
+
+    // ...and picks back up once the moment has passed.
+    vi.advanceTimersByTime(60_000);
+    expect(chatFrames().length).toBeGreaterThan(before);
+  });
+
+  it('bets into the pool, one stake per bot and all before it closes', () => {
+    const room = botRoom();
+    vi.advanceTimersByTime(AUTO_PLAY_COUNTDOWN_MS);
+    const state = room.engine!.getState() as SimState;
+    // Held by reference: a match that ended would null room.prediction and
+    // leave the assertions below looking at the next round's empty pool.
+    const prediction = room.prediction!;
+    for (const id of state.allInstanceIds) {
+      state.pokemon[id].maxHp = 1000;
+      state.pokemon[id].currentHp = 1000;
+    }
+    vi.advanceTimersByTime(state.introDurationMs + AGGRESSION_TRIGGER_MS + 5_000);
+
+    const bets = prediction.bets;
+    expect(bets.size).toBeGreaterThan(0);
+    for (const [sessionId, bet] of bets) {
+      expect(sessionId.startsWith('bot-')).toBe(true);
+      expect(bet.amount).toBeGreaterThan(0);
+    }
+    // The pool has closed on the sim clock, so nothing can still be arriving.
+    expect(prediction.status).not.toBe('open');
+  });
+
+  it('never buys into the shelf reserved for real viewers', () => {
+    const room = botRoom();
+    vi.advanceTimersByTime(AUTO_PLAY_COUNTDOWN_MS);
+    const state = room.engine!.getState() as SimState;
+    // Hurt but unkillable, so the match can't end and reset the shelf out
+    // from under the assertions — the same trick the shop tests use.
+    for (const id of state.allInstanceIds) {
+      state.pokemon[id].maxHp = 1000;
+      state.pokemon[id].currentHp = 150;
+    }
+    const shop = room.shop!;
+    vi.advanceTimersByTime(state.introDurationMs + 100_000);
+
+    const total = getItem('potion').stock + getItem('superPotion').stock;
+    // Bots really did shop, so the reserve assertions below are not vacuous.
+    expect(shop.stockLeft.potion + shop.stockLeft.superPotion).toBeLessThan(total);
+    expect(shop.stockLeft.potion).toBeGreaterThanOrEqual(BOT_STOCK_RESERVE.potion);
+    expect(shop.stockLeft.superPotion).toBeGreaterThanOrEqual(BOT_STOCK_RESERVE.superPotion);
+    // And every purchase announced itself, as a real viewer's would.
+    expect(chatFrames().some((m) => m.kind === 'system' && m.text.includes('used'))).toBe(true);
+  });
+
+  it('keeps its audience across a reset, unlike the pool and the shelf', () => {
+    const room = botRoom();
+    vi.advanceTimersByTime(AUTO_PLAY_COUNTDOWN_MS);
+    const before = toRoomSummary(room).viewerCount;
+
+    room.engine!.endMatchNow();
+    vi.advanceTimersByTime(TICK_MS);
+    vi.advanceTimersByTime(ROOM_COMPLETE_HOLD_MS);
+
+    expect(room.prediction).toBeNull();
+    expect(room.shop).toBeNull();
+    expect(room.bots).not.toBeNull();
+    expect(toRoomSummary(room).viewerCount).toBe(before);
+  });
+
+  it('keeps every bot wallet alive despite holding no stream', () => {
+    const room = botRoom();
+    const sessionIds = botSessionIds(room.bots!);
+    // Well past WALLET_GRACE_MS, which would have reaped an unpinned wallet.
+    vi.advanceTimersByTime(WALLET_GRACE_MS * 3);
+    for (const sessionId of sessionIds) expect(getBalance(sessionId)).not.toBeNull();
+  });
+
+  it('releases a wallet when its bot leaves', () => {
+    const room = botRoom();
+    const sessionIds = botSessionIds(room.bots!);
+    stopRoomBots(room);
+    vi.advanceTimersByTime(WALLET_GRACE_MS + 1_000);
+    for (const sessionId of sessionIds) expect(getBalance(sessionId)).toBeNull();
+  });
+
+  it('runs one bot loop for the room, not one per match', () => {
+    const room = botRoom();
+    for (let round = 0; round < 3; round += 1) {
+      vi.advanceTimersByTime(AUTO_PLAY_COUNTDOWN_MS);
+      room.engine!.endMatchNow();
+      vi.advanceTimersByTime(TICK_MS);
+      vi.advanceTimersByTime(ROOM_COMPLETE_HOLD_MS);
+    }
+    // startAutoPlayCycle runs again on every loop; registering the bot timer
+    // there instead of in createRoom would have leaked one interval a match.
+    expect(vi.getTimerCount()).toBeLessThan(10);
+  });
+});
+
 describe('roomManager thumbnails', () => {
   it('caches the first capture and reports when it landed', () => {
     const room = createRoom('classic');
@@ -721,9 +886,10 @@ describe('roomManager shop', () => {
   }
 
   /** A room past the intro and mid-battle, every fighter unkillable by
-   * ordinary combat so the test decides HP, not the AI's dice. */
-  function battle() {
-    const room = createRoom('classic');
+   * ordinary combat so the test decides HP, not the AI's dice. `capacity`
+   * widens the field for the tests that need one target per purchase. */
+  function battle(capacity?: number) {
+    const room = createRoom('classic', undefined, capacity !== undefined ? { capacity } : undefined);
     joinRoom(room, undefined, 'sess-seated');
     vi.advanceTimersByTime(ROOM_COUNTDOWN_MS);
     const state = room.engine!.getState() as SimState;
@@ -834,8 +1000,10 @@ describe('roomManager shop', () => {
   });
 
   it('runs the room-wide stock out no matter how many wallets show up', () => {
-    const { room, state } = battle();
+    // One fighter per unit of stock, so MAX_HEALS_PER_TARGET never becomes
+    // the thing that refuses a buy — the shelf running dry is what's on test.
     const stock = getItem('potion').stock;
+    const { room, state } = battle(stock + 1);
     for (let i = 0; i < stock; i += 1) {
       const id = state.allInstanceIds[i % state.allInstanceIds.length];
       hurt(state, id);

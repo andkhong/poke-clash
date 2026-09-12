@@ -7,9 +7,12 @@ import { ARENA_HEIGHT, ARENA_WIDTH } from '../src/sim/constants';
 import { buildSpeciesMapForLevel, hasPmdSprite, listAllSpecies, moveLookup } from '../src/data/loader';
 import { getItem, ITEM_USE_LOG_LIMIT, MATCH_ITEM_LIMIT_PER_SESSION, MAX_HEALS_PER_TARGET } from '../src/net/shop';
 
+// Enough fighters that the room-wide stock test below can give every
+// purchase its own target — otherwise a shelf deeper than the roster puts
+// MAX_HEALS_PER_TARGET in the way of the rule actually under test.
 const SPECIES = listAllSpecies()
   .filter((s) => hasPmdSprite(s.id))
-  .slice(0, 4)
+  .slice(0, 8)
   .map((s) => s.id);
 
 function stateFor(): SimState {
@@ -121,7 +124,8 @@ describe('purchaseItem', () => {
     const state = stateFor();
     const shop = openShop(1);
     const stock = getItem('potion').stock;
-    // A fresh session and a fresh target each time, so only the shelf binds.
+    // A fresh session and a fresh target each time, so only the shelf binds
+    // (SPECIES is sized to make that true — see its comment).
     for (let i = 0; i < stock; i += 1) {
       const id = state.allInstanceIds[i % state.allInstanceIds.length];
       hurt(state, id, 0.2);

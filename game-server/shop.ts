@@ -128,6 +128,7 @@ export function toShopSummary(shop: ShopState): ShopSummary {
   return {
     matchNo: shop.matchNo,
     stockLeft: { ...shop.stockLeft },
+    healsByTarget: Object.fromEntries(shop.usesByTarget),
     recent: shop.log.slice(-ITEM_USE_LOG_LIMIT),
   };
 }

@@ -63,14 +63,12 @@ function blockReason(pokemon: Pick<PokemonInstance, 'currentHp' | 'maxHp'>, heal
   return null;
 }
 
-/** How many heals each Pokémon has had this match, from the summary's use
- * log. Only exact while the log still holds every use — ITEM_USE_LOG_LIMIT is
- * comfortably above the total stock, so in practice it always does, and the
- * server enforces the real cap regardless; this only greys the row out early. */
+/** How many heals each Pokémon has had this match — the server's own count
+ * (ShopSummary.healsByTarget), not a tally of the truncated `recent` log,
+ * which would undercount once the shelf is deeper than ITEM_USE_LOG_LIMIT.
+ * The server enforces the real cap regardless; this greys the row out early. */
 export function countHealsByTarget(shop: ShopSummary): Map<string, number> {
-  const counts = new Map<string, number>();
-  for (const use of shop.recent) counts.set(use.targetInstanceId, (counts.get(use.targetInstanceId) ?? 0) + 1);
-  return counts;
+  return new Map(Object.entries(shop.healsByTarget));
 }
 
 /** Whether tapping this item would be accepted right now — mirrors the

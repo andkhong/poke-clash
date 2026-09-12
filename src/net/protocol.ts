@@ -251,6 +251,11 @@ export interface ShopSummary {
    * opens with battleStart while the intro parade is still running. */
   /** Units left of each item, room-wide, for this match. */
   stockLeft: Record<ItemId, number>;
+  /** Heals landed on each instance id so far, for MAX_HEALS_PER_TARGET. Sent
+   * as its own field rather than counted off `recent` below: that only works
+   * while the log still holds every use, which stopped being true once the
+   * shelf grew past ITEM_USE_LOG_LIMIT units. Absent ids have had none. */
+  healsByTarget: Record<string, number>;
   /** The most recent uses, newest last, capped at ITEM_USE_LOG_LIMIT. */
   recent: ItemUse[];
 }

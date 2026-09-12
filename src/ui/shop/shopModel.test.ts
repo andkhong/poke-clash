@@ -39,13 +39,10 @@ function shopWith(overrides: Partial<ShopSummary> = {}): ShopSummary {
   return {
     matchNo: 1,
     stockLeft: { potion: POTION.stock, superPotion: SUPER.stock },
+    healsByTarget: {},
     recent: [],
     ...overrides,
   };
-}
-
-function use(targetInstanceId: string, buyerName = 'Slowpoke482'): ItemUse {
-  return { itemId: 'potion', targetInstanceId, targetName: targetInstanceId.toUpperCase(), buyerName, amount: 50, atMs: 1 };
 }
 
 describe('healAmount', () => {
@@ -75,8 +72,7 @@ describe('targetRows', () => {
 
   it('blocks a full-HP target and one that has had its share', () => {
     const state = stateWith(pokemon('p0-1', 200), pokemon('p1-2', 50));
-    const recent = Array.from({ length: MAX_HEALS_PER_TARGET }, () => use('p1-2'));
-    const rows = targetRows(state, shopWith({ recent }), POTION);
+    const rows = targetRows(state, shopWith({ healsByTarget: { 'p1-2': MAX_HEALS_PER_TARGET } }), POTION);
 
     expect(rows.find((r) => r.instanceId === 'p0-1')!.blocked).toBe('full_hp');
     expect(rows.find((r) => r.instanceId === 'p1-2')!.blocked).toBe('target_limit');
@@ -86,17 +82,25 @@ describe('targetRows', () => {
 
   it('still allows a target one heal short of the cap', () => {
     const state = stateWith(pokemon('p0-1', 50));
-    const recent = Array.from({ length: MAX_HEALS_PER_TARGET - 1 }, () => use('p0-1'));
-    expect(targetRows(state, shopWith({ recent }), POTION)[0].blocked).toBeNull();
+    const heals = { 'p0-1': MAX_HEALS_PER_TARGET - 1 };
+    expect(targetRows(state, shopWith({ healsByTarget: heals }), POTION)[0].blocked).toBeNull();
   });
 });
 
 describe('countHealsByTarget', () => {
-  it('tallies the use log per Pokémon', () => {
-    const counts = countHealsByTarget(shopWith({ recent: [use('a'), use('b'), use('a')] }));
+  it("reports the server's per-Pokémon count", () => {
+    const counts = countHealsByTarget(shopWith({ healsByTarget: { a: 2, b: 1 } }));
     expect(counts.get('a')).toBe(2);
     expect(counts.get('b')).toBe(1);
     expect(counts.get('c')).toBeUndefined();
+  });
+
+  // The old implementation tallied `recent`, which the server truncates to
+  // ITEM_USE_LOG_LIMIT — so a deep shelf silently under-counted and the panel
+  // offered a target that was already maxed out.
+  it('is unaffected by a use log that has been trimmed', () => {
+    const counts = countHealsByTarget(shopWith({ healsByTarget: { a: 2 }, recent: [] }));
+    expect(counts.get('a')).toBe(2);
   });
 });
 
