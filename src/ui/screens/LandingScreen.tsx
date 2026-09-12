@@ -16,6 +16,24 @@ const POLL_INTERVAL_MS = 2000;
 const TEAM_MODES: RoomMode[] = ['team2', 'team3', 'team4'];
 const KO_FI_URL = 'https://ko-fi.com/hermito';
 
+/** Room creation is switched off while the landing page is simplified: five
+ * "+ ROOM" buttons asked a first-time visitor to pick a game mode before they
+ * had watched a single match. They join one of the server's pre-seeded rooms
+ * from the grid instead (see game-server/server.ts's boot-time createRoom
+ * calls), or hit Solo Play.
+ *
+ * The buttons and their handler are kept behind this flag rather than deleted
+ * so bringing them back is one word. The server's POST /api/rooms is
+ * deliberately untouched — nothing else calls it, and disabling the route
+ * would break the flag's promise that flipping it is enough. Typed `boolean`
+ * so the disabled branches don't narrow away to unreachable code. */
+const ROOM_CREATION_ENABLED: boolean = false;
+
+/** Wide Arena toggle is hidden on the landing page for now — the preference
+ * (and the hook driving it) stays wired up so `resolveMatchArena` below still
+ * picks the right map; only the button that lets a viewer flip it is gone. */
+const WIDE_ARENA_TOGGLE_ENABLED: boolean = false;
+
 /** The landing page — a Twitch-style discovery homepage: the server's one
  * always-live showcase room featured up top (FeaturedRoomPanel), every real
  * room below it as a grid of RoomCards, and room creation folded in here too
@@ -94,7 +112,7 @@ export function LandingScreen() {
       <section style={sectionStyle}>
         <div style={sectionHeaderStyle}>
           <h2 style={sectionTitleStyle}>LIVE ROOMS</h2>
-          {!IS_MOBILE_DEVICE && (
+          {WIDE_ARENA_TOGGLE_ENABLED && !IS_MOBILE_DEVICE && (
             <button onClick={() => setWideArena(!wideArena)} style={wideArenaToggle(wideArena)}>
               🖥️ Wide Arena {wideArena ? 'ON' : 'OFF'}
             </button>
@@ -106,26 +124,30 @@ export function LandingScreen() {
             <RoomCard key={room.id} room={room} />
           ))}
         </div>
-        {gridRooms.length === 0 && !error && <p style={statusText}>No other rooms yet — create one below.</p>}
+        {gridRooms.length === 0 && !error && <p style={statusText}>No other rooms yet — watch the live one above.</p>}
 
-        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', justifyContent: 'center' }}>
-          <button onClick={() => createRoom('classic')} style={primaryButton}>
-            + CLASSIC ROOM
-          </button>
-          <button onClick={() => createRoom('boss')} style={bossButton}>
-            + BOSS ROOM 👹
-          </button>
-        </div>
-        <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', justifyContent: 'center' }}>
-          {TEAM_MODES.map((mode) => {
-            const size = teamSizeForMode(mode)!;
-            return (
-              <button key={mode} onClick={() => createRoom(mode)} style={teamButton}>
-                + TEAM {size}v{size} 🛡️
+        {ROOM_CREATION_ENABLED && (
+          <>
+            <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', justifyContent: 'center' }}>
+              <button onClick={() => createRoom('classic')} style={primaryButton}>
+                + CLASSIC ROOM
               </button>
-            );
-          })}
-        </div>
+              <button onClick={() => createRoom('boss')} style={bossButton}>
+                + BOSS ROOM 👹
+              </button>
+            </div>
+            <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', justifyContent: 'center' }}>
+              {TEAM_MODES.map((mode) => {
+                const size = teamSizeForMode(mode)!;
+                return (
+                  <button key={mode} onClick={() => createRoom(mode)} style={teamButton}>
+                    + TEAM {size}v{size} 🛡️
+                  </button>
+                );
+              })}
+            </div>
+          </>
+        )}
       </section>
     </div>
   );
