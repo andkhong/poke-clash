@@ -42,8 +42,9 @@ export interface ShopItem {
   id: ItemId;
   /** Shown uppercased in the panel; also used in the system chat line. */
   label: string;
-  /** The UI has no icon system at all — no CSS files, no SVG, no icon font —
-   * so every glyph in the app is an emoji (see LandingScreen/SetupScreen).
+  /** The UI has no icon system — no CSS files, no icon font, and the only
+   * SVGs are the landing page's two inline icons (src/ui/landing/icons.tsx) —
+   * so glyphs everywhere else are emoji (see SetupScreen).
    * These follow that, rather than introducing the codebase's first
    * image-backed button for two items. */
   emoji: string;

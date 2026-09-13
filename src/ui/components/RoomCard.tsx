@@ -1,29 +1,38 @@
-import { useEffect, useState, type CSSProperties } from 'react';
-import type { RoomPhase, RoomSummary } from '../../net/protocol';
+import { useEffect, useState } from 'react';
+import type { RoomMode, RoomPhase, RoomSummary } from '../../net/protocol';
 import { teamSizeForMode } from '../../net/protocol';
 import { useCountdown } from '../../net/useCountdown';
 import { describeArenaShape } from '../arenaShape';
-import { ACCENT, DESTRUCTIVE, PRIMARY, PRIMARY_TEXT, SECONDARY, TEXT, YELLOW, accentAlpha, secondaryAlpha, yellowAlpha } from '../theme';
-
-const PHASE_LABEL: Record<RoomPhase, string> = {
-  idle: 'OPEN',
-  countdown: 'STARTING',
-  battle: 'IN BATTLE',
-  complete: 'FINISHED',
-};
+import { pokeballUrl } from '../landing/assets';
 
 interface RoomCardProps {
   room: RoomSummary;
 }
 
+/** Shown over the striped placeholder when a room has no captured thumbnail
+ * yet — says what's going on inside instead of a blank tile. */
+const PLACEHOLDER_CAPTION: Record<RoomPhase, string> = {
+  idle: 'WAITING FOR PLAYERS',
+  countdown: 'STARTING SOON',
+  battle: 'BATTLE IN PROGRESS',
+  complete: 'ROUND OVER',
+};
+
 /** One tile in the landing page's room grid — a Twitch-style card: a
  * captured thumbnail (see useRoomThumbnailCapture, served from
- * /api/rooms/:id/thumbnail) with phase/seat/viewer badges over it, name +
- * mode tags below, the whole thing a button into that room's lobby. */
+ * /api/rooms/:id/thumbnail) with phase/seat/viewer pills over it, name +
+ * mode chips below, the whole thing a button into that room's lobby.
+ *
+ * Styled entirely by landingCss.ts's `lp-card` classes, so it only renders
+ * correctly inside LandingScreen (its one caller). Below 600px the same
+ * markup reflows into a compact row — small thumbnail, name, chips, a
+ * "seats · watching" meta line, chevron — which is why the phase pill is
+ * rendered twice: once over the thumbnail, once inline for that layout. The
+ * button's aria-label speaks the whole card, so the pills and thumbnail
+ * are left out of the accessible name. */
 export function RoomCard({ room }: RoomCardProps) {
   const remainingMs = useCountdown(room.countdownEndsAtMs);
   const filled = room.slots.filter((s) => s.occupied).length;
-  const teamSize = teamSizeForMode(room.mode);
   const arenaShape = describeArenaShape(room.arena);
   const thumbnailSrc = room.thumbnailUpdatedAtMs !== null ? `/api/rooms/${room.id}/thumbnail?ts=${room.thumbnailUpdatedAtMs}` : null;
 
@@ -33,180 +42,74 @@ export function RoomCard({ room }: RoomCardProps) {
   const [imgFailed, setImgFailed] = useState(false);
   useEffect(() => setImgFailed(false), [thumbnailSrc]);
 
+  const phase = phasePill(room.phase, Math.max(0, Math.ceil(remainingMs / 1000)));
+  const mode = modeChip(room.mode);
+  const phasePillContent = (
+    <>
+      {room.phase === 'battle' && <span className="lp-dot" />}
+      {phase.label}
+    </>
+  );
+
   return (
-    <button onClick={() => (window.location.hash = `#/room/${room.id}`)} style={cardStyle}>
-      <div style={thumbWrapStyle}>
+    <button
+      type="button"
+      className="lp-card"
+      onClick={() => (window.location.hash = `#/room/${room.id}`)}
+      aria-label={`${room.name}, ${phase.spoken}, ${filled} of ${room.capacity} seats taken, ${room.viewerCount} watching. Open room.`}
+    >
+      <div className="lp-card-thumb">
         {thumbnailSrc && !imgFailed ? (
-          <img src={thumbnailSrc} alt="" style={thumbImgStyle} onError={() => setImgFailed(true)} />
+          <img src={thumbnailSrc} alt="" onError={() => setImgFailed(true)} />
         ) : (
-          <div style={placeholderStyle}>
-            <span style={{ fontSize: 26, opacity: 0.5 }}>🎮</span>
+          <div className="lp-card-placeholder">
+            <img src={pokeballUrl} alt="" width={60} height={60} />
+            <span>{PLACEHOLDER_CAPTION[room.phase]}</span>
           </div>
         )}
-        <span style={phasePillStyle(room.phase)}>{PHASE_LABEL[room.phase]}</span>
-        <span style={seatPillStyle}>
-          {filled}/{room.capacity}
+        <span className={`lp-pill lp-pill-tl ${phase.variant}`}>{phasePillContent}</span>
+        <span className="lp-pill lp-pill-tr lp-pill-dark">
+          {filled}/{room.capacity} SEATS
         </span>
-        <span style={viewerPillStyle}>
-          {room.viewerCount} viewer{room.viewerCount === 1 ? '' : 's'}
-        </span>
-        {room.phase === 'countdown' && <span style={countdownPillStyle}>{Math.ceil(remainingMs / 1000)}s</span>}
+        <span className="lp-pill lp-pill-bl lp-pill-dark">{room.viewerCount} WATCHING</span>
       </div>
 
-      <div style={captionStyle}>
-        <span style={nameStyle}>{room.name}</span>
-        <div style={tagRowStyle}>
-          {room.mode === 'boss' && <span style={bossTag}>👹 BOSS</span>}
-          {teamSize !== null && (
-            <span style={teamTag}>
-              🛡️ {teamSize}v{teamSize}
-            </span>
-          )}
-          {arenaShape.wide && <span style={wideTag}>{arenaShape.label}</span>}
+      <div className="lp-card-body">
+        <span className="lp-card-name">{room.name}</span>
+        <div className="lp-chip-row">
+          <span className={`lp-pill lp-pill-inline ${phase.variant}`}>{phasePillContent}</span>
+          <span className={`lp-chip ${mode.variant}`}>{mode.label}</span>
+          {arenaShape.wide && <span className="lp-chip lp-chip-wide">WIDE ARENA</span>}
         </div>
+        <span className="lp-card-meta">
+          {filled}/{room.capacity} seats · {room.viewerCount} watching
+        </span>
       </div>
+      <span className="lp-card-chevron" aria-hidden="true">
+        →
+      </span>
     </button>
   );
 }
 
-const cardStyle: CSSProperties = {
-  display: 'flex',
-  flexDirection: 'column',
-  gap: 6,
-  padding: 0,
-  fontFamily: 'monospace',
-  color: TEXT,
-  background: 'transparent',
-  border: 'none',
-  cursor: 'pointer',
-  textAlign: 'left',
-};
-
-const thumbWrapStyle: CSSProperties = {
-  position: 'relative',
-  width: '100%',
-  aspectRatio: '4 / 5',
-  borderRadius: 8,
-  overflow: 'hidden',
-  background: '#15181e',
-  border: '1px solid rgba(255,255,255,0.12)',
-};
-
-const thumbImgStyle: CSSProperties = {
-  width: '100%',
-  height: '100%',
-  objectFit: 'cover',
-  display: 'block',
-  imageRendering: 'pixelated',
-};
-
-const placeholderStyle: CSSProperties = {
-  width: '100%',
-  height: '100%',
-  display: 'flex',
-  alignItems: 'center',
-  justifyContent: 'center',
-  background: 'radial-gradient(circle at 50% 40%, #2c3140 0%, #181b22 75%)',
-};
-
-function phasePillStyle(phase: RoomPhase): CSSProperties {
-  return {
-    position: 'absolute',
-    top: 6,
-    left: 6,
-    fontSize: 9,
-    fontWeight: 'bold',
-    letterSpacing: 0.5,
-    padding: '2px 6px',
-    borderRadius: 3,
-    color: phase === 'battle' ? '#fff' : TEXT,
-    background: phase === 'battle' ? DESTRUCTIVE : 'rgba(255,255,255,0.85)',
-  };
+/** The phase pill's visible label, what the card's aria-label says instead,
+ * and its color variant. The countdown folds into the label itself. */
+function phasePill(phase: RoomPhase, seconds: number): { label: string; spoken: string; variant: string } {
+  switch (phase) {
+    case 'idle':
+      return { label: 'OPEN', spoken: 'open', variant: 'lp-pill-light' };
+    case 'countdown':
+      return { label: `STARTING · ${seconds}s`, spoken: `starting in ${seconds} seconds`, variant: 'lp-pill-starting' };
+    case 'battle':
+      return { label: 'IN BATTLE', spoken: 'battle in progress', variant: 'lp-pill-battle' };
+    case 'complete':
+      return { label: 'FINISHED', spoken: 'finished', variant: 'lp-pill-light' };
+  }
 }
 
-const seatPillStyle: CSSProperties = {
-  position: 'absolute',
-  top: 6,
-  right: 6,
-  fontSize: 9,
-  fontWeight: 'bold',
-  padding: '2px 6px',
-  borderRadius: 3,
-  color: '#fff',
-  background: 'rgba(0,0,0,0.6)',
-};
-
-const viewerPillStyle: CSSProperties = {
-  position: 'absolute',
-  bottom: 6,
-  left: 6,
-  fontSize: 9,
-  fontWeight: 'bold',
-  padding: '2px 6px',
-  borderRadius: 3,
-  color: '#fff',
-  background: 'rgba(0,0,0,0.6)',
-};
-
-const countdownPillStyle: CSSProperties = {
-  position: 'absolute',
-  bottom: 6,
-  right: 6,
-  fontSize: 9,
-  fontWeight: 'bold',
-  padding: '2px 6px',
-  borderRadius: 3,
-  color: PRIMARY_TEXT,
-  background: PRIMARY,
-};
-
-const captionStyle: CSSProperties = {
-  display: 'flex',
-  flexDirection: 'column',
-  gap: 3,
-  padding: '0 2px',
-};
-
-const nameStyle: CSSProperties = {
-  fontSize: 12,
-  fontWeight: 'bold',
-  overflow: 'hidden',
-  textOverflow: 'ellipsis',
-  whiteSpace: 'nowrap',
-};
-
-const tagRowStyle: CSSProperties = {
-  display: 'flex',
-  gap: 4,
-  flexWrap: 'wrap',
-};
-
-const bossTag: CSSProperties = {
-  fontSize: 9,
-  fontWeight: 'bold',
-  color: ACCENT,
-  background: accentAlpha(0.16),
-  border: `1px solid ${ACCENT}`,
-  borderRadius: 3,
-  padding: '2px 6px',
-};
-
-const teamTag: CSSProperties = {
-  fontSize: 9,
-  fontWeight: 'bold',
-  color: SECONDARY,
-  background: secondaryAlpha(0.14),
-  border: `1px solid ${SECONDARY}`,
-  borderRadius: 3,
-  padding: '2px 6px',
-};
-
-const wideTag: CSSProperties = {
-  fontSize: 9,
-  fontWeight: 'bold',
-  color: YELLOW,
-  background: yellowAlpha(0.16),
-  border: `1px solid ${YELLOW}`,
-  borderRadius: 3,
-  padding: '2px 6px',
-};
+function modeChip(mode: RoomMode): { label: string; variant: string } {
+  const teamSize = teamSizeForMode(mode);
+  if (teamSize !== null) return { label: `TEAM ${teamSize}V${teamSize}`, variant: 'lp-chip-team' };
+  if (mode === 'boss') return { label: 'BOSS BATTLE', variant: 'lp-chip-boss' };
+  return { label: 'FREE-FOR-ALL', variant: 'lp-chip-ffa' };
+}

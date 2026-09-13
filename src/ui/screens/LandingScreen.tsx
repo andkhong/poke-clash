@@ -1,20 +1,26 @@
-import { useEffect, useState, type CSSProperties } from 'react';
+import { useEffect, useState } from 'react';
 import type { RoomMode, RoomSummary } from '../../net/protocol';
 import { teamSizeForMode } from '../../net/protocol';
 import { IS_MOBILE_DEVICE, resolveMatchArena } from '../../app/config';
 import { useWideArenaPreference } from '../hooks/useWideArenaPreference';
 import { FeaturedRoomPanel } from '../components/FeaturedRoomPanel';
 import { RoomCard } from '../components/RoomCard';
-import { ACCENT, BG, DESTRUCTIVE, FONT_MONO, PRIMARY, PRIMARY_TEXT, SECONDARY, TEXT, TEXT_MUTED, accentAlpha, secondaryAlpha, textAlpha } from '../theme';
-
-// Reuses the in-battle Pokéball sprite (see pokeballAsset.ts) as the title
-// mark — same URL-import trick Phaser's loader uses, since this project has
-// no image module typings for a plain `import x from './x.png'`.
-const pokeballUrl = new URL('../../render/sprites/assets/pokeball.png', import.meta.url).href;
+import { HowItWorks } from '../landing/HowItWorks';
+import { LandingFooter } from '../landing/LandingFooter';
+import { LandingHero } from '../landing/LandingHero';
+import { LandingNav } from '../landing/LandingNav';
+import { LANDING_CSS } from '../landing/landingCss';
+import { summarizeLiveRooms } from '../landing/liveStats';
+import { pokeballUrl } from '../landing/assets';
 
 const POLL_INTERVAL_MS = 2000;
 const TEAM_MODES: RoomMode[] = ['team2', 'team3', 'team4'];
-const KO_FI_URL = 'https://ko-fi.com/hermito';
+const SKELETON_CARD_COUNT = 5;
+
+/** Consecutive failed polls before the page calls the arena offline. One
+ * dropped poll on a flaky connection shouldn't flash an error at a visitor;
+ * two in a row (about 4s) is a real outage. */
+const OFFLINE_AFTER_FAILURES = 2;
 
 /** Room creation is switched off while the landing page is simplified: five
  * "+ ROOM" buttons asked a first-time visitor to pick a game mode before they
@@ -34,32 +40,56 @@ const ROOM_CREATION_ENABLED: boolean = false;
  * picks the right map; only the button that lets a viewer flip it is gone. */
 const WIDE_ARENA_TOGGLE_ENABLED: boolean = false;
 
-/** The landing page — a Twitch-style discovery homepage: the server's one
- * always-live showcase room featured up top (FeaturedRoomPanel), every real
- * room below it as a grid of RoomCards, and room creation folded in here too
- * (this replaces the old separate #/rooms screen — see Root.tsx, which now
- * aliases that route to this one). */
+/** Whether the hero's live pill and the featured caption show a "N watching"
+ * total. Heads-up before launch: RoomSummary.viewerCount is SSE subscribers
+ * *plus* live bots (game-server/roomManager.ts's toRoomSummary, around line
+ * 277), so the total includes the Featured Showcase's bot audience and can
+ * read as inflated social proof. Flip this to false and the pill switches to
+ * "{battles} live battles · {rooms} rooms open" instead; grid cards keep
+ * their per-room counts either way. Typed `boolean` for the same reason as
+ * the flags above. */
+const HERO_VIEWER_TOTAL_ENABLED: boolean = true;
+
+/** The landing page — a Twitch-style discovery homepage: a sticky nav, a
+ * hero with the pitch and CTAs, the server's one always-live showcase room
+ * featured below it (FeaturedRoomPanel), a three-step explainer, every real
+ * room as a grid of RoomCards, and a footer with the play-money / not-
+ * affiliated / sprite-credit lines. Room creation is folded in here too
+ * behind its flag (this replaces the old separate #/rooms screen — see
+ * Root.tsx, which now aliases that route to this one).
+ *
+ * This screen owns the data (the 2s /api/rooms poll) and the flags; the
+ * pieces under src/ui/landing/ are presentational. All landing styling comes
+ * from the one `<style>` rendered here (see landingCss.ts for why). */
 export function LandingScreen() {
   const [rooms, setRooms] = useState<RoomSummary[]>([]);
-  const [error, setError] = useState<string | null>(null);
+  const [loaded, setLoaded] = useState(false);
+  const [failures, setFailures] = useState(0);
+  const [createError, setCreateError] = useState<string | null>(null);
   const [wideArena, setWideArena] = useWideArenaPreference();
 
   useEffect(() => {
     let cancelled = false;
     const fetchRooms = () => {
       fetch('/api/rooms')
-        .then((res) => res.json())
-        .then((data: { rooms: RoomSummary[] }) => {
-          if (!cancelled) {
-            setRooms(data.rooms);
-            setError(null);
-          }
+        .then((res) => {
+          // A proxy error page (game-server down behind Vite/Caddy) is a
+          // failure too, not just a network error.
+          if (!res.ok) throw new Error(`GET /api/rooms: ${res.status}`);
+          return res.json() as Promise<{ rooms?: RoomSummary[] }>;
+        })
+        .then((data) => {
+          if (!Array.isArray(data.rooms)) throw new Error('GET /api/rooms: no rooms array');
+          if (cancelled) return;
+          setRooms(data.rooms);
+          setLoaded(true);
+          setFailures(0);
         })
         .catch(() => {
           // The game-server (npm run game-server:serve, or npm run dev:all)
-          // isn't reachable — surface this instead of leaving the page stuck
-          // with no featured room and no explanation.
-          if (!cancelled) setError('Can’t reach the multiplayer server. Is game-server running?');
+          // isn't reachable — counted rather than shown straight away, see
+          // OFFLINE_AFTER_FAILURES. The last good room list stays on screen.
+          if (!cancelled) setFailures((f) => f + 1);
         });
     };
     fetchRooms();
@@ -70,8 +100,11 @@ export function LandingScreen() {
     };
   }, []);
 
+  const offline = failures >= OFFLINE_AFTER_FAILURES;
+  const loading = !loaded && !offline;
   const featuredRoom = rooms.find((r) => r.autoPlay) ?? null;
   const gridRooms = rooms.filter((r) => !r.autoPlay);
+  const stats = summarizeLiveRooms(rooms);
 
   const createRoom = (mode: RoomMode) => {
     fetch('/api/rooms', {
@@ -84,239 +117,121 @@ export function LandingScreen() {
         window.location.hash = `#/room/${data.room.id}`;
       })
       .catch(() => {
-        setError('Couldn’t create a room — the multiplayer server isn’t reachable.');
+        setCreateError('Couldn’t create a room. The arena server isn’t reachable.');
       });
   };
 
   return (
-    <div style={containerStyle}>
-      <header style={headerStyle}>
-        <img src={pokeballUrl} alt="" aria-hidden="true" style={pokeballStyle} />
-        <h1 style={titleStyle}>POKÉBETS ARENA</h1>
-        <button onClick={() => (window.location.hash = '#/local')} style={soloPlayButton}>
-          ⚔️ Solo Play
-        </button>
-        <a href={KO_FI_URL} target="_blank" rel="noopener noreferrer" style={supportButton}>
-          ☕ Support Me
-        </a>
-      </header>
+    <div className="lp-root">
+      <style>{LANDING_CSS}</style>
+      <LandingNav />
+      <main>
+        <div className="lp-container">
+          <LandingHero
+            featuredRoomId={featuredRoom?.id ?? null}
+            stats={stats}
+            loaded={loaded}
+            offline={offline}
+            showViewerTotal={HERO_VIEWER_TOTAL_ENABLED}
+          />
+          <FeaturedRoomPanel room={featuredRoom} loaded={loaded} offline={offline} showViewerCount={HERO_VIEWER_TOTAL_ENABLED} />
+          <HowItWorks />
 
-      {error && <p style={errorText}>{error}</p>}
-
-      {featuredRoom ? (
-        <FeaturedRoomPanel roomId={featuredRoom.id} viewerCount={featuredRoom.viewerCount} />
-      ) : (
-        !error && <p style={statusText}>Loading the live room…</p>
-      )}
-
-      <section style={sectionStyle}>
-        <div style={sectionHeaderStyle}>
-          <h2 style={sectionTitleStyle}>LIVE ROOMS</h2>
-          {WIDE_ARENA_TOGGLE_ENABLED && !IS_MOBILE_DEVICE && (
-            <button onClick={() => setWideArena(!wideArena)} style={wideArenaToggle(wideArena)}>
-              🖥️ Wide Arena {wideArena ? 'ON' : 'OFF'}
-            </button>
-          )}
-        </div>
-
-        <div style={gridStyle}>
-          {gridRooms.map((room) => (
-            <RoomCard key={room.id} room={room} />
-          ))}
-        </div>
-        {gridRooms.length === 0 && !error && <p style={statusText}>No other rooms yet — watch the live one above.</p>}
-
-        {ROOM_CREATION_ENABLED && (
-          <>
-            <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', justifyContent: 'center' }}>
-              <button onClick={() => createRoom('classic')} style={primaryButton}>
-                + CLASSIC ROOM
-              </button>
-              <button onClick={() => createRoom('boss')} style={bossButton}>
-                + BOSS ROOM 👹
-              </button>
-            </div>
-            <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', justifyContent: 'center' }}>
-              {TEAM_MODES.map((mode) => {
-                const size = teamSizeForMode(mode)!;
-                return (
-                  <button key={mode} onClick={() => createRoom(mode)} style={teamButton}>
-                    + TEAM {size}v{size} 🛡️
+          <section className="lp-section" aria-labelledby="lp-rooms-title">
+            <div className="lp-section-head">
+              <h2 id="lp-rooms-title" className="lp-h2">
+                LIVE ROOMS
+              </h2>
+              <div className="lp-section-meta">
+                {loaded && !offline && (
+                  <span>
+                    {stats.gridCount} {stats.gridCount === 1 ? 'room' : 'rooms'} · {stats.gridBattling} in battle
+                  </span>
+                )}
+                {WIDE_ARENA_TOGGLE_ENABLED && !IS_MOBILE_DEVICE && (
+                  <button
+                    type="button"
+                    className="lp-btn lp-btn-ghost"
+                    aria-pressed={wideArena}
+                    onClick={() => setWideArena(!wideArena)}
+                  >
+                    WIDE ARENA: {wideArena ? 'ON' : 'OFF'}
                   </button>
-                );
-              })}
+                )}
+              </div>
             </div>
-          </>
-        )}
-      </section>
+            <p className="lp-section-sub">Watch any room, or grab an open seat and pick your own fighter.</p>
+
+            {loading && (
+              <>
+                <div className="lp-room-grid" aria-hidden="true">
+                  {Array.from({ length: SKELETON_CARD_COUNT }, (_, i) => (
+                    <div key={i} className="lp-skeleton-card">
+                      <div className="lp-skeleton" />
+                      <div className="lp-skeleton-line" />
+                    </div>
+                  ))}
+                </div>
+                <p className="lp-sr-only" role="status">
+                  Loading live rooms…
+                </p>
+              </>
+            )}
+
+            {loaded && gridRooms.length > 0 && (
+              // role="list" because Safari drops list semantics from a
+              // list-style:none list.
+              <ul className="lp-room-grid" role="list">
+                {gridRooms.map((room) => (
+                  <li key={room.id}>
+                    <RoomCard room={room} />
+                  </li>
+                ))}
+              </ul>
+            )}
+
+            {loaded && gridRooms.length === 0 && (
+              <div className="lp-info-box">
+                <img src={pokeballUrl} alt="" width={30} height={30} />
+                <p>No other rooms are open right now. The Featured Showcase above never stops.</p>
+              </div>
+            )}
+
+            {offline && !loaded && (
+              <div className="lp-info-box">
+                <p>Rooms will show up here as soon as the arena is back online.</p>
+              </div>
+            )}
+
+            {ROOM_CREATION_ENABLED && (
+              <>
+                <div className="lp-create-row">
+                  <button type="button" className="lp-btn lp-btn-primary" onClick={() => createRoom('classic')}>
+                    + CLASSIC ROOM
+                  </button>
+                  <button type="button" className="lp-btn lp-btn-secondary" onClick={() => createRoom('boss')}>
+                    + BOSS ROOM
+                  </button>
+                  {TEAM_MODES.map((mode) => {
+                    const size = teamSizeForMode(mode)!;
+                    return (
+                      <button key={mode} type="button" className="lp-btn lp-btn-ghost" onClick={() => createRoom(mode)}>
+                        + TEAM {size}V{size}
+                      </button>
+                    );
+                  })}
+                </div>
+                {createError && (
+                  <p className="lp-alert" role="alert">
+                    {createError}
+                  </p>
+                )}
+              </>
+            )}
+          </section>
+        </div>
+      </main>
+      <LandingFooter />
     </div>
   );
-}
-
-const containerStyle: CSSProperties = {
-  width: '100%',
-  minHeight: '100dvh',
-  boxSizing: 'border-box',
-  display: 'flex',
-  flexDirection: 'column',
-  alignItems: 'center',
-  gap: 20,
-  padding: '20px 16px calc(24px + env(safe-area-inset-bottom))',
-  fontFamily: FONT_MONO,
-  color: TEXT,
-  background: BG,
-};
-
-const headerStyle: CSSProperties = {
-  width: '100%',
-  maxWidth: 1100,
-  display: 'flex',
-  alignItems: 'center',
-  // The title plus both action buttons overflow a ~360px phone, so let the
-  // buttons drop to their own line there rather than squashing the title.
-  flexWrap: 'wrap',
-  gap: 10,
-};
-
-const pokeballStyle: CSSProperties = {
-  width: 32,
-  height: 32,
-  imageRendering: 'pixelated',
-  filter: 'drop-shadow(0 3px 6px rgba(0,0,0,0.4))',
-};
-
-const titleStyle: CSSProperties = {
-  flex: 1,
-  fontSize: 'clamp(14px, 3vw, 20px)',
-  letterSpacing: 1,
-  margin: 0,
-};
-
-const soloPlayButton: CSSProperties = {
-  flexShrink: 0,
-  padding: '8px 14px',
-  fontSize: 12,
-  fontFamily: 'monospace',
-  fontWeight: 'bold',
-  letterSpacing: 0.5,
-  color: PRIMARY,
-  background: 'transparent',
-  border: `1px solid ${PRIMARY}`,
-  borderRadius: 6,
-  cursor: 'pointer',
-};
-
-const supportButton: CSSProperties = {
-  flexShrink: 0,
-  padding: '8px 14px',
-  fontSize: 12,
-  fontFamily: 'monospace',
-  fontWeight: 'bold',
-  letterSpacing: 0.5,
-  color: ACCENT,
-  background: accentAlpha(0.16),
-  border: `1px solid ${ACCENT}`,
-  borderRadius: 6,
-  cursor: 'pointer',
-  textDecoration: 'none',
-  whiteSpace: 'nowrap',
-};
-
-const errorText: CSSProperties = {
-  margin: 0,
-  fontSize: 12,
-  color: DESTRUCTIVE,
-  textAlign: 'center',
-};
-
-const statusText: CSSProperties = {
-  margin: 0,
-  fontSize: 12,
-  opacity: 0.6,
-  textAlign: 'center',
-};
-
-const sectionStyle: CSSProperties = {
-  width: '100%',
-  maxWidth: 1100,
-  display: 'flex',
-  flexDirection: 'column',
-  gap: 14,
-};
-
-const sectionHeaderStyle: CSSProperties = {
-  display: 'flex',
-  alignItems: 'center',
-  justifyContent: 'space-between',
-  gap: 10,
-  flexWrap: 'wrap',
-};
-
-const sectionTitleStyle: CSSProperties = {
-  fontSize: 13,
-  letterSpacing: 1,
-  margin: 0,
-  opacity: 0.85,
-};
-
-const gridStyle: CSSProperties = {
-  display: 'grid',
-  gridTemplateColumns: 'repeat(auto-fill, minmax(150px, 1fr))',
-  gap: 14,
-};
-
-const primaryButton: CSSProperties = {
-  marginTop: 8,
-  padding: '12px 32px',
-  fontSize: 16,
-  fontFamily: 'monospace',
-  fontWeight: 'bold',
-  letterSpacing: 1,
-  color: PRIMARY_TEXT,
-  background: PRIMARY,
-  border: 'none',
-  borderRadius: 6,
-  cursor: 'pointer',
-};
-
-const bossButton: CSSProperties = {
-  marginTop: 8,
-  padding: '12px 32px',
-  fontSize: 16,
-  fontFamily: 'monospace',
-  fontWeight: 'bold',
-  letterSpacing: 1,
-  color: ACCENT,
-  background: accentAlpha(0.16),
-  border: `1px solid ${ACCENT}`,
-  borderRadius: 6,
-  cursor: 'pointer',
-};
-
-const teamButton: CSSProperties = {
-  marginTop: 8,
-  padding: '8px 16px',
-  fontSize: 13,
-  fontFamily: 'monospace',
-  fontWeight: 'bold',
-  letterSpacing: 1,
-  color: SECONDARY,
-  background: secondaryAlpha(0.14),
-  border: `1px solid ${SECONDARY}`,
-  borderRadius: 6,
-  cursor: 'pointer',
-};
-
-function wideArenaToggle(active: boolean): CSSProperties {
-  return {
-    fontSize: 11,
-    fontFamily: 'monospace',
-    fontWeight: 'bold',
-    padding: '5px 12px',
-    borderRadius: 14,
-    border: active ? `1px solid ${ACCENT}` : `1px solid ${textAlpha(0.2)}`,
-    background: active ? accentAlpha(0.22) : textAlpha(0.05),
-    color: active ? ACCENT : TEXT_MUTED,
-    cursor: 'pointer',
-  };
 }

@@ -35,13 +35,14 @@ import { getItem, MAX_HEALS_PER_TARGET, type ItemId } from '../src/net/shop';
  * interval being retuned. */
 export const BOT_TICK_MS = 1_000;
 
-/** Roster bounds. The showcase room already has real viewers — every visitor
- * sitting on the landing page holds a stream open to it (FeaturedRoomPanel
- * embeds a live RoomScreen) — so this is padding an existing count, not
- * inventing one. Small enough to stay plausible once real traffic lands on
- * top of it. */
-export const MIN_BOTS = 4;
-export const MAX_BOTS = 9;
+/** Roster bounds. The roster drifts toward a size rolled in this range, less
+ * one bot per real viewer (see rosterTarget), and never drops below MIN_BOTS
+ * however many real people arrive. Real viewers include every visitor sitting
+ * on the landing page, since FeaturedRoomPanel embeds a live RoomScreen, so a
+ * busy room trades its padding for real people instead of stacking on top of
+ * it, while a quiet one still reads as a crowd. */
+export const MIN_BOTS = 15;
+export const MAX_BOTS = 40;
 
 /** Shortest gap between two bot chat lines, room-wide (a jitter is added on
  * top). Deliberately room-wide rather than per-bot: what matters is how fast
@@ -447,7 +448,13 @@ export function resetBotMatch(state: BotState, nowMs: number): void {
   }
 }
 
-function churn(state: BotState, nowMs: number, result: BotTickResult): void {
+/** The size the roster is drifting toward right now: the rolled target, less
+ * one bot per real viewer, never below MIN_BOTS. */
+function rosterTarget(state: BotState, humanViewerCount: number): number {
+  return Math.max(MIN_BOTS, state.targetSize - humanViewerCount);
+}
+
+function churn(state: BotState, ctx: BotContext, nowMs: number, result: BotTickResult): void {
   for (let i = state.bots.length - 1; i >= 0; i -= 1) {
     const bot = state.bots[i];
     // Never below MIN_BOTS: an expired bot outstays its welcome rather than
@@ -463,15 +470,28 @@ function churn(state: BotState, nowMs: number, result: BotTickResult): void {
     state.nextResizeAtMs = nowMs + ROSTER_RESIZE_INTERVAL_MS;
   }
 
-  // One arrival at a time, and not on every tick — a roster that refills
-  // instantly never appears to move.
-  if (state.bots.length < state.targetSize && rngChance(state.rng, 0.15)) {
+  // One arrival or departure at a time, and not on every tick — a roster that
+  // refills or empties instantly never appears to move.
+  const target = rosterTarget(state, ctx.humanViewerCount);
+  if (state.bots.length < target && rngChance(state.rng, 0.15)) {
     const bot = makeBot(state, nowMs);
     if (bot) {
       state.bots.push(bot);
       state.sessionIds.add(bot.sessionId);
       result.joined.push(bot.sessionId);
     }
+  } else if (state.bots.length > target && rngChance(state.rng, 0.25)) {
+    // Making room for real viewers. Whoever was closest to leaving anyway goes
+    // first, and a little faster than arrivals so a burst of real traffic
+    // isn't stacked on a full roster for long. rosterTarget's floor is what
+    // keeps this from ever taking the room below MIN_BOTS.
+    let index = 0;
+    for (let i = 1; i < state.bots.length; i += 1) {
+      if (state.bots[i].leaveAtMs < state.bots[index].leaveAtMs) index = i;
+    }
+    const [bot] = state.bots.splice(index, 1);
+    state.sessionIds.delete(bot.sessionId);
+    result.left.push(bot.sessionId);
   }
 }
 
@@ -675,7 +695,7 @@ function affordableStock(shop: NonNullable<BotContext['shop']>, itemId: ItemId):
  * second — the loser of a tie simply goes next tick, invisible at 1 Hz. */
 export function tickBots(state: BotState, ctx: BotContext, nowMs: number): BotTickResult {
   const result: BotTickResult = { actions: [], joined: [], left: [] };
-  churn(state, nowMs, result);
+  churn(state, ctx, nowMs, result);
   noteReaction(state, ctx);
 
   const chat = planChat(state, ctx, nowMs);

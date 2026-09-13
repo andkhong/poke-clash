@@ -149,6 +149,37 @@ describe('bot roster', () => {
     expect(liveBotCount(state)).toBeLessThanOrEqual(MAX_BOTS);
     expect(joined.length).toBeGreaterThan(0); // the roster really did move
   });
+
+  it('gives up one bot per real viewer, down to the floor and never below it', () => {
+    const state = createBotState(13, 0, SPECIES_NAMES);
+    // Pinned so the two-minute re-roll can't move the target mid-test. Bot
+    // lifetimes are at least three minutes, so nobody expires in the first 100.
+    state.targetSize = 20;
+    state.nextResizeAtMs = Number.POSITIVE_INFINITY;
+    const idle = { roomPhase: 'idle', simPhase: null, elapsedMs: null } as const;
+
+    run(state, 100, () => ctxWith({ ...idle, humanViewerCount: 3 }));
+    expect(liveBotCount(state)).toBe(17);
+
+    for (let tick = 100; tick < 400; tick += 1) {
+      tickBots(state, ctxWith({ ...idle, humanViewerCount: 50 }), tick * BOT_TICK_MS);
+      expect(liveBotCount(state)).toBeGreaterThanOrEqual(MIN_BOTS);
+    }
+    expect(liveBotCount(state)).toBe(MIN_BOTS);
+  });
+
+  it('fills back up past the floor once the real viewers leave', () => {
+    const state = createBotState(15, 0, SPECIES_NAMES);
+    state.targetSize = MAX_BOTS;
+    state.nextResizeAtMs = Number.POSITIVE_INFINITY;
+    const idle = { roomPhase: 'idle', simPhase: null, elapsedMs: null } as const;
+
+    run(state, 150, () => ctxWith({ ...idle, humanViewerCount: 40 }));
+    expect(liveBotCount(state)).toBe(MIN_BOTS);
+
+    run(state, 150, () => ctxWith({ ...idle, humanViewerCount: 0 }), 150 * BOT_TICK_MS);
+    expect(liveBotCount(state)).toBeGreaterThan(MIN_BOTS);
+  });
 });
 
 describe('bot chat', () => {
