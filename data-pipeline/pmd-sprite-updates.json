@@ -1,10 +1,10 @@
 {
   "version": 1,
-  "lastCheckedAt": "2026-09-10T20:06:21.449Z",
+  "lastCheckedAt": "2026-09-13T23:56:59.095Z",
   "upstream": {
-    "trackerCommit": "ebe2875",
-    "trackerCommittedAt": "2026-09-10T19:31:10Z",
-    "latestSpriteChangeAt": "2026-09-06T21:55:08.512Z"
+    "trackerCommit": "64606f1",
+    "trackerCommittedAt": "2026-09-13T18:30:04Z",
+    "latestSpriteChangeAt": "2026-09-11T22:43:43.621Z"
   },
   "pending": {
     "add": [],
@@ -14,6 +14,19 @@
     "missingUpstream": 57
   },
   "history": [
+    {
+      "at": "2026-09-13T23:56:59.085Z",
+      "trackerCommit": "64606f1",
+      "added": [],
+      "updated": [
+        530
+      ],
+      "shinyAdded": [],
+      "shinyUpdated": [],
+      "failed": [],
+      "stillMissingUpstream": 57,
+      "tarball": "deploy-assets/pmd-sprite-update-2026-09-13-23-56-59.tar.gz"
+    },
     {
       "at": "2026-09-10T18:39:01.875Z",
       "trackerCommit": "aab3d49",
