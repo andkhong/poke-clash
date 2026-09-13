@@ -183,7 +183,7 @@ function ShopPanelBody({
               {pickedItem.emoji} {pickedItem.label.toUpperCase()} · {formatDollars(pickedItem.price)}
             </span>
           </div>
-          <p style={captionStyle}>CHOOSE A FIGHTER</p>
+          <p style={captionStyle}>{pickedItem.effect === 'revive' ? 'CHOOSE A FAINTED FIGHTER' : 'CHOOSE A FIGHTER'}</p>
           <div style={listStyle}>
             {targetRows(state, shop, pickedItem).map((row) => (
               <button
@@ -193,7 +193,7 @@ function ShopPanelBody({
                 onClick={() => void buy(pickedItem, row.instanceId)}
                 aria-label={
                   row.blocked === null
-                    ? `Use ${pickedItem.label} on ${row.name}, restores ${row.heal} HP`
+                    ? `${pickedItem.effect === 'revive' ? 'Revive' : `Use ${pickedItem.label} on`} ${row.name}, restores ${row.heal} HP`
                     : `${row.name}, ${targetBlockedLabel(row.blocked)}`
                 }
                 style={{ ...targetStyle, ...(row.blocked === null && !buying ? null : disabledStyle) }}
@@ -203,10 +203,11 @@ function ShopPanelBody({
                   <span style={{ ...hpFillStyle, width: `${Math.max(0, Math.min(1, row.hpFraction)) * 100}%`, background: hpColor(row.hpFraction) }} />
                 </span>
                 <span style={row.blocked === null ? healStyle : blockedStyle}>
-                  {row.blocked === null ? `+${row.heal}` : targetBlockedLabel(row.blocked)}
+                  {row.blocked === null ? (pickedItem.effect === 'revive' ? `REVIVE ${row.heal}` : `+${row.heal}`) : targetBlockedLabel(row.blocked)}
                 </span>
               </button>
             ))}
+            {targetRows(state, shop, pickedItem).length === 0 && <p style={captionStyle}>NO FAINTED FIGHTERS</p>}
           </div>
         </>
       )}

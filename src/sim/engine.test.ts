@@ -21,7 +21,7 @@ import {
   STATUS_TURN_INTERVAL_MS,
   TICK_MS,
 } from './constants';
-import type { MatchConfig, SimEvent, StatusCondition } from './types';
+import type { MatchConfig, SimEvent, SimState, StatusCondition } from './types';
 import { distance } from './movement';
 import { isIncapacitatingStatus } from './statusEffects';
 
@@ -1265,6 +1265,26 @@ describe('applyItemHeal (the shop\'s out-of-band heal)', () => {
     expect(engine.applyItemHeal(downed, 0.5, 'superPotion', 'Tester')).toBeNull();
     expect(state.pokemon[downed].currentHp).toBe(0);
     expect(healEvents(engine)).toHaveLength(0);
+  });
+
+  it('revives a fainted fighter to 30% HP and restores it to roster order', () => {
+    const engine = engineAtBattle();
+    const state = engine.getState();
+    const [, id] = state.allInstanceIds;
+    const target = state.pokemon[id];
+    target.currentHp = 0;
+    target.aiState = 'fainted';
+    target.status = 'poison';
+    (state as SimState).livingOrder = state.livingOrder.filter((livingId) => livingId !== id);
+
+    const revived = engine.applyItemRevive(id, 0.3, 'revive', 'Slowpoke482');
+
+    expect(revived).toBe(Math.round(target.maxHp * 0.3));
+    expect(target.currentHp).toBe(revived);
+    expect(target.status).toBeNull();
+    expect(target.aiState).toBe('wander');
+    expect(state.livingOrder).toEqual(state.allInstanceIds);
+    expect(healEvents(engine)[0]).toMatchObject({ type: 'itemUsed', itemId: 'revive', effect: 'revive', instanceId: id, amount: revived });
   });
 
   it('refuses once the match is complete', () => {

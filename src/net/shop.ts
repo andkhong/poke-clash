@@ -35,7 +35,8 @@ export function isShopOpenForPhase(phase: MatchPhase): boolean {
   return phase !== 'intro' && phase !== 'complete';
 }
 
-export type ItemId = 'potion' | 'superPotion';
+export type ItemId = 'potion' | 'superPotion' | 'revive';
+export type ItemEffect = 'heal' | 'revive';
 
 export interface ShopItem {
   id: ItemId;
@@ -54,14 +55,17 @@ export interface ShopItem {
    * at level 100 (see sim/statCalc.ts's computeStats) — a flat 20 would be
    * 6-13% and functionally noise. */
   healFraction: number;
+  /** Whether this restores a standing fighter or brings back a fainted one. */
+  effect: ItemEffect;
   /** How many of this item the whole room may buy in one match, shared by
    * everyone watching. First come, first served. */
   stock: number;
 }
 
 export const ITEMS: readonly ShopItem[] = [
-  { id: 'potion', label: 'Potion', emoji: '🧪', price: 40, healFraction: 0.25, stock: 8 },
-  { id: 'superPotion', label: 'Super Potion', emoji: '🍶', price: 90, healFraction: 0.5, stock: 3 },
+  { id: 'potion', label: 'Potion', emoji: '🧪', price: 40, healFraction: 0.25, effect: 'heal', stock: 8 },
+  { id: 'superPotion', label: 'Super Potion', emoji: '🍶', price: 90, healFraction: 0.5, effect: 'heal', stock: 3 },
+  { id: 'revive', label: 'Revive', emoji: '💗', price: 1000, healFraction: 0.3, effect: 'revive', stock: 1 },
 ];
 
 export const ITEM_IDS: readonly ItemId[] = ITEMS.map((item) => item.id);

@@ -70,7 +70,7 @@ export const BOT_BUY_MIN_GAP_MS = 6_000;
  * was widened to make room for them (see src/net/shop.ts). Bots consume only
  * the increase, so a real viewer can never find the shop cleared out by them.
  * This is the whole reason raising stock is safe. */
-export const BOT_STOCK_RESERVE: Record<ItemId, number> = { potion: 3, superPotion: 1 };
+export const BOT_STOCK_RESERVE: Record<ItemId, number> = { potion: 3, superPotion: 1, revive: 0 };
 
 /** Chance a given bot bets at all in a given match, and buys at all. The buy
  * rate can be generous because BOT_STOCK_RESERVE, not restraint, is what
@@ -83,11 +83,12 @@ export const BOT_BUY_CHANCE = 0.45;
 export const BOT_BET_LATEST_ELAPSED_MS = 40_000;
 
 /** Bots get no MATCH_WATCHED_REWARD — that is paid to open streams, and a bot
- * has none — so their balances are floored each match. They are also capped,
+ * has none — so their balances are replenished into the Revive-capable range
+ * each match. They are also capped,
  * because balances are rendered beside names in chat and "Slowpoke42 ($4,120)"
  * reads as exactly what it is. */
-export const BOT_BALANCE_FLOOR = 100;
-export const BOT_BALANCE_CEILING = 500;
+export const BOT_BALANCE_FLOOR = 1000;
+export const BOT_BALANCE_CEILING = 1200;
 
 /** A bot's target's HP must be at or below this for it to be worth healing,
  * and at or below the second for a Super Potion to be the sensible pick. */
@@ -172,7 +173,7 @@ export interface BotContext {
     options: readonly { id: string; alive: boolean; odds: number }[];
   } | null;
   shop: {
-    stockLeft: Record<ItemId, number>;
+    stockLeft: Partial<Record<ItemId, number>>;
     healsByTarget: ReadonlyMap<string, number>;
   } | null;
   /** Every fighter in the match, living or not (see BotTarget.alive). */
@@ -610,6 +611,16 @@ function planBuy(state: BotState, ctx: BotContext, nowMs: number): BotAction | n
   for (const bot of state.bots) {
     if (bot.hasBought || bot.buyAtElapsedMs === null || ctx.elapsedMs < bot.buyAtElapsedMs) continue;
 
+    const balance = ctx.balances.get(bot.sessionId) ?? 0;
+    const fainted = ctx.targets.filter((target) => !target.alive);
+    if (fainted.length > 0 && affordableStock(shop, 'revive') && balance >= getItem('revive').price) {
+      const target = rngPick(state.rng, fainted);
+      bot.hasBought = true;
+      state.nextBuyAtMs = nowMs + BOT_BUY_MIN_GAP_MS;
+      state.chatLinesThisMatch += 1;
+      return { kind: 'buy', sessionId: bot.sessionId, name: bot.name, itemId: 'revive', targetInstanceId: target.instanceId };
+    }
+
     const candidates = ctx.targets.filter(
       (target) =>
         target.alive &&
@@ -632,7 +643,6 @@ function planBuy(state: BotState, ctx: BotContext, nowMs: number): BotAction | n
     // Neither is buyable by anyone, so no other bot will fare better either.
     if (!superAvailable && !potionAvailable) return null;
 
-    const balance = ctx.balances.get(bot.sessionId) ?? 0;
     const canSuper = superAvailable && balance >= getItem('superPotion').price;
     const canPotion = potionAvailable && balance >= getItem('potion').price;
     const wantsSuper = target.hpFraction <= BOT_SUPER_POTION_HP_THRESHOLD;

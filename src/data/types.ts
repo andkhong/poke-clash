@@ -90,8 +90,9 @@ export type PmdSpriteIndex = Record<string, PmdSpriteIndexEntry>;
 // One entry per move id that has a clip at public/move-sounds/<moveId>.mp3
 // (committed, shipped with the app build like public/cries/) — moves with
 // no entry (mostly generations 8+, which the mirrored SFX pack doesn't
-// cover) simply play silently. The clip's URL is derived from the id, so
-// the entry only records provenance.
+// cover) fall back to the shared public/move-sounds/default.mp3 clip
+// instead (see moveSound.ts's playMoveSound). The clip's URL is derived
+// from the id, so the entry only records provenance.
 export interface MoveSoundIndexEntry {
   /** "<folder>/<file>" the clip was transcoded from in the gitignored sound/
    * mirror, e.g. "GEN 7 SFX - Attack Moves - SUMO, USUM/Flamethrower.mp3". */

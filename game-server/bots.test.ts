@@ -24,7 +24,7 @@ import {
 import { normalizeChatText, normalizeSpectatorName } from '../src/net/chat';
 import { containsBlockedLanguage } from '../src/net/chatFilter';
 import { isValidSessionId } from '../src/net/predictions';
-import { MAX_HEALS_PER_TARGET, getItem, isValidInstanceId } from '../src/net/shop';
+import { MAX_HEALS_PER_TARGET, getItem, isValidInstanceId, type ItemId } from '../src/net/shop';
 import { listAllSpecies } from '../src/data/loader';
 import type { SimEvent } from '../src/sim/types';
 
@@ -310,7 +310,7 @@ describe('bot betting', () => {
 describe('bot buying', () => {
   it('never takes the shelf below the reserve held for real viewers', () => {
     const state = createBotState(31, 0, SPECIES_NAMES);
-    const stockLeft = { potion: getItem('potion').stock, superPotion: getItem('superPotion').stock };
+    const stockLeft: Record<ItemId, number> = { potion: getItem('potion').stock, superPotion: getItem('superPotion').stock, revive: getItem('revive').stock };
     startBotMatch(state, ctxWith({ balances: fund(state) }), 0);
     // Ten matches' worth of chances, with the shelf draining as they land.
     for (let round = 0; round < 10; round += 1) {

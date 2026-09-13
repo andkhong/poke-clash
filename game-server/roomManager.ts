@@ -643,7 +643,10 @@ export function purchaseRoomItem(
     nowMs,
     // Only called once every rule above has passed, so a null here means the
     // match ended underneath the request — nothing is charged either way.
-    (item) => engine.applyItemHeal(targetInstanceId, item.healFraction, item.id, buyerName)
+    (item) =>
+      item.effect === 'revive'
+        ? engine.applyItemRevive(targetInstanceId, item.healFraction, item.id, buyerName)
+        : engine.applyItemHeal(targetInstanceId, item.healFraction, item.id, buyerName)
   );
   if (!result.ok) return result;
 
@@ -652,7 +655,8 @@ export function purchaseRoomItem(
   broadcast(room.id, 'shop', shop);
   // A seated buyer's balance rides on the slot list too, same as a bet.
   if (room.slots.some((s) => s.sessionId === sessionId)) broadcast(room.id, 'roomUpdate', toRoomSummary(room));
-  postSystemChat(room, `${buyerName} used ${result.item.label} on ${result.use.targetName} (+${result.use.amount} HP)`, nowMs);
+  const outcome = result.item.effect === 'revive' ? `revived ${result.use.targetName} (${result.use.amount} HP)` : `used ${result.item.label} on ${result.use.targetName} (+${result.use.amount} HP)`;
+  postSystemChat(room, `${buyerName} ${outcome}`, nowMs);
 
   return { ok: true, balance, myItemUses: itemUsesForSession(room.shop, sessionId), use: result.use, shop };
 }
@@ -756,7 +760,7 @@ function registerRoomTickLoop(room: RoomState): void {
     // A faint is the one thing that moves the odds enough to be worth a
     // frame of its own (HP wobbles all match; settlement recomputes anyway).
     const prediction = room.prediction;
-    if (prediction && prediction.status !== 'settled' && events.some((e) => e.type === 'fainted')) {
+    if (prediction && prediction.status !== 'settled' && events.some((e) => e.type === 'fainted' || (e.type === 'itemUsed' && e.effect === 'revive'))) {
       prediction.odds = computeWinOdds(state, moveLookup, prediction.options);
       broadcast(room.id, 'prediction', toPredictionSummary(prediction, state));
     }
@@ -801,7 +805,7 @@ function topUpBotWallets(room: RoomState): void {
     // beside names in chat, and a roster that all reads ($100) every round is
     // the tell that gives the whole thing away.
     if (balance < BOT_BALANCE_FLOOR || balance > BOT_BALANCE_CEILING) {
-      adjustBalance(sessionId, rngIntInclusive(room.bots.rng, BOT_BALANCE_FLOOR, 260) - balance);
+      adjustBalance(sessionId, rngIntInclusive(room.bots.rng, BOT_BALANCE_FLOOR, BOT_BALANCE_CEILING) - balance);
     }
   }
 }

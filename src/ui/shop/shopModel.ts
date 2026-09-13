@@ -26,23 +26,22 @@ export interface TargetRow {
 
 export type TargetBlockReason = 'full_hp' | 'target_limit';
 
-/** Every living fighter in spawn order — the same order the roster HUD uses
- * (allInstanceIds, not livingOrder), minus the fainted, since nothing here
- * can revive. */
+/** Targets appropriate for this item, in roster order. Heals select living
+ * fighters; Revive selects the fainted ones. */
 export function targetRows(state: SimState, shop: ShopSummary, item: ShopItem): TargetRow[] {
   const healsByTarget = countHealsByTarget(shop);
   const rows: TargetRow[] = [];
   for (const instanceId of state.allInstanceIds) {
     const pokemon = state.pokemon[instanceId];
-    if (!pokemon || pokemon.currentHp <= 0) continue;
+    if (!pokemon || (item.effect === 'heal' ? pokemon.currentHp <= 0 : pokemon.currentHp > 0)) continue;
     rows.push({
       instanceId,
       name: pokemon.name,
       currentHp: pokemon.currentHp,
       maxHp: pokemon.maxHp,
       hpFraction: pokemon.maxHp > 0 ? pokemon.currentHp / pokemon.maxHp : 0,
-      heal: healAmount(item, pokemon),
-      blocked: blockReason(pokemon, healsByTarget.get(instanceId) ?? 0),
+      heal: item.effect === 'revive' ? reviveAmount(item, pokemon) : healAmount(item, pokemon),
+      blocked: item.effect === 'revive' ? null : blockReason(pokemon, healsByTarget.get(instanceId) ?? 0),
     });
   }
   return rows;
@@ -55,6 +54,12 @@ export function targetRows(state: SimState, shop: ShopSummary, item: ShopItem): 
 export function healAmount(item: ShopItem, pokemon: Pick<PokemonInstance, 'currentHp' | 'maxHp'>): number {
   const missing = Math.max(0, pokemon.maxHp - pokemon.currentHp);
   return Math.min(Math.max(1, Math.round(pokemon.maxHp * item.healFraction)), missing);
+}
+
+/** A Revive restores its fixed fraction of max HP; there is no missing-HP
+ * clamp because a valid revive target is always at zero. */
+export function reviveAmount(item: ShopItem, pokemon: Pick<PokemonInstance, 'maxHp'>): number {
+  return Math.max(1, Math.round(pokemon.maxHp * item.healFraction));
 }
 
 function blockReason(pokemon: Pick<PokemonInstance, 'currentHp' | 'maxHp'>, healsSoFar: number): TargetBlockReason | null {
@@ -110,7 +115,9 @@ export function stockColor(shop: ShopSummary, item: ShopItem): string | null {
 
 /** "+25% HP · $40" — an item's headline terms. */
 export function itemTerms(item: ShopItem): string {
-  return `+${Math.round(item.healFraction * 100)}% HP · ${formatDollars(item.price)}`;
+  return item.effect === 'revive'
+    ? `REVIVE ${Math.round(item.healFraction * 100)}% HP · ${formatDollars(item.price)}`
+    : `+${Math.round(item.healFraction * 100)}% HP · ${formatDollars(item.price)}`;
 }
 
 /** Why the panel can't be used at all right now, as one line — or null when
@@ -137,7 +144,9 @@ export function shopNotice(
 
 /** "Slowpoke482 → Piplup +87" — one line of the activity log. */
 export function itemUseText(use: ItemUse): string {
-  return `${use.buyerName} → ${use.targetName} +${use.amount}`;
+  return use.effect === 'revive'
+    ? `${use.buyerName} revived ${use.targetName} (${use.amount} HP)`
+    : `${use.buyerName} → ${use.targetName} +${use.amount}`;
 }
 
 /** The emoji for a logged use, looked up from the catalog. */
@@ -158,6 +167,8 @@ export function itemErrorNotice(error: string): string {
       return 'One item per match';
     case 'target_fainted':
       return 'That one already fainted';
+    case 'target_not_fainted':
+      return 'Revive needs a fainted fighter';
     case 'target_full_hp':
       return 'Already at full HP';
     case 'target_limit':

@@ -125,10 +125,50 @@ export class SimulationEngine implements EngineLike {
       type: 'itemUsed',
       instanceId,
       itemId,
+      effect: 'heal',
       amount,
       buyerName,
     });
     return amount;
+  }
+
+  /** Brings a fainted fighter back into the live roster at `fraction` HP.
+   * This is deliberately only possible before match completion: a Revive can
+   * save a team member, but cannot undo a match result already settled. */
+  applyItemRevive(instanceId: string, fraction: number, itemId: string, buyerName: string): number | null {
+    if (this.state.phase === 'complete') return null;
+    const target = this.state.pokemon[instanceId];
+    if (!target || target.currentHp > 0) return null;
+
+    const amount = Math.max(1, Math.round(target.maxHp * fraction));
+    target.currentHp = Math.min(amount, target.maxHp);
+    target.status = null;
+    target.aiState = 'wander';
+    target.velocity = { x: 0, y: 0 };
+    target.targetInstanceId = null;
+    target.actionCooldownMs = 0;
+    target.postAttackHoldMs = 0;
+    target.wanderWaypoint = undefined;
+    target.wanderStuckMs = 0;
+    target.lastDamagedByInstanceId = undefined;
+
+    // Restore roster order rather than appending: it keeps deterministic AI
+    // tie-breaking and the HUD's normal clockwise ordering intact.
+    if (!this.state.livingOrder.includes(instanceId)) {
+      const revived = new Set([...this.state.livingOrder, instanceId]);
+      this.state.livingOrder = this.state.allInstanceIds.filter((id) => revived.has(id));
+    }
+    this.events.push({
+      seq: this.nextSeq(),
+      atMs: this.state.elapsedMs,
+      type: 'itemUsed',
+      instanceId,
+      itemId,
+      effect: 'revive',
+      amount: target.currentHp,
+      buyerName,
+    });
+    return target.currentHp;
   }
 
   tick(dtMs: number): void {

@@ -22,6 +22,7 @@ import { DESTRUCTIVE, SUCCESS, YELLOW } from '../theme';
 
 const POTION = getItem('potion');
 const SUPER = getItem('superPotion');
+const REVIVE = getItem('revive');
 
 function pokemon(instanceId: string, currentHp: number, maxHp = 200): PokemonInstance {
   return { instanceId, name: instanceId.toUpperCase(), currentHp, maxHp } as PokemonInstance;
@@ -38,7 +39,7 @@ function stateWith(...mons: PokemonInstance[]): SimState {
 function shopWith(overrides: Partial<ShopSummary> = {}): ShopSummary {
   return {
     matchNo: 1,
-    stockLeft: { potion: POTION.stock, superPotion: SUPER.stock },
+    stockLeft: { potion: POTION.stock, superPotion: SUPER.stock, revive: REVIVE.stock },
     healsByTarget: {},
     recent: [],
     ...overrides,
@@ -68,6 +69,13 @@ describe('targetRows', () => {
     expect(rows.map((r) => r.instanceId)).toEqual(['p0-1', 'p1-2']); // the fainted one is gone
     expect(rows[0]).toMatchObject({ name: 'P0-1', currentHp: 50, maxHp: 200, hpFraction: 0.25, blocked: null });
     expect(rows[0].heal).toBe(Math.round(200 * POTION.healFraction));
+  });
+
+  it('lists only fainted fighters for Revive and promises 30% HP', () => {
+    const state = stateWith(pokemon('p0-1', 50), pokemon('p1-2', 0));
+    const rows = targetRows(state, shopWith(), REVIVE);
+    expect(rows.map((row) => row.instanceId)).toEqual(['p1-2']);
+    expect(rows[0].heal).toBe(60);
   });
 
   it('blocks a full-HP target and one that has had its share', () => {
@@ -159,7 +167,7 @@ describe('shopNotice', () => {
     expect(shopNotice(state, shopWith(), cheapest - 1, 0, true)).toMatch(/Not enough/);
     expect(shopNotice(state, shopWith(), cheapest, 0, true)).toBeNull();
     // The cheap item is gone, so the expensive one sets the bar.
-    expect(shopNotice(state, shopWith({ stockLeft: { potion: 0, superPotion: 1 } }), SUPER.price - 1, 0, true)).toMatch(/Not enough/);
+    expect(shopNotice(state, shopWith({ stockLeft: { potion: 0, superPotion: 1, revive: 0 } }), SUPER.price - 1, 0, true)).toMatch(/Not enough/);
   });
 
   it('stays quiet in a read-only embed, which has nothing to explain', () => {
@@ -169,7 +177,7 @@ describe('shopNotice', () => {
 
 describe('activity log', () => {
   it('reads as buyer, target and HP restored, with the item emoji', () => {
-    const entry: ItemUse = { itemId: 'superPotion', targetInstanceId: 'p0-1', targetName: 'Piplup', buyerName: 'Slowpoke482', amount: 87, atMs: 0 };
+    const entry: ItemUse = { itemId: 'superPotion', effect: 'heal', targetInstanceId: 'p0-1', targetName: 'Piplup', buyerName: 'Slowpoke482', amount: 87, atMs: 0 };
     expect(itemUseText(entry)).toBe('Slowpoke482 → Piplup +87');
     expect(itemUseEmoji(entry)).toBe(SUPER.emoji);
   });

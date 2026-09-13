@@ -18,6 +18,13 @@ function moveSoundUrl(moveId: number): string {
   return `/move-sounds/${moveId}.mp3`;
 }
 
+// Shared fallback for moves the mirrored SFX pack doesn't cover (see
+// build-move-sound-index.ts's DEFAULT_SOUND_CANDIDATES) — a generic hit
+// stinger, not tied to any move, so it's cached under its own fixed key
+// instead of a move id.
+const DEFAULT_SOUND_KEY = 'move-sound-default';
+const DEFAULT_SOUND_URL = '/move-sounds/default.mp3';
+
 /** Handle for a clip started by playMoveSound — lets a caller cut it short
  * (e.g. once the attack's on-screen animation has finished) instead of
  * always letting it play out to its natural end. */
@@ -25,16 +32,17 @@ export interface MoveSoundHandle {
   stop(): void;
 }
 
-/** Plays a move's matched sound effect, if the index has one — a no-op for
- * moves the mirrored SFX pack doesn't cover (mainly generation 8+ moves;
- * see build-move-sound-index.ts's unmatched-move report). Called once per
+/** Plays a move's matched sound effect, or the shared default hit stinger
+ * for moves the mirrored SFX pack doesn't cover (mainly generation 8+
+ * moves; see build-move-sound-index.ts's unmatched-move report) — so every
+ * move makes *some* sound rather than playing silently. Called once per
  * move use, not once per hit target, same as showMoveLabel(). Returns a
- * handle the caller can use to stop the clip early; undefined when there's
- * no matched sound to play. */
-export function playMoveSound(scene: Phaser.Scene, move: MoveDefinition): MoveSoundHandle | undefined {
-  if (!MOVE_SOUND_INDEX[String(move.id)]) return undefined;
+ * handle the caller can use to stop the clip early. */
+export function playMoveSound(scene: Phaser.Scene, move: MoveDefinition): MoveSoundHandle {
+  const matched = MOVE_SOUND_INDEX[String(move.id)];
+  const key = matched ? `move-sound-${move.id}` : DEFAULT_SOUND_KEY;
+  const url = matched ? moveSoundUrl(move.id) : DEFAULT_SOUND_URL;
 
-  const key = `move-sound-${move.id}`;
   // scene.sound.play(key, ...) (the shorthand used elsewhere, e.g.
   // cryAudio.ts) returns only a boolean, discarding the Sound instance — no
   // way to stop it later. Use add()+play() instead so we can hang onto the
@@ -59,7 +67,7 @@ export function playMoveSound(scene: Phaser.Scene, move: MoveDefinition): MoveSo
     // matters once many loads are in flight at once), so a plain .once() here
     // is safe.
     scene.load.once(`filecomplete-audio-${key}`, startPlayback);
-    scene.load.audio(key, moveSoundUrl(move.id));
+    scene.load.audio(key, url);
     if (!scene.load.isLoading()) scene.load.start();
   }
 

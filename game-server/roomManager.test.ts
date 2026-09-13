@@ -921,7 +921,7 @@ describe('roomManager shop', () => {
 
     const summary = lastShop();
     expect(summary.matchNo).toBe(1);
-    expect(summary.stockLeft).toEqual({ potion: getItem('potion').stock, superPotion: getItem('superPotion').stock });
+    expect(summary.stockLeft).toEqual({ potion: getItem('potion').stock, superPotion: getItem('superPotion').stock, revive: getItem('revive').stock });
     expect(summary.recent).toEqual([]);
     expect(getHelloPayload(room).shop).toEqual(summary);
   });
@@ -942,6 +942,26 @@ describe('roomManager shop', () => {
     expect(result.balance).toBe(500 - getItem('potion').price);
     expect(result.myItemUses).toBe(1);
     expect(lastShop().stockLeft.potion).toBe(getItem('potion').stock - 1);
+  });
+
+  it('revives a fainted fighter to 30% HP, restores its roster place, and debits $1,000', () => {
+    const { room, state } = battle();
+    const [, id] = state.allInstanceIds;
+    const target = state.pokemon[id];
+    target.currentHp = 0;
+    target.aiState = 'fainted';
+    (state as SimState).livingOrder = state.livingOrder.filter((livingId) => livingId !== id);
+    fund('sess-revive', 1000);
+
+    const result = purchaseRoomItem(room, 'sess-revive', 'revive', id);
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(target.currentHp).toBe(Math.round(target.maxHp * 0.3));
+    expect(state.livingOrder).toContain(id);
+    expect(result.use.effect).toBe('revive');
+    expect(getBalance('sess-revive')).toBe(0);
+    expect(lastShop().stockLeft.revive).toBe(0);
   });
 
   it('announces the purchase as a senderless system chat line', () => {

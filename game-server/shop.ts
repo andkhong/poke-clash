@@ -45,6 +45,7 @@ export type PurchaseItemError =
   | 'session_limit'
   | 'unknown_target'
   | 'target_fainted'
+  | 'target_not_fainted'
   | 'target_full_hp'
   | 'target_limit'
   | 'insufficient_funds'
@@ -81,7 +82,7 @@ export function purchaseItem(
   balance: number,
   buyerName: string,
   nowMs: number,
-  applyHeal: (item: ShopItem) => number | null
+  applyItem: (item: ShopItem) => number | null
 ): { ok: true; item: ShopItem; use: ItemUse } | { ok: false; error: PurchaseItemError } {
   if (!shop) return { ok: false, error: 'no_shop' };
   if (!isShopOpen(state)) return { ok: false, error: 'closed' };
@@ -93,20 +94,25 @@ export function purchaseItem(
 
   const target = state.pokemon[targetInstanceId];
   if (!target) return { ok: false, error: 'unknown_target' };
-  if (target.currentHp <= 0) return { ok: false, error: 'target_fainted' };
-  if (target.currentHp >= target.maxHp) return { ok: false, error: 'target_full_hp' };
-  if ((shop.usesByTarget.get(targetInstanceId) ?? 0) >= MAX_HEALS_PER_TARGET) return { ok: false, error: 'target_limit' };
+  if (item.effect === 'heal') {
+    if (target.currentHp <= 0) return { ok: false, error: 'target_fainted' };
+    if (target.currentHp >= target.maxHp) return { ok: false, error: 'target_full_hp' };
+    if ((shop.usesByTarget.get(targetInstanceId) ?? 0) >= MAX_HEALS_PER_TARGET) return { ok: false, error: 'target_limit' };
+  } else if (target.currentHp > 0) {
+    return { ok: false, error: 'target_not_fainted' };
+  }
   if (item.price > balance) return { ok: false, error: 'insufficient_funds' };
 
-  const amount = applyHeal(item);
+  const amount = applyItem(item);
   if (amount === null) return { ok: false, error: 'heal_failed' };
 
   shop.stockLeft[item.id] -= 1;
   shop.usesBySession.set(sessionId, (shop.usesBySession.get(sessionId) ?? 0) + 1);
-  shop.usesByTarget.set(targetInstanceId, (shop.usesByTarget.get(targetInstanceId) ?? 0) + 1);
+  if (item.effect === 'heal') shop.usesByTarget.set(targetInstanceId, (shop.usesByTarget.get(targetInstanceId) ?? 0) + 1);
 
   const use: ItemUse = {
     itemId: item.id,
+    effect: item.effect,
     targetInstanceId,
     targetName: target.name,
     buyerName,

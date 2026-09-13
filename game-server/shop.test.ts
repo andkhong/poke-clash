@@ -60,7 +60,7 @@ function buy(
 describe('openShop', () => {
   it('stocks every catalog item at its full quantity', () => {
     const shop = openShop(1);
-    expect(shop.stockLeft).toEqual({ potion: getItem('potion').stock, superPotion: getItem('superPotion').stock });
+    expect(shop.stockLeft).toEqual({ potion: getItem('potion').stock, superPotion: getItem('superPotion').stock, revive: getItem('revive').stock });
     expect(shop.log).toEqual([]);
   });
 });
@@ -98,6 +98,23 @@ describe('purchaseItem', () => {
     expect(buy(shop, state, 's1', 'potion', downed)).toEqual({ ok: false, error: 'target_fainted' });
     // None of those touched the shelf.
     expect(shop.stockLeft.potion).toBe(getItem('potion').stock);
+  });
+
+  it('uses the single Revive only on a fainted target', () => {
+    const state = stateFor();
+    const shop = openShop(1);
+    const [alive, downed] = state.allInstanceIds;
+    state.pokemon[downed].currentHp = 0;
+
+    expect(buy(shop, state, 's1', 'revive', alive, 1000)).toEqual({ ok: false, error: 'target_not_fainted' });
+    const result = purchaseItem(shop, state, 's1', 'revive', downed, 1000, 'Tester', 1000, (item) => {
+      state.pokemon[downed].currentHp = Math.round(state.pokemon[downed].maxHp * item.healFraction);
+      return state.pokemon[downed].currentHp;
+    });
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.use.effect).toBe('revive');
+    expect(shop.stockLeft.revive).toBe(0);
   });
 
   it('refuses a target already at full HP rather than taking the money', () => {
@@ -233,7 +250,7 @@ describe('toShopSummary', () => {
     const shop = openShop(1);
     // More uses than the wire limit, pushed straight onto the log.
     for (let i = 0; i < ITEM_USE_LOG_LIMIT + 3; i += 1) {
-      shop.log.push({ itemId: 'potion', targetInstanceId: 'p0-1', targetName: 'Fixmander', buyerName: `buyer-${i}`, amount: 10, atMs: i });
+      shop.log.push({ itemId: 'potion', effect: 'heal', targetInstanceId: 'p0-1', targetName: 'Fixmander', buyerName: `buyer-${i}`, amount: 10, atMs: i });
     }
     const summary = toShopSummary(shop);
     expect(summary.recent).toHaveLength(ITEM_USE_LOG_LIMIT);

@@ -283,6 +283,9 @@ export type SimEvent =
       type: 'itemUsed';
       instanceId: string;
       itemId: string;
+      /** A revive needs the renderer to recreate the fainted sprite rather
+       * than merely playing the ordinary heal VFX on an existing one. */
+      effect: 'heal' | 'revive';
       /** HP actually restored, after clamping to maxHp. */
       amount: number;
       /** Who paid, for the floating label and the system chat line. */

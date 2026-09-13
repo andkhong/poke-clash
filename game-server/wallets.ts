@@ -6,6 +6,11 @@
  * touched by roomManager's resetRoom (same carve-out nextChatId has). */
 
 export const STARTING_BALANCE = 100;
+/** `Infinity` is not JSON-serializable (it becomes null), so local
+ * development uses a deliberately huge, non-depleting wallet instead. The
+ * game-server dev script sets NODE_ENV=development; Docker sets production. */
+export const DEVELOPMENT_UNLIMITED_CASH = process.env.NODE_ENV === 'development';
+export const DEVELOPMENT_BALANCE = 1_000_000_000;
 /** Credited to every session subscribed to a room when its match settles,
  * bet or no bet — the "earn by watching" drip that keeps a broke viewer in
  * the game. */
@@ -41,7 +46,7 @@ function armGrace(sessionId: string, wallet: Wallet): void {
 export function touchWallet(sessionId: string): { balance: number } {
   let wallet = wallets.get(sessionId);
   if (!wallet) {
-    wallet = { balance: STARTING_BALANCE, streams: 0, graceTimer: null };
+    wallet = { balance: DEVELOPMENT_UNLIMITED_CASH ? DEVELOPMENT_BALANCE : STARTING_BALANCE, streams: 0, graceTimer: null };
     wallets.set(sessionId, wallet);
     armGrace(sessionId, wallet);
   }
@@ -62,6 +67,9 @@ export function getBalance(sessionId: string): number | null {
 export function adjustBalance(sessionId: string, delta: number): number | null {
   const wallet = wallets.get(sessionId);
   if (!wallet) return null;
+  // Development wallets can place bets and buy items freely, but retain a
+  // finite wire value that React, JSON, and money formatting all understand.
+  if (DEVELOPMENT_UNLIMITED_CASH) return wallet.balance;
   wallet.balance += delta;
   return wallet.balance;
 }

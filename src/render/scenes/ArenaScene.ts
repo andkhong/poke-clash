@@ -173,6 +173,7 @@ export class ArenaScene extends Phaser.Scene {
   private cursor!: EventCursor;
   private highlightInstanceId: string | null = null;
   private readonly sprites = new Map<string, PokemonSprite>();
+  private pmdSpriteIndex: PmdSpriteIndex | null = null;
   private readonly attackQueue: QueuedAttack[] = [];
   private activeAttackSlots = 0;
   /** performance.now() at the last update — see MAX_SIM_CATCH_UP_MS. */
@@ -222,8 +223,8 @@ export class ArenaScene extends Phaser.Scene {
 
     // Missing only if the fetch in preload() failed; every sprite then goes
     // through its hotlink/fallback tiers instead of drawing nothing.
-    const pmdSpriteIndex = (this.cache.json.get(PMD_SPRITE_INDEX_KEY) as PmdSpriteIndex | undefined) ?? null;
-    if (!pmdSpriteIndex) console.warn('[ArenaScene] PMD sprite index failed to load; falling back to hotlinked/static art');
+    this.pmdSpriteIndex = (this.cache.json.get(PMD_SPRITE_INDEX_KEY) as PmdSpriteIndex | undefined) ?? null;
+    if (!this.pmdSpriteIndex) console.warn('[ArenaScene] PMD sprite index failed to load; falling back to hotlinked/static art');
 
     // livingOrder is allInstanceIds' spawn order minus anyone already
     // fainted, which circlePosition() (matchSetup.ts) lays out clockwise
@@ -234,10 +235,7 @@ export class ArenaScene extends Phaser.Scene {
     // arrive to remove a sprite created for them here.
     state.livingOrder.forEach((id, index) => {
       const pokemon = state.pokemon[id];
-      const sprite = new PokemonSprite(this, pokemon, spriteIndex, pmdSpriteIndex, index, pokemon.shiny);
-      if (id === this.highlightInstanceId) sprite.setHighlighted(true);
-      if (state.teams) sprite.setTeamColor(teamColorHex(pokemon.team));
-      this.sprites.set(id, sprite);
+      this.createPokemonSprite(id, pokemon, index, state);
     });
 
     this.cameras.main.setBackgroundColor('#1a1a1a');
@@ -282,10 +280,20 @@ export class ArenaScene extends Phaser.Scene {
         // attack queue is gated to one attack arena-wide (see
         // MAX_SIMULTANEOUS_ATTACKS), and a heal is nobody's turn — it should
         // land the moment it was bought, the way status VFX do.
+        if (event.effect === 'revive') {
+          const oldSprite = this.sprites.get(event.instanceId);
+          oldSprite?.destroy();
+          const pokemon = state.pokemon[event.instanceId];
+          if (pokemon) this.createPokemonSprite(event.instanceId, pokemon, state.allInstanceIds.indexOf(event.instanceId), state);
+        }
         this.sprites.get(event.instanceId)?.playHealVfx(event.amount);
       } else if (event.type === 'fainted') {
         const sprite = this.sprites.get(event.instanceId);
-        sprite?.playFaintAndDestroy(() => this.sprites.delete(event.instanceId));
+        sprite?.playFaintAndDestroy(() => {
+          // A Revive can have replaced this sprite while its fade was still
+          // running; never let the old callback delete the new life.
+          if (this.sprites.get(event.instanceId) === sprite) this.sprites.delete(event.instanceId);
+        });
         // A Pokémon taken down by its own move (Explosion — the engine
         // credits the faint to itself) keeps the attack it just fired
         // queued: the blast plays while its sprite fades out.
@@ -294,6 +302,13 @@ export class ArenaScene extends Phaser.Scene {
     }
 
     this.pumpAttackQueue();
+  }
+
+  private createPokemonSprite(instanceId: string, pokemon: SimState['pokemon'][string], index: number, state: Readonly<SimState>): void {
+    const sprite = new PokemonSprite(this, pokemon, spriteIndex, this.pmdSpriteIndex, index, pokemon.shiny);
+    if (instanceId === this.highlightInstanceId) sprite.setHighlighted(true);
+    if (state.teams) sprite.setTeamColor(teamColorHex(pokemon.team));
+    this.sprites.set(instanceId, sprite);
   }
 
   // Uses the moveUsed event's own attackerPosition/targetPositions (not live

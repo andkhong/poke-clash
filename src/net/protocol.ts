@@ -228,6 +228,7 @@ export interface BetResponse {
  * follows. */
 export interface ItemUse {
   itemId: ItemId;
+  effect: 'heal' | 'revive';
   targetInstanceId: string;
   targetName: string;
   /** The buyer's display name — their seat's species in a seated room, their
@@ -250,7 +251,7 @@ export interface ShopSummary {
    * at broadcast time would say "closed" for the whole match, since the shop
    * opens with battleStart while the intro parade is still running. */
   /** Units left of each item, room-wide, for this match. */
-  stockLeft: Record<ItemId, number>;
+  stockLeft: Partial<Record<ItemId, number>>;
   /** Heals landed on each instance id so far, for MAX_HEALS_PER_TARGET. Sent
    * as its own field rather than counted off `recent` below: that only works
    * while the log still holds every use, which stopped being true once the

@@ -50,6 +50,19 @@ const GENERATION_FOLDERS = [
 
 const AUDIO_EXT_RE = /\.(mp3|wav)$/i;
 
+/** Fallback clip for the moves buildFolderIndex/main() below leaves
+ * unmatched (mainly gen 8+, which the mirrored pack doesn't cover) — without
+ * this those moves play with no sound at all. The pack's own generic
+ * "damage" stinger (used for every hit's impact flash, not tied to any one
+ * move) stands in; checked in generation order like a move match, since
+ * only GEN 1-2 happen to include it. Written to <OUTPUT_DIR>default.mp3,
+ * outside the per-move id numbering. */
+const DEFAULT_SOUND_CANDIDATES = [
+  { folder: 'GEN 2 SFX - Attack Moves - GSC', file: 'IMHIT.wav' },
+  { folder: 'GEN 1 SFX - Attack Moves - RBY', file: 'IMHIT_Damage.wav' },
+];
+const DEFAULT_SOUND_ID = 'default';
+
 /** Bare normalization only — lowercase, strip the extension, drop every
  * non-alphanumeric character — so "Aurora Beam.mp3" and "AuroraBeam.wav"
  * both reduce to "aurorabeam" regardless of a generation's spacing
@@ -183,11 +196,38 @@ async function main(): Promise<void> {
     Math.max(2, cpus().length - 1)
   );
 
+  // The default clip for unmatched moves — same up-to-date check as a
+  // regular move match, just against a fixed source/output pair instead of
+  // one resolved per move id.
+  let defaultReady = false;
+  for (const { folder, file } of DEFAULT_SOUND_CANDIDATES) {
+    const source = `${SOUND_ROOT}${folder}/${file}`;
+    const output = `${OUTPUT_DIR}${DEFAULT_SOUND_ID}.mp3`;
+    const [sourceTime, outputTime] = await Promise.all([mtimeMs(source), mtimeMs(output)]);
+    if (sourceTime === null) continue; // candidate not present in this checkout's mirror
+    if (!force && outputTime !== null && outputTime >= sourceTime) {
+      defaultReady = true;
+    } else {
+      try {
+        await transcode(source, output);
+        defaultReady = true;
+      } catch (err) {
+        console.warn(`[build-move-sounds] default (${folder}/${file}): ${(err as Error).message}`);
+      }
+    }
+    break;
+  }
+  if (defaultReady) {
+    console.log(`[build-move-sounds] default fallback clip ready at ${OUTPUT_DIR}${DEFAULT_SOUND_ID}.mp3`);
+  } else {
+    console.warn('[build-move-sounds] no default-sound candidate found in the mirror — unmatched moves stay silent');
+  }
+
   // Drop outputs for moves that no longer match anything.
   let removed = 0;
   for (const entry of await readdir(OUTPUT_DIR)) {
     const id = entry.replace(/\.mp3$/i, '');
-    if (entry.endsWith('.mp3') && !result[id]) {
+    if (entry.endsWith('.mp3') && id !== DEFAULT_SOUND_ID && !result[id]) {
       await rm(`${OUTPUT_DIR}${entry}`);
       removed += 1;
     }
