@@ -135,7 +135,7 @@ export function MatchScreen({
                 (see RosterPanel's own isMobileArena branch), which needs a
                 containing block sized to the whole stage, not one that
                 auto-collapses to the timer's height. */}
-            <RosterPanel state={state} balances={slotBalances} />
+            <RosterPanel state={state} balances={slotBalances} stageWidth={stageRect.width} />
 
             <BannerOverlay state={state} overrideText={bannerOverrideText} />
 
