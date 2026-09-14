@@ -1,5 +1,6 @@
 import Phaser from 'phaser';
 import { ARENA_TOP_PADDING, isMobileArena } from '../../sim/constants';
+import type { ArenaBounds } from '../../sim/types';
 
 // The arena floor: one of the hand-made map images in map-assets/ at the
 // repo root, scaled to cover the arena and centred. A portrait (mobile)
@@ -24,10 +25,13 @@ const PORTRAIT_MAPS = [
 
 /** The landscape arena's floor — see WIDE_ARENA_MAP in constants.ts before
  * swapping this for another image: the fence border there is measured off
- * this one. */
+ * this one. What ships is a 1920x1080 WebP (the desktop arena's own size,
+ * ~150KB) made from the full-size wide-background.jpg beside it (2.3MB),
+ * which stays in the repo as the master:
+ *   node -e "require('sharp')('map-assets/wide-background.jpg').resize(1920).webp({quality:82}).toFile('map-assets/wide-background.webp')" */
 const LANDSCAPE_MAP = {
   key: 'wide-background',
-  url: new URL('../../../map-assets/wide-background.jpg', import.meta.url).href,
+  url: new URL('../../../map-assets/wide-background.webp', import.meta.url).href,
 } as const;
 
 const KEYS = {
@@ -35,17 +39,28 @@ const KEYS = {
   grass: 'tileset-grass',
 };
 
-export function preloadArenaTileset(scene: Phaser.Scene): void {
+/** The map image an arena of this shape draws. */
+function mapForArena(arena: ArenaBounds): { key: string; url: string } {
+  return isMobileArena(arena) ? PORTRAIT_MAPS[0] : LANDSCAPE_MAP;
+}
+
+/** Queues the tiled ground's swatches (every floor's fallback) and the one
+ * map image the scene will draw: the one for `map`'s shape for a match arena,
+ * the landscape map for the move-review stage ('review'), or none (null).
+ * Never both maps — the wide one is most of an arena's first download, so a
+ * portrait match shouldn't fetch it, nor a wide one the route image. */
+export function preloadArenaTileset(scene: Phaser.Scene, map: ArenaBounds | 'review' | null): void {
   scene.load.image(KEYS.dirt, new URL('./assets/dirt_swatch.png', import.meta.url).href);
   scene.load.image(KEYS.grass, new URL('./assets/grass_swatch.png', import.meta.url).href);
-  for (const map of PORTRAIT_MAPS) scene.load.image(map.key, map.url);
-  scene.load.image(LANDSCAPE_MAP.key, LANDSCAPE_MAP.url);
+  if (map === null) return;
+  const image = map === 'review' ? LANDSCAPE_MAP : mapForArena(map);
+  scene.load.image(image.key, image.url);
 }
 
 /** A match arena's floor: the map image for its shape, or the tiled ground
  * if that image didn't load. */
 export function createArenaBackground(scene: Phaser.Scene, width: number, height: number): void {
-  const map = isMobileArena({ width, height }) ? PORTRAIT_MAPS[0] : LANDSCAPE_MAP;
+  const map = mapForArena({ width, height });
   if (scene.textures.exists(map.key)) {
     drawCoverImage(scene, map.key, width, height);
     return;

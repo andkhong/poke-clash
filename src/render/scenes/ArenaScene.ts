@@ -199,7 +199,9 @@ export class ArenaScene extends Phaser.Scene {
 
   preload(): void {
     this.load.json(PMD_SPRITE_INDEX_KEY, pmdSpriteIndexUrl());
-    preloadArenaTileset(this);
+    // Only the floor image this arena's shape draws (PhaserGame sized the
+    // canvas from the same state.arena before starting this scene).
+    preloadArenaTileset(this, this.engine ? this.engine.getState().arena : null);
     preloadPokeballAsset(this);
     preloadFamilyVfxAssets(this);
     // Every move this roster can actually use is known up front (each

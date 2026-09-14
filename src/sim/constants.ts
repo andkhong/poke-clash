@@ -91,8 +91,9 @@ export function getRedZoneInsets(arena: ArenaBounds): EdgeInsets {
 
 /**
  * The landscape (desktop) arena's floor is a single image,
- * map-assets/wide-background.jpg — a fenced-in pitch with woods around it —
- * drawn scaled up to cover the arena (see render/tileset/arenaBackground.ts's
+ * map-assets/wide-background.jpg — a fenced-in pitch with woods around it,
+ * shipped as the 1920x1080 wide-background.webp made from it (only the
+ * proportions matter here) — drawn scaled up to cover the arena (see render/tileset/arenaBackground.ts's
  * drawCoverImage). The fence is the playable area's border: nothing may
  * walk through it, so the sim needs to know where it is. `fence` is the
  * inner face of the fence rails/posts in the image's own pixels, read off

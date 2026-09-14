@@ -1,7 +1,11 @@
-import { useEffect, useRef } from 'react';
+import { lazy, Suspense, useEffect, useRef } from 'react';
 import type { RoomPhase, RoomSummary } from '../../net/protocol';
-import { RoomScreen } from '../screens/RoomScreen';
 import { pokeballUrl } from '../landing/assets';
+
+// RoomScreen brings the sim, chat, betting and the species dataset with it —
+// most of the app's code — so it loads on demand: the rest of the landing
+// page paints first, with the connecting state in the frame until it lands.
+const RoomScreen = lazy(() => import('../screens/RoomScreen').then((m) => ({ default: m.RoomScreen })));
 
 interface FeaturedRoomPanelProps {
   /** The server's autoPlay showcase room, or null while the room list is
@@ -17,6 +21,15 @@ interface FeaturedRoomPanelProps {
 }
 
 const FALLBACK_NAME = 'Featured Showcase';
+
+function ConnectingState() {
+  return (
+    <div className="lp-frame-state">
+      <img className="lp-bob" src={pokeballUrl} alt="" width={60} height={60} />
+      <p>Connecting to the live arena…</p>
+    </div>
+  );
+}
 
 const PHASE_META: Record<RoomPhase, string> = {
   battle: 'Battle in progress · bets close 45s in',
@@ -77,10 +90,7 @@ export function FeaturedRoomPanel({ room, loaded, offline, showViewerCount }: Fe
         </h2>
         {loading ? (
           <div className="lp-featured-frame" role="status">
-            <div className="lp-frame-state">
-              <img className="lp-bob" src={pokeballUrl} alt="" width={60} height={60} />
-              <p>Connecting to the live arena…</p>
-            </div>
+            <ConnectingState />
           </div>
         ) : (
           <div className="lp-featured-frame" role={offline ? 'alert' : 'status'}>
@@ -108,7 +118,11 @@ export function FeaturedRoomPanel({ room, loaded, offline, showViewerCount }: Fe
     <section className="lp-featured" aria-labelledby="lp-featured-title">
       <div className="lp-featured-frame">
         <div className="lp-featured-embed" ref={embedRef} aria-hidden="true">
-          <RoomScreen roomId={room.id} embedded />
+          {/* Inside the embed wrapper so embedRef (and its inert) exists
+              while the RoomScreen chunk is still loading. */}
+          <Suspense fallback={<ConnectingState />}>
+            <RoomScreen roomId={room.id} embedded />
+          </Suspense>
         </div>
         <button
           type="button"

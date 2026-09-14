@@ -5,9 +5,9 @@ import {
   IS_MOBILE_DEVICE,
   LEVEL_OPTIONS,
   MAX_ROSTER_SIZE,
-  getThemePresets,
   resolveMatchArena,
 } from '../../app/config';
+import { getThemePresets } from '../../app/themePresets';
 import { listAllSpecies, pickRandomSpeciesIds } from '../../data/loader';
 import type { MatchConfig } from '../../sim/types';
 import { useWideArenaPreference } from '../hooks/useWideArenaPreference';
