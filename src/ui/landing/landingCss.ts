@@ -68,6 +68,8 @@ export const LANDING_CSS = `
 .lp-wordmark{font-family:${FONT_DISPLAY};font-size:16px;line-height:1;padding-top:2px;white-space:nowrap}
 .lp-nav-actions{display:flex;align-items:center;gap:10px}
 @media (max-width:599px){.lp-nav-inner{height:56px}.lp-wordmark{font-size:12px}}
+/* Contact me would push the row wider than the viewport below 900px; the footer link carries it there. */
+@media (max-width:899px){.lp-nav .lp-btn-contact{display:none}}
 
 /* ---------- buttons ---------- */
 .lp-btn{display:inline-flex;align-items:center;justify-content:center;gap:10px;box-sizing:border-box;
@@ -85,6 +87,7 @@ export const LANDING_CSS = `
 .lp-btn-support{height:40px;padding:0 14px;gap:8px;border:2px solid ${accentAlpha(0.45)};border-radius:${RADIUS_SM}px;
   background:${accentAlpha(0.12)};color:${TEXT};font-size:12px;letter-spacing:.08em}
 .lp-btn-support svg{color:${ACCENT}}
+.lp-btn-contact{gap:8px}
 @media (hover:hover) and (pointer:fine){
   .lp-btn-primary:hover{transform:translateY(-1px);box-shadow:0 5px 0 ${PRIMARY_DEEP},0 14px 28px ${primaryAlpha(0.28)}}
   .lp-btn-secondary:hover{transform:translateY(-1px);box-shadow:0 5px 0 ${TEXT};background:${BG_ALT}}
@@ -297,13 +300,66 @@ export const LANDING_CSS = `
   .lp-footer-links{flex-direction:row;flex-wrap:wrap;align-items:center;gap:4px 20px}}
 @media (max-width:599px){.lp-footer{margin-top:48px;padding-top:28px}}
 
+/* ---------- contact modal ---------- */
+.lp-modal{box-sizing:border-box;width:min(460px,calc(100% - var(--lp-gutter-l) - var(--lp-gutter-r)));max-width:none;
+  max-height:calc(100dvh - 32px);margin:auto;padding:0;overflow:auto;overscroll-behavior:contain;
+  background:${BG};color:${TEXT};font-family:${FONT_MONO};border:2px solid ${TEXT};border-radius:${RADIUS_LG}px;box-shadow:${SHADOW_HARD_LG}}
+.lp-modal::backdrop{background:${textAlpha(0.55)};-webkit-backdrop-filter:blur(2px);backdrop-filter:blur(2px)}
+.lp-modal[open]{animation:lp-modal-in ${DURATION_BASE_MS}ms ${EASE_OUT}}
+.lp-modal[open]::backdrop{animation:lp-fade-in ${DURATION_BASE_MS}ms ${EASE_OUT}}
+@keyframes lp-modal-in{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:none}}
+@keyframes lp-fade-in{from{opacity:0}to{opacity:1}}
+html:has(.lp-modal[open]){overflow:hidden}
+.lp-modal-body{display:flex;flex-direction:column;gap:16px;padding:24px}
+.lp-modal-head{display:flex;align-items:center;justify-content:space-between;gap:12px}
+.lp-modal-close{display:inline-flex;align-items:center;justify-content:center;flex:none;width:40px;height:40px;margin:-8px -8px -8px 0;padding:0;
+  border:0;border-radius:${RADIUS_SM}px;background:transparent;color:${TEXT_MUTED};cursor:pointer;-webkit-tap-highlight-color:transparent;
+  transition:background-color ${DURATION_BASE_MS}ms ${EASE_OUT},color ${DURATION_BASE_MS}ms ${EASE_OUT}}
+@media (pointer:coarse){.lp-modal-close{width:44px;height:44px}}
+.lp-modal-lead{margin:0;font:400 14px/1.6 ${FONT_MONO};color:${TEXT_MUTED}}
+.lp-modal-options{display:flex;flex-direction:column;gap:12px;margin:0;padding:0;list-style:none}
+.lp-modal-option{display:flex;align-items:center;gap:14px;padding:14px 16px 14px 14px;background:${BG};color:${TEXT};text-decoration:none;
+  border:2px solid ${textAlpha(0.12)};border-radius:${RADIUS_LG}px;box-shadow:${SHADOW_HARD};-webkit-tap-highlight-color:transparent;
+  transition:transform ${DURATION_BASE_MS}ms ${EASE_OUT},box-shadow ${DURATION_BASE_MS}ms ${EASE_OUT},border-color ${DURATION_BASE_MS}ms ${EASE_OUT},
+    background-color ${DURATION_BASE_MS}ms ${EASE_OUT}}
+.lp-modal-mark{display:flex;align-items:center;justify-content:center;flex:none;box-sizing:border-box;width:44px;height:44px;padding-top:2px;
+  border-radius:${RADIUS_SM}px;background:${primaryAlpha(0.1)};color:${PRIMARY_DEEP};font:400 16px/1 ${FONT_DISPLAY}}
+.lp-modal-option-text{display:flex;flex-direction:column;gap:4px;flex:1;min-width:0}
+.lp-modal-option-title{font:700 16px/1.3 ${FONT_MONO};color:${TEXT}}
+.lp-modal-option-body{font:400 13px/1.5 ${FONT_MONO};color:${TEXT_MUTED}}
+.lp-modal-option .lp-arrow{flex:none;font:700 16px/1 ${FONT_MONO};color:${TEXT_MUTED}}
+.lp-modal-address{display:flex;flex-direction:column;gap:8px;padding-top:16px;border-top:1px solid ${textAlpha(0.1)}}
+.lp-modal-address-label{margin:0;font:400 12px/1.5 ${FONT_MONO};color:${TEXT_MUTED}}
+.lp-modal-address-row{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:6px 6px 6px 14px;
+  background:${BG_ALT};border-radius:${RADIUS_SM}px}
+.lp-modal-email{min-width:0;overflow-wrap:anywhere;font:700 14px/1.4 ${FONT_MONO};color:${TEXT};text-decoration:underline;
+  text-decoration-color:${primaryAlpha(0.5)};text-decoration-thickness:2px;text-underline-offset:4px;
+  transition:color ${DURATION_BASE_MS}ms ${EASE_OUT},text-decoration-color ${DURATION_BASE_MS}ms ${EASE_OUT}}
+.lp-modal-copy{flex:none;min-width:84px;background:${BG}}
+@media (hover:hover) and (pointer:fine){
+  .lp-modal-option:hover{transform:translateY(-2px);border-color:${PRIMARY};box-shadow:${SHADOW_MD}}
+  .lp-modal-option:hover .lp-arrow{transform:translateX(3px);color:${PRIMARY_DEEP}}
+  .lp-modal-close:hover{background:${textAlpha(0.06)};color:${TEXT}}
+  .lp-modal-email:hover{color:${PRIMARY_DEEP};text-decoration-color:${PRIMARY}}
+}
+.lp-modal-option:active{transform:none;background:${BG_ALT}}
+@media (max-width:599px){
+  .lp-modal-body{gap:14px;padding:20px 16px}
+  .lp-modal-lead{font-size:13px}
+  .lp-modal-option{gap:12px;padding:12px}
+  .lp-modal-option-title{font-size:15px}
+  .lp-modal-option-body{font-size:12px}
+}
+
 /* ---------- reduced motion (keep last) ---------- */
 @media (prefers-reduced-motion:reduce){
-  .lp-dot,.lp-bob,.lp-skeleton,.lp-skeleton-line{animation:none}
+  .lp-dot,.lp-bob,.lp-skeleton,.lp-skeleton-line,.lp-modal[open]{animation:none}
+  .lp-modal[open]::backdrop{animation:none}
   .lp-dot{box-shadow:0 0 0 2px ${bgAlpha(0.35)}}
-  .lp-btn,.lp-card-thumb,.lp-card-name,.lp-featured-frame,.lp-featured-overlay,.lp-chip-enter,.lp-arrow,.lp-footer a,.lp-footer-links button{transition:none}
+  .lp-btn,.lp-card-thumb,.lp-card-name,.lp-featured-frame,.lp-featured-overlay,.lp-chip-enter,.lp-arrow,.lp-footer a,.lp-footer-links button,
+  .lp-modal-option,.lp-modal-close,.lp-modal-email{transition:none}
   .lp-btn-primary:hover,.lp-btn-secondary:hover,.lp-btn-primary:active,.lp-btn-secondary:active,
   .lp-card:hover .lp-card-thumb,.lp-card:active .lp-card-thumb,
-  .lp-featured-frame:hover .lp-arrow,.lp-btn-ghost:hover .lp-arrow{transform:none}
+  .lp-featured-frame:hover .lp-arrow,.lp-btn-ghost:hover .lp-arrow,.lp-modal-option:hover,.lp-modal-option:hover .lp-arrow{transform:none}
 }
 `;

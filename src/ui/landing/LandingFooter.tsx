@@ -1,12 +1,17 @@
 import { KO_FI_URL, pokeballUrl } from './assets';
 import { useScrollToTop } from './useScrollToTop';
 
+interface LandingFooterProps {
+  /** Opens the contact modal, which LandingScreen owns. */
+  onContact: () => void;
+}
+
 /** The landing page's trust and legal surface: play money only and the
  * not-affiliated-with-Nintendo disclaimer. The PMDCollab sprite credit that
  * used to sit here was removed on purpose (2026-09-13). SpriteCollab is
  * licensed CC BY-NC 4.0, which requires attribution, so this is the place to
  * put it back if that changes. */
-export function LandingFooter() {
+export function LandingFooter({ onContact }: LandingFooterProps) {
   const scrollToTop = useScrollToTop();
 
   return (
@@ -37,6 +42,11 @@ export function LandingFooter() {
               <a href={KO_FI_URL} target="_blank" rel="noopener noreferrer" aria-label="Support on Ko-fi (opens in a new tab)">
                 Support on Ko-fi
               </a>
+            </li>
+            <li>
+              <button type="button" aria-haspopup="dialog" onClick={onContact}>
+                Contact me
+              </button>
             </li>
             <li>
               <button type="button" onClick={scrollToTop}>

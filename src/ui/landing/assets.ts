@@ -7,3 +7,5 @@
 export const pokeballUrl = new URL('../../render/sprites/assets/pokeball.png', import.meta.url).href;
 
 export const KO_FI_URL = 'https://ko-fi.com/hermito';
+
+export const CONTACT_EMAIL = 'yojimboai@gmail.com';

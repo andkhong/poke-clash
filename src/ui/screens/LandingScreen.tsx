@@ -5,6 +5,7 @@ import { IS_MOBILE_DEVICE, resolveMatchArena } from '../../app/config';
 import { useWideArenaPreference } from '../hooks/useWideArenaPreference';
 import { FeaturedRoomPanel } from '../components/FeaturedRoomPanel';
 import { RoomCard } from '../components/RoomCard';
+import { ContactModal } from '../landing/ContactModal';
 import { HowItWorks } from '../landing/HowItWorks';
 import { LandingFooter } from '../landing/LandingFooter';
 import { LandingHero } from '../landing/LandingHero';
@@ -54,7 +55,8 @@ const HERO_VIEWER_TOTAL_ENABLED: boolean = true;
  * hero with the pitch and CTAs, the server's one always-live showcase room
  * featured below it (FeaturedRoomPanel), a three-step explainer, every real
  * room as a grid of RoomCards, and a footer with the play-money / not-
- * affiliated / sprite-credit lines. Room creation is folded in here too
+ * affiliated / sprite-credit lines, plus the ContactModal the nav and footer
+ * open. Room creation is folded in here too
  * behind its flag (this replaces the old separate #/rooms screen — see
  * Root.tsx, which now aliases that route to this one).
  *
@@ -67,6 +69,7 @@ export function LandingScreen() {
   const [failures, setFailures] = useState(0);
   const [createError, setCreateError] = useState<string | null>(null);
   const [wideArena, setWideArena] = useWideArenaPreference();
+  const [contactOpen, setContactOpen] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -105,6 +108,8 @@ export function LandingScreen() {
   const featuredRoom = rooms.find((r) => r.autoPlay) ?? null;
   const gridRooms = rooms.filter((r) => !r.autoPlay);
   const stats = summarizeLiveRooms(rooms);
+  const openContact = () => setContactOpen(true);
+  const closeContact = () => setContactOpen(false);
 
   const createRoom = (mode: RoomMode) => {
     fetch('/api/rooms', {
@@ -124,7 +129,7 @@ export function LandingScreen() {
   return (
     <div className="lp-root">
       <style>{LANDING_CSS}</style>
-      <LandingNav />
+      <LandingNav onContact={openContact} />
       <main>
         <div className="lp-container">
           <LandingHero
@@ -231,7 +236,8 @@ export function LandingScreen() {
           </section>
         </div>
       </main>
-      <LandingFooter />
+      <LandingFooter onContact={openContact} />
+      <ContactModal open={contactOpen} onClose={closeContact} />
     </div>
   );
 }
