@@ -27,6 +27,12 @@ export interface ApiPokemonMove {
   version_group_details: ApiVersionGroupDetail[];
 }
 
+export interface ApiPokemonSpecies {
+  id: number;
+  is_legendary: boolean;
+  is_mythical: boolean;
+}
+
 export interface ApiPokemon {
   id: number;
   /** The "variety" name — carries a form suffix even for the default variety of

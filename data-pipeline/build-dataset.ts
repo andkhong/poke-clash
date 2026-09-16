@@ -1,5 +1,6 @@
 import { mkdir, writeFile } from 'node:fs/promises';
 import { fetchPokemonRange } from './fetch-pokemon';
+import { fetchPokemonSpeciesRange } from './fetch-pokemon-species';
 import { fetchMoves } from './fetch-moves';
 import { classifyMove } from './classify-move-effects';
 import type { ApiPokemon } from './pokeApiTypes';
@@ -116,6 +117,16 @@ async function main(): Promise<void> {
   });
   console.log(`[build-dataset] fetched ${pokemonList.length} species`);
 
+  console.log(`[build-dataset] fetching species flags ${MIN_ID}-${MAX_ID}...`);
+  const speciesFlags = await fetchPokemonSpeciesRange(MIN_ID, MAX_ID, (done, total) => {
+    if (done % 100 === 0 || done === total) console.log(`[build-dataset] species flags ${done}/${total}`);
+  });
+  const legendaryOrMythicalIds = speciesFlags
+    .filter((s) => s.is_legendary || s.is_mythical)
+    .map((s) => s.id)
+    .sort((a, b) => a - b);
+  console.log(`[build-dataset] ${legendaryOrMythicalIds.length} legendary/mythical species`);
+
   const referencedMoveIds = new Set<number>();
   for (const p of pokemonList) {
     for (const m of p.moves) referencedMoveIds.add(extractIdFromUrl(m.move.url));
@@ -179,8 +190,11 @@ async function main(): Promise<void> {
     JSON.stringify(Object.fromEntries(movesById)),
     'utf-8'
   );
+  await writeFile(`${OUTPUT_DIR}legendaryOrMythicalIds.json`, JSON.stringify(legendaryOrMythicalIds), 'utf-8');
 
-  console.log(`[build-dataset] wrote ${species.length} species and ${movesById.size} moves to ${OUTPUT_DIR}`);
+  console.log(
+    `[build-dataset] wrote ${species.length} species, ${movesById.size} moves, and ${legendaryOrMythicalIds.length} legendary/mythical ids to ${OUTPUT_DIR}`
+  );
 }
 
 main().catch((err) => {

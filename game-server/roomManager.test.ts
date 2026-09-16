@@ -412,6 +412,33 @@ describe('roomManager autoPlay', () => {
     expect(chatFrames()).toHaveLength(1);
   });
 
+  it('overrides the default showcase name with the given label', () => {
+    const room = createRoom('classic', undefined, { autoPlay: true, label: 'Legendary Arena' });
+    expect(room.name).toBe('Legendary Arena');
+    expect(toRoomSummary(room).name).toBe('Legendary Arena');
+  });
+
+  it('restricts auto-fill to allowedSpeciesIds across a full cycle', () => {
+    const pool = [149, 248, 373, 376, 445, 635, 706, 784, 887, 998];
+    const room = createRoom('classic', undefined, { autoPlay: true, capacity: 8, allowedSpeciesIds: pool });
+
+    vi.advanceTimersByTime(AUTO_PLAY_COUNTDOWN_MS);
+    expect(room.phase).toBe('battle');
+    for (const slot of room.slots) {
+      expect(slot.speciesId).not.toBeNull();
+      expect(pool).toContain(slot.speciesId);
+    }
+
+    room.engine!.endMatchNow();
+    vi.advanceTimersByTime(TICK_MS);
+    vi.advanceTimersByTime(ROOM_COMPLETE_HOLD_MS);
+    vi.advanceTimersByTime(AUTO_PLAY_COUNTDOWN_MS);
+    expect(room.phase).toBe('battle');
+    for (const slot of room.slots) {
+      expect(pool).toContain(slot.speciesId);
+    }
+  });
+
   function chatFrames() {
     return vi.mocked(broadcast).mock.calls.filter(([, event]) => event === 'chat');
   }

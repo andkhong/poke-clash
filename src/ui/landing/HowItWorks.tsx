@@ -12,7 +12,7 @@ const STEPS = [
   {
     num: '01',
     title: 'Pick a room',
-    body: 'Open the Featured Showcase or any live room. No sign-up, no download, nothing to install.',
+    body: 'Open any showcase room or grab a seat in a live one. No sign-up, no download, nothing to install.',
   },
   {
     num: '02',

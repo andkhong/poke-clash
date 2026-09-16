@@ -20,9 +20,11 @@ const THUMBNAIL_WIDTH_PX = 320;
  * client is watching a battle in progress — whoever's currently watching a
  * room is the source of its "live" thumbnail, the same way a broadcaster's
  * own encoder is the source of a Twitch one. A room nobody's watching just
- * keeps serving its last cached frame. `enabled` is a plain gate (e.g. false
- * for the always-on showcase room, which isn't shown in the grid) rather
- * than a conditional hook call, per the rules of hooks. */
+ * keeps serving its last cached frame. `enabled` is a plain gate rather than
+ * a conditional hook call, per the rules of hooks — RoomScreen passes
+ * `room !== null`, so this runs for showcase rooms too, since the landing
+ * page's showcase strip shows a static thumbnail for whichever one isn't
+ * currently its single live-embedded card (see ShowcaseStrip.tsx). */
 export function useRoomThumbnailCapture(
   roomId: string,
   phase: RoomPhase | undefined,

@@ -182,6 +182,43 @@ export const LANDING_CSS = `
 .lp-featured-caption .lp-btn{flex:none}
 @media (max-width:599px){.lp-featured-caption{padding-top:12px;gap:12px}.lp-featured-title{font-size:15px}.lp-featured-meta{font-size:12px}}
 
+.lp-featured-strip{display:flex;align-items:flex-start;gap:20px;overflow-x:auto;scroll-snap-type:x proximity;
+  padding-bottom:4px;margin:0 calc(-1 * var(--lp-gutter-r)) 0 calc(-1 * var(--lp-gutter-l));
+  padding-left:var(--lp-gutter-l);padding-right:var(--lp-gutter-r)}
+.lp-featured-strip-item{flex:0 0 min(720px,88vw);scroll-snap-align:start}
+@media (max-width:599px){.lp-featured-strip{gap:14px}.lp-featured-strip-item{flex-basis:92vw}}
+
+/* Inactive strip cards render RoomCard (see ShowcaseStrip.tsx) but need to
+ * read as siblings of the tall live FeaturedRoomPanel next to them, not as
+ * the small dense tile the same component renders in the LIVE ROOMS grid
+ * below. Everything here is scoped under .lp-featured-strip-item, which
+ * out-specifies every unscoped .lp-card rule above and below — including
+ * the <600px one that turns .lp-card into a compact list row for the grid —
+ * so the grid itself is untouched at every width.
+ *
+ * The fix swaps RoomCard's 4:5 grid-thumbnail aspect ratio (which would
+ * stretch to ~900px tall at this item's ~720px width) for the same 16:9
+ * .lp-featured-frame uses, so a hero card and an inactive card land within
+ * ~15px of each other at any strip width instead of one dwarfing the other.
+ * It also borrows the hero's bolder border/shadow language (RADIUS_LG,
+ * SHADOW_HARD) instead of the grid's subtler one (RADIUS_MD, SHADOW_SM), so
+ * the row reads as one family of video-preview tiles. */
+.lp-featured-strip-item .lp-card{flex-direction:column;align-items:stretch;gap:12px;min-height:0;
+  padding:0;background:transparent;border:0;border-radius:0;box-shadow:none}
+.lp-featured-strip-item .lp-card-thumb{width:100%;aspect-ratio:16/9;border-width:2px;border-color:${textAlpha(0.18)};
+  border-radius:${RADIUS_LG}px;box-shadow:${SHADOW_HARD}}
+.lp-featured-strip-item .lp-card-thumb .lp-pill{display:inline-flex}
+.lp-featured-strip-item .lp-card-placeholder span{display:inline}
+.lp-featured-strip-item .lp-card-placeholder img{width:60px;height:60px}
+.lp-featured-strip-item .lp-card-body{flex:none;gap:6px;padding:0 2px}
+.lp-featured-strip-item .lp-pill-inline,.lp-featured-strip-item .lp-card-meta,.lp-featured-strip-item .lp-card-chevron{display:none}
+.lp-featured-strip-item .lp-card:active{background:transparent}
+.lp-root .lp-featured-strip-item .lp-card:focus-visible{outline:none}
+.lp-featured-strip-item .lp-card:focus-visible .lp-card-thumb{outline:3px solid ${TEXT};outline-offset:3px}
+@media (hover:hover) and (pointer:fine){
+  .lp-featured-strip-item .lp-card:hover .lp-card-thumb{box-shadow:${SHADOW_HARD_LG}}
+}
+
 /* ---------- sections ---------- */
 .lp-section{margin-top:72px}
 .lp-section-head{display:flex;flex-wrap:wrap;align-items:baseline;justify-content:space-between;gap:8px 16px;margin-bottom:6px}

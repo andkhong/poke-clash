@@ -96,9 +96,14 @@ export function buildSpeciesMapForLevel(speciesIds: readonly number[], level: nu
   return result;
 }
 
-export function pickRandomSpeciesIds(count: number, exclude: readonly number[] = []): number[] {
+export function pickRandomSpeciesIds(
+  count: number,
+  exclude: readonly number[] = [],
+  allowedIds?: readonly number[]
+): number[] {
   const excludeSet = new Set(exclude);
-  const pool = SPECIES_LIST.map((s) => s.id).filter((id) => !excludeSet.has(id) && hasPmdSprite(id));
+  const basePool = allowedIds ?? SPECIES_LIST.map((s) => s.id);
+  const pool = basePool.filter((id) => !excludeSet.has(id) && hasPmdSprite(id));
   for (let i = pool.length - 1; i > 0; i--) {
     const j = Math.floor(Math.random() * (i + 1));
     [pool[i], pool[j]] = [pool[j], pool[i]];

@@ -3,8 +3,8 @@ import type { RoomMode, RoomSummary } from '../../net/protocol';
 import { teamSizeForMode } from '../../net/protocol';
 import { IS_MOBILE_DEVICE, resolveMatchArena } from '../../app/config';
 import { useWideArenaPreference } from '../hooks/useWideArenaPreference';
-import { FeaturedRoomPanel } from '../components/FeaturedRoomPanel';
 import { RoomCard } from '../components/RoomCard';
+import { ShowcaseStrip } from '../components/ShowcaseStrip';
 import { ContactModal } from '../landing/ContactModal';
 import { HowItWorks } from '../landing/HowItWorks';
 import { LandingFooter } from '../landing/LandingFooter';
@@ -44,7 +44,7 @@ const WIDE_ARENA_TOGGLE_ENABLED: boolean = false;
 /** Whether the hero's live pill and the featured caption show a "N watching"
  * total. Heads-up before launch: RoomSummary.viewerCount is SSE subscribers
  * *plus* live bots (game-server/roomManager.ts's toRoomSummary, around line
- * 277), so the total includes the Featured Showcase's bot audience and can
+ * 277), so the total includes the showcase rooms' bot audience and can
  * read as inflated social proof. Flip this to false and the pill switches to
  * "{battles} live battles · {rooms} rooms open" instead; grid cards keep
  * their per-room counts either way. Typed `boolean` for the same reason as
@@ -52,9 +52,9 @@ const WIDE_ARENA_TOGGLE_ENABLED: boolean = false;
 const HERO_VIEWER_TOTAL_ENABLED: boolean = true;
 
 /** The landing page — a Twitch-style discovery homepage: a sticky nav, a
- * hero with the pitch and CTAs, the server's one always-live showcase room
- * featured below it (FeaturedRoomPanel), a three-step explainer, every real
- * room as a grid of RoomCards, and a footer with the play-money / not-
+ * hero with the pitch and CTAs, the server's always-live showcase rooms in a
+ * scrollable strip below it (ShowcaseStrip), a three-step explainer, every
+ * real room as a grid of RoomCards, and a footer with the play-money / not-
  * affiliated / sprite-credit lines, plus the ContactModal the nav and footer
  * open. Room creation is folded in here too
  * behind its flag (this replaces the old separate #/rooms screen — see
@@ -105,7 +105,7 @@ export function LandingScreen() {
 
   const offline = failures >= OFFLINE_AFTER_FAILURES;
   const loading = !loaded && !offline;
-  const featuredRoom = rooms.find((r) => r.autoPlay) ?? null;
+  const showcaseRooms = rooms.filter((r) => r.autoPlay);
   const gridRooms = rooms.filter((r) => !r.autoPlay);
   const stats = summarizeLiveRooms(rooms);
   const openContact = () => setContactOpen(true);
@@ -133,13 +133,13 @@ export function LandingScreen() {
       <main>
         <div className="lp-container">
           <LandingHero
-            featuredRoomId={featuredRoom?.id ?? null}
+            featuredRoomId={showcaseRooms[0]?.id ?? null}
             stats={stats}
             loaded={loaded}
             offline={offline}
             showViewerTotal={HERO_VIEWER_TOTAL_ENABLED}
           />
-          <FeaturedRoomPanel room={featuredRoom} loaded={loaded} offline={offline} showViewerCount={HERO_VIEWER_TOTAL_ENABLED} />
+          <ShowcaseStrip rooms={showcaseRooms} loaded={loaded} offline={offline} showViewerCount={HERO_VIEWER_TOTAL_ENABLED} />
           <HowItWorks />
 
           <section className="lp-section" aria-labelledby="lp-rooms-title">
@@ -198,7 +198,7 @@ export function LandingScreen() {
             {loaded && gridRooms.length === 0 && (
               <div className="lp-info-box">
                 <img src={pokeballUrl} alt="" width={30} height={30} />
-                <p>No other rooms are open right now. The Featured Showcase above never stops.</p>
+                <p>No other rooms are open right now. The showcase rooms above never stop.</p>
               </div>
             )}
 

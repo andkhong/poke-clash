@@ -366,10 +366,13 @@ export function RoomScreen({ roomId, embedded = false }: RoomScreenProps) {
     ? `NEXT ROUND IN ${Math.max(1, Math.ceil(postMatchRemainingMs / 1000))}s`
     : undefined;
 
-  // Only a room nobody needs a thumbnail for skips this — see
-  // useRoomThumbnailCapture's own doc for why every other watching client
-  // (player or spectator) contributes one.
-  useRoomThumbnailCapture(roomId, room?.phase, canvas, room !== null && !room.autoPlay);
+  // Every watching client (player or spectator) contributes a thumbnail —
+  // including a showcase room's, now that the landing page's showcase strip
+  // shows a static thumbnail for whichever showcase room isn't the strip's
+  // one live-embedded card (see ShowcaseStrip.tsx). See
+  // useRoomThumbnailCapture's own doc for the rest of the "who captures"
+  // story.
+  useRoomThumbnailCapture(roomId, room?.phase, canvas, room !== null);
 
   return (
     <div style={containerStyle(embedded)}>

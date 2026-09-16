@@ -8,7 +8,7 @@ import { pokeballUrl } from '../landing/assets';
 const RoomScreen = lazy(() => import('../screens/RoomScreen').then((m) => ({ default: m.RoomScreen })));
 
 interface FeaturedRoomPanelProps {
-  /** The server's autoPlay showcase room, or null while the room list is
+  /** The showcase room this card is embedding, or null while the room list is
    * still loading, unreachable, or (rarely) lists no showcase room at all. */
   room: RoomSummary | null;
   /** At least one /api/rooms poll has succeeded (see LandingScreen). */
@@ -38,11 +38,13 @@ const PHASE_META: Record<RoomPhase, string> = {
   complete: 'Round over · next one in a few seconds',
 };
 
-/** The landing page's always-live hero: the server's one permanent,
- * bot-driven showcase room (see game-server/roomManager.ts's
+/** One card in the landing page's showcase strip (see ShowcaseStrip.tsx):
+ * a bot-driven showcase room (see game-server/roomManager.ts's
  * startAutoPlayCycle) embedded directly via RoomScreen — it's spectate-only
  * and loops battle after battle forever, so there's always something live to
- * show without waiting on a real player.
+ * show without waiting on a real player. ShowcaseStrip renders exactly one
+ * of these at a time (the strip's currently-active card) and a lighter
+ * RoomCard for the rest.
  *
  * The frame is sized for the arena the showcase actually runs (the 16:9 wide
  * one), not a fixed height: below 900px it is simply 16:9, and from 900px up
@@ -78,14 +80,18 @@ export function FeaturedRoomPanel({ room, loaded, offline, showViewerCount }: Fe
   }, [roomId]);
 
   const roomName = room?.name || FALLBACK_NAME;
+  // ShowcaseStrip can mount several of these at once, so the title id must be
+  // per-instance — a literal string here would leave every card's
+  // aria-labelledby resolving to whichever h2 happens to be first in the DOM.
+  const titleId = `lp-featured-title-${room?.id ?? 'loading'}`;
 
   if (room === null) {
     const loading = !loaded && !offline;
     return (
-      <section className="lp-featured" aria-labelledby="lp-featured-title">
+      <section className="lp-featured" aria-labelledby={titleId}>
         {/* Keeps aria-labelledby pointing at something while there's no
             caption bar to hold the visible title. */}
-        <h2 id="lp-featured-title" className="lp-sr-only">
+        <h2 id={titleId} className="lp-sr-only">
           {FALLBACK_NAME}
         </h2>
         {loading ? (
@@ -115,7 +121,7 @@ export function FeaturedRoomPanel({ room, loaded, offline, showViewerCount }: Fe
   const meta = showViewerCount ? `${PHASE_META[room.phase]} · ${room.viewerCount} watching` : PHASE_META[room.phase];
 
   return (
-    <section className="lp-featured" aria-labelledby="lp-featured-title">
+    <section className="lp-featured" aria-labelledby={titleId}>
       <div className="lp-featured-frame">
         <div className="lp-featured-embed" ref={embedRef} aria-hidden="true">
           {/* Inside the embed wrapper so embedRef (and its inert) exists
@@ -143,7 +149,7 @@ export function FeaturedRoomPanel({ room, loaded, offline, showViewerCount }: Fe
       </div>
       <div className="lp-featured-caption">
         <div className="lp-featured-caption-text">
-          <h2 id="lp-featured-title" className="lp-featured-title">
+          <h2 id={titleId} className="lp-featured-title">
             {roomName}
           </h2>
           <p className="lp-featured-meta">{meta}</p>

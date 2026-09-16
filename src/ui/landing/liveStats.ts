@@ -7,7 +7,7 @@ import type { RoomSummary } from '../../net/protocol';
 export interface LiveRoomStats {
   /** Sum of every room's viewerCount. That count is SSE subscribers *plus*
    * live bots (see game-server/roomManager.ts's toRoomSummary), so this
-   * includes the Featured Showcase's bot audience — which is why the hero
+   * includes the showcase rooms' bot audience — which is why the hero
    * only shows it behind LandingScreen's HERO_VIEWER_TOTAL_ENABLED. */
   watching: number;
   /** Rooms whose match is being fought right now, showcase included. */

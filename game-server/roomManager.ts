@@ -118,9 +118,17 @@ interface RoomState {
   countdownEndsAtMs: number | null;
   engine: SimulationEngine | null;
   lastBroadcastSeq: number;
-  /** True only for the server's one permanent showcase room (see
+  /** True only for one of the server's permanent showcase rooms (see
    * startAutoPlayCycle) — never joinable, loops forever. */
   autoPlay: boolean;
+  /** Restricts startBattle's random auto-fill to this id set when non-null
+   * (see createRoom's `allowedSpeciesIds` opt and pickRandomSpeciesIds) — a
+   * themed showcase room's species pool (e.g. Legendary Arena). Null for
+   * every ordinary room and any showcase room with no restriction. Doesn't
+   * affect a player's own /pick, which only ever fires on a joinable room,
+   * and every showcase room is autoPlay (never joinable). Survives
+   * resetRoom the same way mode/capacity do. */
+  allowedSpeciesIds: number[] | null;
   /** Latest captured frame for this room (see the /thumbnail routes), and
    * when it landed — null until some watching client's first capture. */
   thumbnail: Buffer | null;
@@ -190,10 +198,17 @@ function emptySlots(mode: RoomMode, capacity: number): PlayerSlot[] {
 export function createRoom(
   mode: RoomMode = 'classic',
   arena?: ArenaBounds,
-  opts?: { autoPlay?: boolean; capacity?: number; bots?: boolean; botSeed?: number }
+  opts?: {
+    autoPlay?: boolean;
+    capacity?: number;
+    bots?: boolean;
+    botSeed?: number;
+    label?: string;
+    allowedSpeciesIds?: readonly number[];
+  }
 ) {
   const id = `room-${nextRoomNumber}`;
-  const name = opts?.autoPlay ? 'Featured Showcase' : `Room ${nextRoomNumber}`;
+  const name = opts?.label ?? (opts?.autoPlay ? 'Featured Showcase' : `Room ${nextRoomNumber}`);
   nextRoomNumber += 1;
   const capacity = opts?.capacity ?? roomCapacityForMode(mode);
   const room: RoomState = {
@@ -209,6 +224,7 @@ export function createRoom(
     engine: null,
     lastBroadcastSeq: 0,
     autoPlay: opts?.autoPlay ?? false,
+    allowedSpeciesIds: opts?.allowedSpeciesIds ? [...opts.allowedSpeciesIds] : null,
     thumbnail: null,
     thumbnailUpdatedAtMs: null,
     chatLog: [],
@@ -516,7 +532,8 @@ function startBattle(room: RoomState): void {
   const chosenIds = room.slots.filter((s) => s.speciesId !== null).map((s) => s.speciesId as number);
   for (const slot of room.slots) {
     if (slot.speciesId !== null) continue;
-    const [randomId] = pickRandomSpeciesIds(1, chosenIds);
+    const [randomId] = pickRandomSpeciesIds(1, chosenIds, room.allowedSpeciesIds ?? undefined);
+    if (randomId === undefined) throw new Error(`room ${room.id}: allowedSpeciesIds pool exhausted while auto-filling`);
     slot.speciesId = randomId;
     slot.isAutoFilled = true;
     chosenIds.push(randomId);
@@ -526,7 +543,7 @@ function startBattle(room: RoomState): void {
 
   let bossSpeciesId: number | null = null;
   if (room.mode === 'boss') {
-    [bossSpeciesId] = pickRandomSpeciesIds(1, chosenIds);
+    [bossSpeciesId] = pickRandomSpeciesIds(1, chosenIds, room.allowedSpeciesIds ?? undefined);
     room.bossSpeciesId = bossSpeciesId;
   }
 

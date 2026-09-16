@@ -64,4 +64,21 @@ describe('pickRandomSpeciesIds', () => {
     const ids = pickRandomSpeciesIds(16);
     for (const id of ids) expect(hasPmdSprite(id)).toBe(true);
   });
+
+  it('restricts to the given allowedIds pool when provided', () => {
+    const pool = [149, 248, 373, 376, 445];
+    const ids = pickRandomSpeciesIds(5, [], pool);
+    expect(ids.length).toBe(5);
+    for (const id of ids) expect(pool).toContain(id);
+  });
+
+  it('still respects exclude and hasPmdSprite when a pool is given', () => {
+    const pool = [149, 248, 373, 376, 445];
+    const ids = pickRandomSpeciesIds(3, [149, 248], pool);
+    expect(ids.length).toBe(3);
+    for (const id of ids) {
+      expect([149, 248]).not.toContain(id);
+      expect(hasPmdSprite(id)).toBe(true);
+    }
+  });
 });

@@ -34,6 +34,7 @@ import { isValidSessionId } from '../src/net/predictions';
 import { isItemId, isValidInstanceId } from '../src/net/shop';
 import type { ArenaBounds } from '../src/sim/types';
 import { DESKTOP_ARENA_HEIGHT, DESKTOP_ARENA_WIDTH } from '../src/sim/constants';
+import { legendaryOrMythicalSpeciesIds } from '../src/data/speciesFlags';
 
 const PORT = Number(process.env.GAME_SERVER_PORT ?? 4311);
 // The showcase room's bot audience (see game-server/bots.ts). The kill switch
@@ -50,21 +51,64 @@ const INITIAL_BOSS_ROOM_COUNT = 1;
 for (let i = 0; i < INITIAL_CLASSIC_ROOM_COUNT; i++) createRoom('classic');
 for (let i = 0; i < INITIAL_BOSS_ROOM_COUNT; i++) createRoom('boss');
 createRoom('team2');
-// The landing page's always-live featured panel — see roomManager's
-// startAutoPlayCycle. createRoom kicks off its first cycle itself, so it's
-// already mid-cycle before any client connects. Wide arena: the featured
-// panel is a landing-page hero, sized more like the desktop arena's shape
-// than the portrait one the rest of the pre-seeded rooms default to.
-// 8 seats rather than classic mode's usual 4 — a livelier showcase, and a
-// wider field to bet on.
-// Bots give it an audience: chat, bets and shop purchases from generated
-// spectators, so a first-time visitor doesn't land on a match nobody appears
-// to be watching. GAME_SERVER_BOTS=0 turns them off.
-createRoom(
-  'classic',
-  { width: DESKTOP_ARENA_WIDTH, height: DESKTOP_ARENA_HEIGHT },
-  { autoPlay: true, capacity: 8, bots: BOTS_ENABLED }
-);
+// The pseudo-legendary showcase room's pool — community-standard fully-
+// evolved, three-stage, ~600-BST "pseudo-legendary" line, one per generation
+// through Gen 9. PokeAPI has no flag for this (it's fan terminology, not an
+// in-game category), so unlike the Legendary Arena's pool below, this one
+// can't be derived from the data pipeline and just stays a literal list.
+const PSEUDO_LEGENDARY_IDS = [149, 248, 373, 376, 445, 635, 706, 784, 887, 998];
+
+// The Starter Showdown's pool: every generation's three starter lines
+// (three stages each), plus Pikachu alone. Expressed as dex-range pairs
+// rather than a flat id list so the provenance — one 3-stage line per
+// generation, Gen 1 through Gen 9 — stays legible.
+const STARTER_LINE_RANGES: [number, number][] = [
+  [1, 9],
+  [152, 160],
+  [252, 260],
+  [387, 395],
+  [495, 503],
+  [650, 658],
+  [722, 730],
+  [810, 818],
+  [906, 914],
+];
+const STARTERS_PIKACHU_IDS = [
+  ...STARTER_LINE_RANGES.flatMap(([a, b]) => Array.from({ length: b - a + 1 }, (_, i) => a + i)),
+  25,
+];
+
+interface ShowcaseRoomDef {
+  label: string;
+  allowedSpeciesIds?: readonly number[];
+}
+
+// The landing page's always-live showcase rooms — see roomManager's
+// startAutoPlayCycle. createRoom kicks off each one's first cycle itself, so
+// every one of these is already mid-cycle before any client connects. Wide
+// arena: each showcase panel is a landing-page hero, sized more like the
+// desktop arena's shape than the portrait one the rest of the pre-seeded
+// rooms default to. 8 seats rather than classic mode's usual 4 — a livelier
+// showcase, and a wider field to bet on (all four pools here comfortably
+// clear 8 unique, PMD-sprited species).
+// Bots give each one an audience: chat, bets and shop purchases from
+// generated spectators, so a first-time visitor doesn't land on a match
+// nobody appears to be watching. GAME_SERVER_BOTS=0 turns them off.
+// Adding a themed room later is just another entry in this list.
+const SHOWCASE_ROOMS: ShowcaseRoomDef[] = [
+  { label: 'Starter Showdown', allowedSpeciesIds: STARTERS_PIKACHU_IDS },
+  { label: 'Legendary Arena', allowedSpeciesIds: legendaryOrMythicalSpeciesIds() },
+  { label: 'Pseudo-Legendary Gauntlet', allowedSpeciesIds: PSEUDO_LEGENDARY_IDS },
+  { label: 'Random Pool' },
+];
+
+for (const def of SHOWCASE_ROOMS) {
+  createRoom(
+    'classic',
+    { width: DESKTOP_ARENA_WIDTH, height: DESKTOP_ARENA_HEIGHT },
+    { autoPlay: true, capacity: 8, bots: BOTS_ENABLED, label: def.label, allowedSpeciesIds: def.allowedSpeciesIds }
+  );
+}
 
 const ID_SEGMENT = '[A-Za-z0-9_-]+';
 const JOIN_RE = new RegExp(`^/api/rooms/(${ID_SEGMENT})/join$`);
