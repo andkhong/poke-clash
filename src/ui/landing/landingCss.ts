@@ -49,7 +49,9 @@ import {
  * and landing elements take *all* their styling from these classes — an
  * inline `style` on one would beat every hover/media rule here. The 900px
  * breakpoint matches chatModel.ts's CHAT_SIDEBAR_MIN_WIDTH_PX, where the
- * embedded RoomScreen grows its 340px chat sidebar. */
+ * embedded RoomScreen grows its chat sidebar — narrower here
+ * (CHAT_SIDEBAR_EMBEDDED_WIDTH) than the real room page's, since the
+ * strip's card is itself capped at 720px wide. */
 export const LANDING_CSS = `
 .lp-root{min-height:100dvh;background:${BG};color:${TEXT};font-family:${FONT_MONO};overflow-x:clip;
   --lp-gutter-l:max(24px,env(safe-area-inset-left));--lp-gutter-r:max(24px,env(safe-area-inset-right))}
@@ -138,7 +140,7 @@ export const LANDING_CSS = `
 /* ---------- featured ---------- */
 .lp-featured{container-type:inline-size}
 .lp-featured-frame{position:relative;width:100%;box-sizing:border-box;
-  height:clamp(420px,calc((100cqw - 344px) * .5625 + 4px),600px);
+  height:clamp(420px,calc((100cqw - 264px) * .5625 + 4px),600px);
   background:${STAGE_BG};border:2px solid ${TEXT};border-radius:${RADIUS_LG}px;overflow:hidden;box-shadow:${SHADOW_HARD_LG};
   transition:box-shadow ${DURATION_BASE_MS}ms ${EASE_OUT},border-color ${DURATION_BASE_MS}ms ${EASE_OUT}}
 @media (max-width:899px){.lp-featured-frame{height:auto;aspect-ratio:16/9}}

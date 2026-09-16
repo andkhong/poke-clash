@@ -23,19 +23,16 @@ export function LandingNav({ onContact }: LandingNavProps) {
         <a
           className="lp-brand"
           href="#/"
-          aria-label="PokéBets Arena, back to top"
+          aria-label="Pokémon Brawl, back to top"
           onClick={(event) => {
             event.preventDefault();
             scrollToTop();
           }}
         >
           <img src={pokeballUrl} alt="" width={30} height={30} />
-          <span className="lp-wordmark">POKÉBETS ARENA</span>
+          <span className="lp-wordmark">POKÉMON BRAWL</span>
         </a>
         <nav aria-label="Main" className="lp-nav-actions">
-          <a className="lp-btn lp-btn-ghost lp-hide-mobile" href="#/local">
-            SOLO PLAY
-          </a>
           <button type="button" className="lp-btn lp-btn-ghost lp-btn-contact" aria-haspopup="dialog" onClick={onContact}>
             <MailIcon />
             CONTACT ME
@@ -45,7 +42,7 @@ export function LandingNav({ onContact }: LandingNavProps) {
             href={KO_FI_URL}
             target="_blank"
             rel="noopener noreferrer"
-            aria-label="Support PokéBets Arena on Ko-fi (opens in a new tab)"
+            aria-label="Support Pokémon Brawl on Ko-fi (opens in a new tab)"
           >
             <HeartIcon />
             <span className="lp-hide-mobile">SUPPORT ON KO-FI</span>

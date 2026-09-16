@@ -19,6 +19,12 @@ export const CHAT_TICKER_FADE_MS = 800;
  * check, so a narrowed desktop window degrades to the mobile overlay and a
  * tablet gets the column. */
 export const CHAT_SIDEBAR_WIDTH = 340;
+/** The landing page's embedded preview (FeaturedRoomPanel) reuses this same
+ * sidebar, but its card is capped at 720px wide (see landingCss.ts's
+ * .lp-featured-strip-item) — the full 340px would eat half the card. Narrower
+ * here so the arena keeps most of the width, matching the ~30% share the
+ * sidebar gets on the real room page. */
+export const CHAT_SIDEBAR_EMBEDDED_WIDTH = 260;
 export const CHAT_SIDEBAR_MIN_WIDTH_PX = 900;
 export const CHAT_SIDEBAR_MEDIA_QUERY = `(min-width: ${CHAT_SIDEBAR_MIN_WIDTH_PX}px)`;
 

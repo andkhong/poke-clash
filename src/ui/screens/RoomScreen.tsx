@@ -23,7 +23,7 @@ import { SESSION_ID } from '../../net/sessionIdentity';
 import { createSimStore, type SimStore } from '../state/simStore';
 import { ChatSidebar } from '../chat/ChatSidebar';
 import type { ChatPanelProps } from '../chat/ChatPanel';
-import { appendChatMessage, CHAT_SIDEBAR_MEDIA_QUERY } from '../chat/chatModel';
+import { appendChatMessage, CHAT_SIDEBAR_EMBEDDED_WIDTH, CHAT_SIDEBAR_MEDIA_QUERY } from '../chat/chatModel';
 import type { PredictionsPanelProps } from '../predictions/PredictionsPanel';
 import type { ShopPanelProps } from '../shop/ShopPanel';
 import { useMediaQuery } from '../hooks/useMediaQuery';
@@ -417,7 +417,14 @@ export function RoomScreen({ roomId, embedded = false }: RoomScreenProps) {
           />
         )}
       </div>
-      {room && sidebar && <ChatSidebar {...chat} predictions={predictions} shop={shopPanel} />}
+      {room && sidebar && (
+        <ChatSidebar
+          {...chat}
+          predictions={predictions}
+          shop={shopPanel}
+          width={embedded ? CHAT_SIDEBAR_EMBEDDED_WIDTH : undefined}
+        />
+      )}
     </div>
   );
 }

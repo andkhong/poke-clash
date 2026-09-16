@@ -32,7 +32,7 @@ export function mailtoUrl(subject: string, body: string): string {
 export function contactMailto(topic: ContactTopic, context: ContactContext): string {
   if (topic === 'bug') {
     return mailtoUrl(
-      'Bug report: PokéBets Arena',
+      'Bug report: Pokémon Brawl',
       [
         'What happened?',
         '',
@@ -52,7 +52,7 @@ export function contactMailto(topic: ContactTopic, context: ContactContext): str
     );
   }
   return mailtoUrl(
-    'Feature request: PokéBets Arena',
+    'Feature request: Pokémon Brawl',
     ['What would you like to see?', '', '', 'How would it make the game more fun for you?', '', ''].join('\n')
   );
 }

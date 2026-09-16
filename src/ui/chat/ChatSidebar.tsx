@@ -32,6 +32,9 @@ export type ChatSidebarProps = ChatPanelProps & {
    * keeps its share of the column, and a third stacked panel would eat into
    * that every time an item is added. */
   shop?: ShopPanelProps;
+  /** Overrides CHAT_SIDEBAR_WIDTH — the landing page's embedded preview
+   * passes a narrower one (see chatModel.ts's CHAT_SIDEBAR_EMBEDDED_WIDTH). */
+  width?: number;
 };
 
 /** Which of the two panels the column's top region is showing. */
@@ -41,7 +44,7 @@ type TopTab = 'bets' | 'shop';
  * right of the arena (lobby and match alike): the betting pool / item shop on
  * top, chat below. Collapsible to a narrow strip that keeps an unread badge,
  * like a stream page's "hide chat". */
-export function ChatSidebar({ predictions, shop, ...props }: ChatSidebarProps) {
+export function ChatSidebar({ predictions, shop, width = CHAT_SIDEBAR_WIDTH, ...props }: ChatSidebarProps) {
   const { messages, room } = props;
   const [collapsed, setCollapsed] = useState(readCollapsed);
   const [lastSeenId, setLastSeenId] = useState(() => latestChatId(messages));
@@ -78,7 +81,7 @@ export function ChatSidebar({ predictions, shop, ...props }: ChatSidebarProps) {
   const shopHasStock = Object.values(shop?.shop?.stockLeft ?? {}).some((left) => left > 0);
 
   return (
-    <aside style={sidebarStyle}>
+    <aside style={{ ...sidebarStyle, width }}>
       {(predictions || shop) && (
         <div style={topRegionStyle}>
           {predictions && shop && (

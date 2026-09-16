@@ -1,8 +1,8 @@
-# PokéBets Arena
+# Pokémon Brawl
 
 Pokémon auto-battle in free-for-all arenas around the clock. Spectators watch live, chat, and bet play money on the winner.
 
-**Live:** https://pokebets.fly.dev
+**Live:** https://pokemonbrawl.com
 
 ## Features
 
@@ -119,6 +119,6 @@ fly deploy
 
 ## Disclaimer
 
-PokéBets Arena is a free, non-commercial fan project. All betting uses play money, which has no cash value and cannot be bought, sold or withdrawn.
+Pokémon Brawl is a free, non-commercial fan project. All betting uses play money, which has no cash value and cannot be bought, sold or withdrawn.
 
 This project is not affiliated with, endorsed by or sponsored by Nintendo, The Pokémon Company or Game Freak. Pokémon and all related names are trademarks of their respective owners.

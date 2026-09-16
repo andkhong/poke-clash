@@ -1,14 +1,16 @@
 {
   "version": 1,
-  "lastCheckedAt": "2026-09-13T23:56:59.095Z",
+  "lastCheckedAt": "2026-09-15T16:04:26.200Z",
   "upstream": {
-    "trackerCommit": "64606f1",
-    "trackerCommittedAt": "2026-09-13T18:30:04Z",
-    "latestSpriteChangeAt": "2026-09-11T22:43:43.621Z"
+    "trackerCommit": "c740d0d",
+    "trackerCommittedAt": "2026-09-15T15:47:00Z",
+    "latestSpriteChangeAt": "2026-09-15T14:01:08.583Z"
   },
   "pending": {
     "add": [],
-    "update": [],
+    "update": [
+      800
+    ],
     "shinyAdd": [],
     "shinyUpdate": [],
     "missingUpstream": 57

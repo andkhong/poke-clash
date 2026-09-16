@@ -36,12 +36,6 @@ export function LandingHero({ featuredRoomId, stats, loaded, offline, showViewer
           </span>
           <span className="lp-live-pill-text">{pill.text}</span>
         </p>
-        {/* "POKÉMON ROYALE" exactly as the owner typed it — no accent, with a
-            space; the nav wordmark keeps the full POKÉMON ROYALE. */}
-        <h1 id="lp-hero-title" className="lp-h1">
-          <span>POKÉMON </span>
-          <span className="lp-h1-accent">ROYALE</span>
-        </h1>
         <p className="lp-hero-tagline">Watch Pokémon brawl. Bet on the winner.</p>
         <p className="lp-lead">
           Free-for-all auto-battles, live 24/7. Grab $100 in play money, back a fighter, and cash in if it wins.

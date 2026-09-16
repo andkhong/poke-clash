@@ -1,6 +1,6 @@
-# PokéBets Arena: launch copy
+# Pokémon Brawl: launch copy
 
-Draft. Lines marked [CONFIRM] are placeholders to check before posting; the domain is pending confirmation.
+Draft. Lines marked [CONFIRM] are placeholders to check before posting.
 
 Framing rules for every post:
 - Free.
@@ -10,8 +10,6 @@ Framing rules for every post:
 - Credit the PMDCollab sprites.
 - Be upfront that the Featured Showcase has bot spectators.
 - Never ask for upvotes. It breaks Product Hunt rules and most subreddit rules.
-
-Replace `https://pokebets.fly.dev` if the domain changes.
 
 Gameplay facts the copy below relies on, as the code has them (check again if the rules change):
 - Every tab starts with $100 (`STARTING_BALANCE`, game-server/wallets.ts). The dev server shows a huge balance instead (`DEVELOPMENT_UNLIMITED_CASH`).
@@ -24,18 +22,18 @@ Gameplay facts the copy below relies on, as the code has them (check again if th
 ## G1. Product Hunt
 PH limits: tagline max 60 chars, description ≤260 chars, thumbnail 240×240, gallery 1270×760 (2 or more images; the first also becomes the social share image), images under 3MB, and no emoji in the name ([PH help](https://help.producthunt.com/en/articles/479557-how-to-post-a-product), [Submitator](https://submitator.com/blog/product-hunt-launch-assets)).
 
-- **Name:** `PokéBets Arena`
+- **Name:** `Pokémon Brawl`
 - **Tagline (43/60):** `Bet play money on live Pokémon auto-battles`
   - Alternative (55/60): `Watch Pokémon auto-battle 24/7 and bet play money on it`
 - **Description (221/260):** `A free, fan-made browser game where Pokémon auto-battle in free-for-all arenas around the clock. Watch live, chat, and bet play money on who is left standing. Winners split the pot. No sign-up, no download, no real money.`
 - **Topics:** Games, Indie Games
-- **Link:** `https://pokebets.fly.dev/`
+- **Link:** `https://pokemonbrawl.com/`
 - **Thumbnail (240×240):** pokeball.png at 6× (180×180, nearest-neighbor) centered on `#fdf6e3`, 30px padding.
 
 **Maker first comment:**
 > Hey Product Hunt!
 >
-> [CONFIRM] I kept watching those Pokémon auto-battle videos on TikTok and wanted to argue about who'd win *while it was happening*, with other people, and with something on the line. So I built PokéBets Arena.
+> [CONFIRM] I kept watching those Pokémon auto-battle videos on TikTok and wanted to argue about who'd win *while it was happening*, with other people, and with something on the line. So I built Pokémon Brawl.
 >
 > **How it works**
 > • Open the site. A free-for-all battle is already running in the Featured Showcase.
@@ -72,7 +70,7 @@ General caveats:
 
 ### 1. r/WebGames (~140k members; browser games with no downloads or sign-ups)
 - Caveat: posting your own free browser game there is generally treated as original content, and the no-sign-up / no-download premise matches this game ([abhi sundu](https://abhisundu.com/posts/marketing-free-games/)). Check the sidebar for a required title tag or flair. Post as a **link post** straight to the game URL.
-- Title: `PokéBets Arena: watch Pokémon auto-battle live and bet play money on the winner (free, no sign-up)`
+- Title: `Pokémon Brawl: watch Pokémon auto-battle live and bet play money on the winner (free, no sign-up)`
 - First comment:
 > I made this! Pokémon fight free-for-all battles on their own, 24/7. You get $100 in play money (no real money, nothing to buy), back a fighter in the first 45 seconds, and if it's the last one standing you split the pot. There's live chat, a Potion you can buy with play money to heal a fighter mid-battle (one per match), and open rooms where you can take a seat and send in your own Pokémon.
 >
@@ -80,9 +78,9 @@ General caveats:
 
 ### 2. r/playmygame (~130k members; devs share freely playable games for feedback)
 - Caveat: use the subreddit's own post flow and the platform flair (e.g. `[PC] (Web)`). The game must be free to play, and feedback threads are expected. Read the highlighted posts first, because new accounts posting links get filtered ([GummySearch](https://gummysearch.com/r/playmygame/)).
-- Title: `[Web] PokéBets Arena: Pokémon auto-battle live, you bet play money on who survives`
+- Title: `[Web] Pokémon Brawl: Pokémon auto-battle live, you bet play money on who survives`
 - Body:
-> **Play:** https://pokebets.fly.dev/ (browser, desktop or mobile, no sign-up)
+> **Play:** https://pokemonbrawl.com/ (browser, desktop or mobile, no sign-up)
 >
 > **What it is:** a spectator game. Pokémon fight free-for-all battles on their own around the clock. Everyone starts with $100 in play money; you back a fighter in the first 45 seconds and winners split the pot. Chat with the room, spend play money on a Potion to heal a fighter mid-battle, or grab a seat in an open room and pick your own fighter.
 >
@@ -99,7 +97,7 @@ General caveats:
 - Caveat: self-promotion of real, working products is welcome, but a maker story and a live product are expected, not a waitlist. Engagement matters more than the link ([GrowReddit](https://www.growreddit.com/blog/reddit-self-promotion-rules-sideproject)). Use a **text post**.
 - Title: `I built a site where Pokémon auto-battle 24/7 and people bet play money on the winner`
 - Body:
-> [CONFIRM] I kept watching Pokémon auto-battle clips on TikTok and wanted to watch them *live* with other people, with something riding on the result. So I built PokéBets Arena: https://pokebets.fly.dev/
+> [CONFIRM] I kept watching Pokémon auto-battle clips on TikTok and wanted to watch them *live* with other people, with something riding on the result. So I built Pokémon Brawl: https://pokemonbrawl.com/
 >
 > **How it plays:** a server runs free-for-all battles nonstop. Every visitor gets $100 in play money, bets close 45 seconds into a match, and winners split the pot (parimutuel). You also get $10 per match watched, and you can spend play money on a Potion to heal your pick mid-fight (one item per match).
 >
@@ -117,6 +115,6 @@ General caveats:
 - Body:
 > Huge thanks to the PMDCollab SpriteCollab contributors. Every fighter uses their sprites (CC BY-NC), and the idle, attack, hurt and faint animations are what make the battles readable.
 >
-> https://pokebets.fly.dev/ runs free-for-all battles nonstop. You start with $100 in play money (no real money, nothing to buy), back a fighter in the first 45 seconds, and split the pot if it's the last one standing.
+> https://pokemonbrawl.com/ runs free-for-all battles nonstop. You start with $100 in play money (no real money, nothing to buy), back a fighter in the first 45 seconds, and split the pot if it's the last one standing.
 >
 > Free fan project, not affiliated with Nintendo, The Pokémon Company or Game Freak. If any sprite looks off in battle, tell me and I'll fix it.

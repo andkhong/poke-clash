@@ -4,7 +4,7 @@ import type { ContactContext } from './contactMail';
 import { contactMailto, mailtoUrl } from './contactMail';
 
 const context: ContactContext = {
-  pageUrl: 'https://pokebets.fly.dev/#/',
+  pageUrl: 'https://pokemonbrawl.com/#/',
   userAgent: 'Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X)',
   viewport: '390×844',
 };
@@ -32,7 +32,7 @@ describe('mailtoUrl', () => {
 describe('contactMailto', () => {
   it('gives a bug report the page, browser and screen size', () => {
     const { subject, body } = parseMailto(contactMailto('bug', context));
-    expect(subject).toBe('Bug report: PokéBets Arena');
+    expect(subject).toBe('Bug report: Pokémon Brawl');
     expect(body).toContain(`Page: ${context.pageUrl}`);
     expect(body).toContain(`Browser: ${context.userAgent}`);
     expect(body).toContain(`Screen: ${context.viewport}`);
@@ -40,7 +40,7 @@ describe('contactMailto', () => {
 
   it('leaves device details out of a feature request', () => {
     const { subject, body } = parseMailto(contactMailto('feature', context));
-    expect(subject).toBe('Feature request: PokéBets Arena');
+    expect(subject).toBe('Feature request: Pokémon Brawl');
     expect(body).toContain('What would you like to see?');
     expect(body).not.toContain(context.userAgent);
   });

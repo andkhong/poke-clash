@@ -20,7 +20,7 @@ export function LandingFooter({ onContact }: LandingFooterProps) {
         <div>
           <div className="lp-footer-brand">
             <img src={pokeballUrl} alt="" width={30} height={30} />
-            <span>POKÉBETS ARENA</span>
+            <span>POKÉMON BRAWL</span>
           </div>
           <div className="lp-footer-copy">
             <p>
@@ -28,7 +28,7 @@ export function LandingFooter({ onContact }: LandingFooterProps) {
               or withdrawn.
             </p>
             <p>
-              PokéBets Arena is not affiliated with, endorsed by or sponsored by Nintendo, The Pokémon Company or Game
+              Pokémon Brawl is not affiliated with, endorsed by or sponsored by Nintendo, The Pokémon Company or Game
               Freak. Pokémon and all related names are trademarks of their respective owners.
             </p>
           </div>
