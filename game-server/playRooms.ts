@@ -13,7 +13,20 @@ import { ActionEngine, isFacing } from '../src/sim/action/ActionEngine';
 import { ACTION_TICK_MS } from '../src/sim/action/rules';
 import { ARENA_HEIGHT, ARENA_WIDTH, DESKTOP_ARENA_HEIGHT, DESKTOP_ARENA_WIDTH } from '../src/sim/constants';
 import type { ArenaBounds, MatchConfig, SimState } from '../src/sim/types';
-import type { PlayRoomSummary, PlayRoomView, ServerMessage, SeatView } from '../src/net/play/playProtocol';
+import {
+  CROWD_CALL_EVERY_MS,
+  CROWD_CALL_FIRST_MS,
+  CROWD_CALL_LAND_DELAY_MS,
+  CROWD_CALL_VOTE_MS,
+  type CrowdCallView,
+  type CrowdCardId,
+  type CrowdSide,
+  type PlayRoomSummary,
+  type PlayRoomView,
+  type SeatView,
+  type ServerMessage,
+} from '../src/net/play/playProtocol';
+import { createRng, rngPick, rngShuffle, type Rng } from '../src/sim/rng';
 import type { ChatMessage, WalletEventPayload } from '../src/net/protocol';
 import { CHAT_LOG_LIMIT, normalizeChatText, normalizeSpectatorName } from '../src/net/chat';
 import { containsBlockedLanguage } from '../src/net/chatFilter';
@@ -36,6 +49,12 @@ import { adjustBalance, getBalance, MATCH_WATCHED_REWARD, touchWallet, walletStr
 /** Snapshots go out every second 60 Hz tick: 30 Hz (~730 B each, ~22 KB/s per player). */
 const SNAPSHOT_EVERY_TICKS = 2;
 const MAX_NAME_LENGTH = 24;
+/** While a Crowd Call is voting, its tally goes out every this many ticks (~4×/s). */
+const CALL_BROADCAST_EVERY_TICKS = 15;
+const CROWD_CARDS: readonly CrowdCardId[] = ['speed', 'shield', 'energy', 'supply'];
+const CROWD_SIDES: readonly CrowdSide[] = ['teamA', 'teamB'];
+const CARD_LABELS: Record<CrowdCardId, string> = { speed: 'Speed Burst', shield: 'Shield', energy: 'Energy Refill', supply: 'Supply Drop' };
+const SIDE_LABELS: Record<CrowdSide, string> = { teamA: 'Team Ruby', teamB: 'Team Sapphire' };
 
 export interface PlayConn {
   readonly id: number;
@@ -68,6 +87,13 @@ interface Battle {
   sentSeq: number;
   /** A fire or dash just landed: send the next tick's snapshot whatever the cadence, so the shot shows a beat sooner. */
   flushNext: boolean;
+  /** Crowd Calls so far (team modes only), oldest first; the last is the current one. */
+  calls: CrowdCallView[];
+  /** sessionId → the current call's vote. */
+  votes: Map<string, { side: CrowdSide; card: CrowdCardId }>;
+  /** sessionId → the side a viewer's first vote or bet locked them to, this match. */
+  sides: Map<string, CrowdSide>;
+  callRng: Rng;
 }
 
 interface PlayRoom {
@@ -146,7 +172,7 @@ export function handlePlayMessage(conn: PlayConn, raw: unknown): void {
       return;
   }
   if (!room) return;
-  if (msg.t === 'chat' || msg.t === 'bet' || msg.t === 'buy') {
+  if (msg.t === 'chat' || msg.t === 'bet' || msg.t === 'buy' || msg.t === 'vote') {
     if (typeof msg.req === 'number') conn.send({ t: 'ack', req: msg.req, error: handleCrowdMessage(room, conn, msg) });
     return;
   }
@@ -233,6 +259,7 @@ function joinRoom(conn: PlayConn, roomId: string, watch = false): void {
   broadcastRoom(room);
   // Arriving mid-match: watch it.
   if (room.battle) conn.send(startMessage(room.battle, conn));
+  sendCalls(room, conn);
 }
 
 function leaveRoom(conn: PlayConn): void {
@@ -381,6 +408,10 @@ function startBattle(room: PlayRoom): void {
     ticks: 0,
     sentSeq: 0,
     flushNext: false,
+    calls: [],
+    votes: new Map(),
+    sides: new Map(),
+    callRng: createRng(seed ^ 0x5eed),
   };
   room.battle = battle;
   room.matchNo += 1;
@@ -391,6 +422,7 @@ function startBattle(room: PlayRoom): void {
   for (const conn of room.conns) {
     sendMarket(room, conn);
     sendMe(room, conn);
+    sendCalls(room, conn);
   }
 }
 
@@ -411,6 +443,7 @@ function stepBattle(room: PlayRoom): void {
   battle.engine.tick(now - battle.lastWallMs);
   battle.lastWallMs = now;
   battle.ticks += 1;
+  if (room.mode !== 'ffa' && !battle.engine.finished) stepCalls(room, battle);
   const finished = battle.engine.finished;
   if (battle.ticks % SNAPSHOT_EVERY_TICKS !== 0 && !finished && !battle.flushNext) return;
   battle.flushNext = false;
@@ -425,6 +458,67 @@ function stepBattle(room: PlayRoom): void {
   if (closing || snapshot.events.some((e) => e.type === 'ko' || e.type === 'respawned')) broadcastMarket(room);
 }
 
+/** Opens, closes and lands Crowd Calls on the match clock. */
+function stepCalls(room: PlayRoom, battle: Battle): void {
+  const nowMs = battle.engine.getState().elapsedMs;
+  let changed = false;
+  let call = battle.calls.at(-1);
+  if (call?.phase === 'voting' && nowMs >= call.closesAtMs) {
+    for (const side of CROWD_SIDES) {
+      const s = call.sides[side];
+      const top = Math.max(0, ...s.cards.map((c) => s.votes[c] ?? 0));
+      s.housePick = top === 0;
+      s.winner = rngPick(battle.callRng, top === 0 ? s.cards : s.cards.filter((c) => (s.votes[c] ?? 0) === top));
+    }
+    call.phase = 'landing';
+    changed = true;
+  }
+  if (call?.phase === 'landing' && nowMs >= call.landsAtMs) {
+    for (const side of CROWD_SIDES) {
+      const { winner, housePick } = call.sides[side];
+      if (!winner) continue;
+      battle.engine.applyCrowdCard(side, winner, housePick);
+      postSystemChat(
+        room,
+        housePick ? `House pick for ${SIDE_LABELS[side]}: ${CARD_LABELS[winner]}` : `${SIDE_LABELS[side]} crowd: ${CARD_LABELS[winner]}!`
+      );
+    }
+    call.phase = 'landed';
+    battle.flushNext = true;
+    changed = true;
+  }
+  const opensAtMs = CROWD_CALL_FIRST_MS + battle.calls.length * CROWD_CALL_EVERY_MS;
+  if ((!call || call.phase === 'landed') && nowMs >= opensAtMs) {
+    const offer = (): CrowdCallView['sides'][CrowdSide] => ({
+      cards: rngShuffle(battle.callRng, CROWD_CARDS).slice(0, 3),
+      votes: {},
+      winner: null,
+      housePick: false,
+    });
+    call = {
+      index: battle.calls.length + 1,
+      phase: 'voting',
+      opensAtMs,
+      closesAtMs: opensAtMs + CROWD_CALL_VOTE_MS,
+      landsAtMs: opensAtMs + CROWD_CALL_VOTE_MS + CROWD_CALL_LAND_DELAY_MS,
+      sides: { teamA: offer(), teamB: offer() },
+    };
+    battle.calls.push(call);
+    battle.votes.clear();
+    // Everyone's myVote resets with the new call.
+    for (const conn of room.conns) if (!battle.humans.has(conn)) sendMe(room, conn);
+    changed = true;
+  }
+  if (changed || (call?.phase === 'voting' && battle.ticks % CALL_BROADCAST_EVERY_TICKS === 0)) {
+    for (const conn of room.conns) sendCalls(room, conn);
+  }
+}
+
+function sendCalls(room: PlayRoom, conn: PlayConn): void {
+  const calls = room.battle?.calls ?? [];
+  conn.send({ t: 'calls', current: calls.at(-1) ?? null, history: calls });
+}
+
 /** Straight back to the lobby; clients keep showing their results screen until they leave it. */
 function endBattle(room: PlayRoom): void {
   if (room.battle) {
@@ -433,6 +527,8 @@ function endBattle(room: PlayRoom): void {
     room.lastState = room.battle.engine.getState();
   }
   room.battle = null;
+  // A call still voting when the match ended never lands — clear it from every screen.
+  for (const conn of room.conns) sendCalls(room, conn);
   for (const seat of room.seats) {
     if (seat.conn) seat.ready = false;
     else Object.assign(seat, { speciesId: null, moves: [], ready: false });
@@ -477,7 +573,7 @@ function signUp(conn: PlayConn, room: PlayRoom | undefined, raw: unknown): void 
   sendMe(room, conn);
 }
 
-/** chat / bet / buy — returns null on success or an error code for the ack. */
+/** chat / bet / buy / vote — returns null on success or an error code for the ack. */
 function handleCrowdMessage(room: PlayRoom, conn: PlayConn, msg: Record<string, unknown>): string | null {
   const nowMs = Date.now();
   const seatIndex = room.seats.findIndex((s) => s.conn === conn);
@@ -508,16 +604,40 @@ function handleCrowdMessage(room: PlayRoom, conn: PlayConn, msg: Record<string, 
   const sessionId = conn.sessionId;
   const battle = room.battle;
   if (!sessionId) return 'no_session';
+  const locked = battle?.sides.get(sessionId) ?? null;
+  if (msg.t === 'vote') {
+    const call = battle?.calls.at(-1);
+    if (!battle || call?.phase !== 'voting') return 'no_call';
+    const side = msg.side;
+    if (side !== 'teamA' && side !== 'teamB') return 'invalid_message';
+    if (locked && locked !== side) return 'side_locked';
+    const card = msg.card as CrowdCardId;
+    if (!call.sides[side].cards.includes(card)) return 'bad_card';
+    const previous = battle.votes.get(sessionId);
+    if (previous) {
+      const votes = call.sides[previous.side].votes;
+      votes[previous.card] = (votes[previous.card] ?? 1) - 1;
+    }
+    call.sides[side].votes[card] = (call.sides[side].votes[card] ?? 0) + 1;
+    battle.votes.set(sessionId, { side, card });
+    battle.sides.set(sessionId, side);
+    sendMe(room, conn);
+    return null;
+  }
   const balance = touchWallet(sessionId).balance;
   if (msg.t === 'bet') {
     if (!battle || !room.prediction) return 'no_prediction';
     if (typeof msg.optionId !== 'string' || typeof msg.amount !== 'number') return 'invalid_amount';
+    // In team modes the option ids are the sides themselves.
+    if (locked && msg.optionId !== locked) return 'side_locked';
     const result = placeBet(room.prediction, battle.engine.getState(), sessionId, msg.optionId, msg.amount, balance);
     if (!result.ok) return result.error;
     adjustBalance(sessionId, -msg.amount);
+    if (room.mode !== 'ffa' && (msg.optionId === 'teamA' || msg.optionId === 'teamB')) battle.sides.set(sessionId, msg.optionId);
   } else {
     if (!battle || !room.shop) return 'no_shop';
     if (typeof msg.itemId !== 'string' || typeof msg.targetId !== 'string') return 'unknown_item';
+    if (locked && battle.engine.getState().pokemon[msg.targetId]?.team !== locked) return 'side_locked';
     if (!takeToken(room.itemBuckets, sessionId, ITEM_BURST, ITEM_REFILL_MS, nowMs)) return 'rate_limited';
     const targetId = msg.targetId;
     const result = purchaseItem(room.shop, battle.engine.getState(), sessionId, msg.itemId, targetId, balance, conn.name, nowMs, (item) =>
@@ -528,7 +648,9 @@ function handleCrowdMessage(room: PlayRoom, conn: PlayConn, msg: Record<string, 
     const { use } = result;
     postSystemChat(
       room,
-      use.effect === 'revive' ? `${conn.name} revived ${use.targetName}!` : `${conn.name} used ${result.item.label} on ${use.targetName} (+${use.amount} HP)`
+      use.effect === 'revive'
+        ? `${conn.name} revived ${use.targetName}!`
+        : `${conn.name} used ${result.item.label} on ${use.targetName} (+${use.amount} HP)`
     );
   }
   broadcastMarket(room);
@@ -595,12 +717,15 @@ function sendMarket(room: PlayRoom, conn: PlayConn): void {
 function sendMe(room: PlayRoom | undefined, conn: PlayConn, settled?: WalletEventPayload['settled']): void {
   if (!conn.sessionId) return;
   const balance = getBalance(conn.sessionId) ?? touchWallet(conn.sessionId).balance;
+  const battle = room?.battle;
   conn.send({
     t: 'me',
     name: conn.signedUp ? conn.name : null,
     balance,
     myBet: room?.prediction?.bets.get(conn.sessionId) ?? null,
     myItemUses: itemUsesForSession(room?.shop ?? null, conn.sessionId),
+    side: battle?.sides.get(conn.sessionId) ?? null,
+    myVote: battle?.votes.get(conn.sessionId)?.card ?? null,
     ...(settled ? { settled } : {}),
   });
 }

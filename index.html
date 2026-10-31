@@ -3,12 +3,12 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
-    <title>Pokémon Brawl: Bet Play Money on Live Pokémon Battles</title>
+    <title>Pokémon Brawl: Real-Time Pokémon Battles Where the Crowd Calls It</title>
     <!-- Share/SEO metadata. Reddit reads these once, when a post is created,
          and never re-fetches, so deploy changes here before posting a link.
          Image URLs must be absolute. -->
-    <meta name="description" content="Watch free-for-all Pokémon auto-battles live, chat, and bet free play money on the winner. No sign-up, no real money. A free fan project." />
-    <meta name="theme-color" content="#fdf6e3" />
+    <meta name="description" content="Control a Pokémon in real-time brawls in your browser: move, dodge, aim four moves, three lives. Play solo vs bots or online, 1v1 to 4v4 or FFA up to 8, while the crowd votes on what lands next. Free, no account." />
+    <meta name="theme-color" content="#dde9f2" />
     <meta name="color-scheme" content="light" />
     <link rel="canonical" href="https://pokemonbrawl.com/" />
 
@@ -19,8 +19,8 @@
     <meta property="og:type" content="website" />
     <meta property="og:site_name" content="Pokémon Brawl" />
     <meta property="og:url" content="https://pokemonbrawl.com/" />
-    <meta property="og:title" content="Pokémon Brawl: Watch Pokémon brawl. Bet on the winner." />
-    <meta property="og:description" content="Free-for-all Pokémon auto-battles, live 24/7. Bet free play money on who is left standing. No sign-up, nothing to buy." />
+    <meta property="og:title" content="Pokémon Brawl: You fight. The crowd calls it." />
+    <meta property="og:description" content="Real-time Pokémon brawls in your browser. Play solo vs bots or online, and everyone watching votes on what lands next. Free, no account, no download." />
     <meta property="og:image" content="https://pokemonbrawl.com/og-image.png" />
     <meta property="og:image:secure_url" content="https://pokemonbrawl.com/og-image.png" />
     <meta property="og:image:type" content="image/png" />
@@ -30,8 +30,8 @@
     <meta property="og:locale" content="en_US" />
 
     <meta name="twitter:card" content="summary_large_image" />
-    <meta name="twitter:title" content="Pokémon Brawl: Watch Pokémon brawl. Bet on the winner." />
-    <meta name="twitter:description" content="Free-for-all Pokémon auto-battles, live 24/7. Bet free play money on who is left standing. No sign-up, nothing to buy." />
+    <meta name="twitter:title" content="Pokémon Brawl: You fight. The crowd calls it." />
+    <meta name="twitter:description" content="Real-time Pokémon brawls in your browser. Play solo vs bots or online, and everyone watching votes on what lands next. Free, no account, no download." />
     <meta name="twitter:image" content="https://pokemonbrawl.com/og-image.png" />
     <meta name="twitter:image:alt" content="Pokémon Brawl title card over a pixel-art battle arena, with Charizard, Pikachu, Lucario and Gengar ready to fight." />
     <!-- Retro pixel font for the in-battle move-name callout (PokemonSprite.ts's
@@ -42,7 +42,7 @@
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link
-      href="https://fonts.googleapis.com/css2?family=Press+Start+2P&family=Space+Mono:wght@400;700&display=swap"
+      href="https://fonts.googleapis.com/css2?family=Atkinson+Hyperlegible:ital,wght@0,400;0,700;1,400&family=Pixelify+Sans:wght@400..700&family=Press+Start+2P&family=Space+Mono:wght@400;700&display=swap"
       rel="stylesheet"
     />
     <!-- Matches src/ui/theme.ts's BG — avoids a flash of the browser's
@@ -51,7 +51,14 @@
       html,
       body {
         margin: 0;
-        background: #fdf6e3;
+        background: #dde9f2;
+      }
+      /* App-wide focus ring (Hoenn Handheld): an INK outline with a gold
+         ACTION halo, visible on both the pale ground and gold buttons. */
+      :focus-visible {
+        outline: 3px solid #283038;
+        outline-offset: 2px;
+        box-shadow: 0 0 0 8px #f8c840;
       }
     </style>
     <!-- Cloudflare Web Analytics -->

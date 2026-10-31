@@ -149,7 +149,10 @@ describe('ActionEngine', () => {
     const before = engine.getActionEventsSince(0).length;
     engine.fire(me.instanceId, SLOT.quake, me.position);
     // A burst resolves inside fire() itself, not on a later tick.
-    const hits = engine.getActionEventsSince(0).slice(before).filter((e) => e.type === 'hit');
+    const hits = engine
+      .getActionEventsSince(0)
+      .slice(before)
+      .filter((e) => e.type === 'hit');
     expect(hits.map((e) => e.type === 'hit' && e.targetId)).toEqual([mon(engine, 1).instanceId]);
   });
 
@@ -250,5 +253,97 @@ describe('PlayerController', () => {
     run(engine, 50);
     controller.update();
     expect(controller.lockTargetId).toBe(mon(engine, 1).instanceId);
+  });
+});
+
+describe('Crowd Calls', () => {
+  const teamEngine = () => makeEngine([1, 2, 3, 4], { teams: { size: 2 } });
+
+  it('shield eats the next hit whole, then is gone', () => {
+    const engine = teamEngine();
+    const me = mon(engine, 2);
+    const foe = mon(engine, 0);
+    place(me, 450, 700);
+    place(foe, 450, 1000);
+    place(mon(engine, 1), 100, 300);
+    place(mon(engine, 3), 800, 300);
+    engine.applyCrowdCard(foe.team, 'shield');
+    expect(engine.getFighter(foe.instanceId).shieldMs).toBe(R.CROWD_SHIELD_MS);
+    expect(engine.getFighter(mon(engine, 2).instanceId).shieldMs).toBe(0); // the other side gets nothing
+    const before = foe.currentHp;
+    engine.fire(me.instanceId, SLOT.ember, foe.position);
+    const blocked = run(engine, 600).find((e) => e.type === 'hit');
+    expect(blocked).toMatchObject({ damage: 0, blocked: true, knockback: { x: 0, y: 0 } });
+    expect(foe.currentHp).toBe(before);
+    expect(engine.getFighter(foe.instanceId).shieldMs).toBe(0);
+    run(engine, R.moveCooldownMs(25));
+    engine.fire(me.instanceId, SLOT.ember, foe.position);
+    run(engine, 600);
+    expect(foe.currentHp).toBeLessThan(before);
+  });
+
+  it('shield fades unused', () => {
+    const engine = teamEngine();
+    const p = mon(engine, 0);
+    engine.applyCrowdCard(p.team, 'shield');
+    run(engine, R.CROWD_SHIELD_MS + 50);
+    expect(engine.getFighter(p.instanceId).shieldMs).toBe(0);
+  });
+
+  it('speed raises the max speed for a while, then it drops back', () => {
+    const engine = teamEngine();
+    const p = mon(engine, 0);
+    place(p, 450, 300);
+    engine.applyCrowdCard(p.team, 'speed');
+    engine.setMoveInput(p.instanceId, 0, 1);
+    run(engine, 1000);
+    expect(Math.hypot(p.velocity.x, p.velocity.y)).toBeCloseTo(R.MAX_SPEED * R.CROWD_SPEED_MULT, 0);
+    place(p, 450, 200);
+    run(engine, R.CROWD_SPEED_MS - 500);
+    expect(Math.hypot(p.velocity.x, p.velocity.y)).toBeCloseTo(R.MAX_SPEED, 0);
+  });
+
+  it('energy refills the whole side', () => {
+    const engine = teamEngine();
+    const a = mon(engine, 0);
+    const b = mon(engine, 1);
+    engine.fire(a.instanceId, SLOT.quake, a.position);
+    engine.fire(b.instanceId, SLOT.quake, b.position);
+    engine.applyCrowdCard(a.team, 'energy');
+    expect(engine.getFighter(a.instanceId).energy).toBe(R.ENERGY_MAX);
+    expect(engine.getFighter(b.instanceId).energy).toBe(R.ENERGY_MAX);
+  });
+
+  it('supply drops a crate on its own half that only its own side can take', () => {
+    const engine = teamEngine();
+    const ally = mon(engine, 0);
+    const foe = mon(engine, 2);
+    engine.applyCrowdCard(ally.team, 'supply');
+    const [crate] = engine.getPickups();
+    expect(crate.team).toBe(ally.team);
+    // Same half of the court as the side's spawn.
+    const mid = engine.getState().arena.height / 2;
+    expect(crate.position.y < mid).toBe(engine.getFighter(ally.instanceId).spawn.y < mid);
+
+    for (const p of [ally, foe]) p.currentHp = Math.round(p.maxHp / 2);
+    place(foe, crate.position.x, crate.position.y);
+    place(ally, 450, crate.position.y < mid ? 1700 : 300);
+    run(engine, 100);
+    expect(engine.getPickups()).toHaveLength(1);
+    place(foe, 100, 1700);
+    place(ally, crate.position.x, crate.position.y);
+    const half = ally.currentHp;
+    const taken = run(engine, 50).find((e) => e.type === 'pickupTaken');
+    expect(taken).toMatchObject({ instanceId: ally.instanceId, amount: Math.round(ally.maxHp * R.SUPPLY_HEAL_FRACTION) });
+    expect(ally.currentHp).toBe(half + Math.round(ally.maxHp * R.SUPPLY_HEAL_FRACTION));
+    expect(engine.getPickups()).toHaveLength(0);
+  });
+
+  it('supply despawns after its time', () => {
+    const engine = teamEngine();
+    engine.applyCrowdCard('teamB', 'supply');
+    expect(engine.snapshot(0).pickups).toHaveLength(1);
+    run(engine, R.SUPPLY_TTL_MS + 50);
+    expect(engine.getPickups()).toHaveLength(0);
   });
 });

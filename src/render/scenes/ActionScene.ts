@@ -55,6 +55,18 @@ const MOVE_ANIM_MS = 700;
 const SHOT_POSITION_TTL_MS = 2000;
 const INVULN_ALPHA = 0.5;
 
+// Crowd Calls. Colors are placeholders for the theme pass.
+const SHIELD_COLOR = 0x7fd8ff;
+const SPEED_TRAIL_COLOR = 0xffe066;
+const SPEED_TRAIL_EVERY_MS = 60;
+const SPEED_TRAIL_FADE_MS = 260;
+const CRATE_BODY_COLOR = 0xb5793a;
+const CRATE_EDGE_COLOR = 0x5c3a17;
+const CRATE_CROSS_COLOR = 0xffffff;
+const CRATE_SIZE = 44;
+const CRATE_TEXTURE_KEY = 'crowd-supply-crate';
+const BLOCK_TEXT_COLOR = '#7fd8ff';
+
 /** Play Mode's arena: drives the ActionEngine each frame, reads keyboard and
  * mouse into the PlayerController, and draws fighters, shots, aim and hit
  * feedback. The touch controls live in the React HUD (ActionMatchScreen). */
@@ -74,6 +86,9 @@ export class ActionScene extends Phaser.Scene {
   private lastWallClockMs = 0;
   private stadium: Stadium | null = null;
   private hitStopUntilMs = 0;
+  private readonly shieldRings = new Map<string, Phaser.GameObjects.Arc>();
+  private readonly lastTrailAtMs = new Map<string, number>();
+  private readonly crates = new Map<number, Phaser.GameObjects.Image>();
 
   constructor() {
     super('Action');
@@ -87,6 +102,9 @@ export class ActionScene extends Phaser.Scene {
     this.projectiles.clear();
     this.shotPositions.clear();
     this.invulnShown.clear();
+    this.shieldRings.clear();
+    this.lastTrailAtMs.clear();
+    this.crates.clear();
     this.lastActionSeq = 0;
     this.hitStopUntilMs = 0;
   }
@@ -113,6 +131,7 @@ export class ActionScene extends Phaser.Scene {
     this.pmdSpriteIndex = (this.cache.json.get(PMD_SPRITE_INDEX_KEY) as PmdSpriteIndex | undefined) ?? null;
     state.livingOrder.forEach((id, index) => this.createSprite(id, index, state));
     this.aimGraphics = this.add.graphics().setDepth(100_000);
+    this.buildCrateTexture();
     this.cameras.main.setBackgroundColor('#1a1a1a');
     if (this.controller) this.bindKeyboardAndMouse(this.controller);
     installMasterLimiter(this);
@@ -143,8 +162,11 @@ export class ActionScene extends Phaser.Scene {
         this.invulnShown.set(id, invuln);
         sprite.setAnimAlpha(invuln ? INVULN_ALPHA : 1);
       }
+      this.drawBuffs(id, sprite, wallNow);
     }
+    for (const [id, ring] of this.shieldRings) if (!this.engine.isAlive(id)) ring.setVisible(false);
     this.syncProjectiles();
+    this.syncCrates();
     this.drawAim(state);
     for (const event of this.engine.getActionEventsSince(this.lastActionSeq)) {
       this.lastActionSeq = event.seq;
@@ -212,6 +234,60 @@ export class ActionScene extends Phaser.Scene {
       controller.mouseAim = { x: pointer.worldX, y: pointer.worldY };
       controller.fire(0);
     });
+  }
+
+  /** Drawn once into a texture: a live Graphics per crate would redraw every frame. */
+  private buildCrateTexture(): void {
+    if (this.textures.exists(CRATE_TEXTURE_KEY)) return;
+    const g = this.make.graphics({}, false);
+    const s = CRATE_SIZE;
+    g.fillStyle(CRATE_EDGE_COLOR).fillRoundedRect(0, 0, s, s, 6);
+    g.fillStyle(CRATE_BODY_COLOR).fillRoundedRect(4, 4, s - 8, s - 8, 4);
+    g.fillStyle(CRATE_CROSS_COLOR)
+      .fillRect(s / 2 - 4, 10, 8, s - 20)
+      .fillRect(10, s / 2 - 4, s - 20, 8);
+    g.generateTexture(CRATE_TEXTURE_KEY, s, s);
+    g.destroy();
+  }
+
+  private syncCrates(): void {
+    const live = new Set<number>();
+    for (const pickup of this.engine.getPickups()) {
+      live.add(pickup.id);
+      if (this.crates.has(pickup.id)) continue;
+      const crate = this.add.image(pickup.position.x, pickup.position.y, CRATE_TEXTURE_KEY).setDepth(pickup.position.y).setScale(0.3);
+      this.tweens.add({ targets: crate, scale: 1, duration: 260, ease: 'Back.easeOut' });
+      this.crates.set(pickup.id, crate);
+    }
+    for (const [id, crate] of this.crates) {
+      if (live.has(id)) continue;
+      this.crates.delete(id);
+      this.tweens.add({ targets: crate, alpha: 0, scale: 1.4, duration: 180, onComplete: () => crate.destroy() });
+    }
+  }
+
+  /** Crowd Call buffs: a bubble while shielded, fading footprints while sped up. */
+  private drawBuffs(id: string, sprite: PokemonSprite, wallNow: number): void {
+    const f = this.engine.getFighter(id);
+    const at = sprite.getRenderPosition();
+    let ring = this.shieldRings.get(id);
+    if (f.shieldMs > 0) {
+      if (!ring) {
+        ring = this.add.circle(0, 0, 10).setStrokeStyle(4, SHIELD_COLOR, 0.9).setFillStyle(SHIELD_COLOR, 0.15);
+        this.shieldRings.set(id, ring);
+      }
+      ring
+        .setRadius(sprite.getOnScreenSize() * 0.55)
+        .setPosition(at.x, at.y - sprite.bodyCenterLift())
+        .setDepth(at.y + 2)
+        .setVisible(true);
+    } else ring?.setVisible(false);
+
+    if (f.speedMs > 0 && wallNow - (this.lastTrailAtMs.get(id) ?? 0) >= SPEED_TRAIL_EVERY_MS) {
+      this.lastTrailAtMs.set(id, wallNow);
+      const puff = this.add.circle(at.x, at.y, 14, SPEED_TRAIL_COLOR, 0.55).setDepth(at.y - 1);
+      this.tweens.add({ targets: puff, alpha: 0, scale: 0.3, duration: SPEED_TRAIL_FADE_MS, onComplete: () => puff.destroy() });
+    }
   }
 
   private syncProjectiles(): void {
@@ -307,6 +383,12 @@ export class ActionScene extends Phaser.Scene {
         this.sprites.get(event.instanceId)?.playHealVfx(event.amount);
         this.stadium?.cheer(0.6);
         return;
+      case 'pickupTaken':
+        this.sprites.get(event.instanceId)?.playHealVfx(event.amount);
+        return;
+      case 'crowdCall':
+        this.stadium?.cheer(0.8);
+        return;
     }
   }
 
@@ -327,7 +409,10 @@ export class ActionScene extends Phaser.Scene {
       const bodyCenter = adjustment?.familyAnchor ? adjustment.familyAnchor === 'center' : familyAnchorsAtBodyCenter(source.family);
       const from = bodyCenter ? { x: event.origin.x, y: event.origin.y - lift } : event.origin;
       const to = bodyCenter ? { x: restingEnd.x, y: restingEnd.y - lift } : restingEnd;
-      playFamilyVfx(this, source.family, from, to, PROJECTILE.ranged.radius, move.type, sprite, { x: restingEnd.x, y: restingEnd.y - lift });
+      playFamilyVfx(this, source.family, from, to, PROJECTILE.ranged.radius, move.type, sprite, {
+        x: restingEnd.x,
+        y: restingEnd.y - lift,
+      });
       return;
     }
 
@@ -387,7 +472,10 @@ export class ActionScene extends Phaser.Scene {
     let text = String(event.damage);
     let color = taken ? '#ff6b6b' : '#ffffff';
     let size = 22;
-    if (event.effectiveness === 0) {
+    if (event.blocked) {
+      text = 'BLOCK';
+      color = BLOCK_TEXT_COLOR;
+    } else if (event.effectiveness === 0) {
       text = 'IMMUNE';
       color = '#bbbbbb';
     } else if (event.damage === 0) {
@@ -427,7 +515,11 @@ export class ActionScene extends Phaser.Scene {
   }
 
   private playAoeRing(x: number, y: number, color: number): void {
-    const ring = this.add.circle(x, y, 20).setStrokeStyle(8, color, 0.9).setFillStyle(color, 0.18).setDepth(y - 1);
+    const ring = this.add
+      .circle(x, y, 20)
+      .setStrokeStyle(8, color, 0.9)
+      .setFillStyle(color, 0.18)
+      .setDepth(y - 1);
     this.tweens.add({
       targets: ring,
       radius: AOE_RADIUS,

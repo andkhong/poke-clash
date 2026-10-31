@@ -5,7 +5,7 @@ import { listAllSpecies, moveLookup, pickRandomSpeciesIds } from '../../data/loa
 import type { MatchConfig, MoveDefinition } from '../../sim/types';
 import { SpeciesPicker } from '../components/SpeciesPicker';
 import { MoveCards } from '../components/MoveCards';
-import { BG, PRIMARY, PRIMARY_TEXT, TEXT, TEXT_MUTED, primaryAlpha, textAlpha } from '../theme';
+import { ACTION, ACTION_BEVEL, FONT_BODY, FONT_UI, FRAME, GROUND, INFO_BOX, INK, INK_MUTED, OUTLINE, PANEL, SUNK } from '../theme';
 
 interface PlayModeScreenProps {
   onStart: (config: MatchConfig) => void;
@@ -36,31 +36,33 @@ export function PlayModeScreen({ onStart, onBack }: PlayModeScreenProps) {
           gap: 10,
         }}
       >
-        <button onClick={onBack} style={backButton}>
-          ← BACK
+        <button onClick={onBack} style={backButton} aria-label="Back">
+          ←
         </button>
-        <h1 style={{ fontSize: 16, letterSpacing: 1, margin: 0, flex: 1 }}>PLAY MODE</h1>
+        <h1 style={{ fontFamily: FONT_UI, fontWeight: 700, fontSize: 32, margin: 0, flex: 1 }}>Play Mode</h1>
       </div>
       <p
         style={{
-          margin: '-12px 0 0',
-          opacity: 0.7,
-          fontSize: 12,
-          textAlign: 'center',
+          margin: '-8px 0 0',
+          maxWidth: 420,
+          color: INK_MUTED,
+          fontSize: 15,
+          lineHeight: 1.5,
         }}
       >
         You control one of the original 151. Bots fill every other seat. 3 lives each — last side standing wins.
       </p>
 
       <a href="#/play" style={onlineButton}>
-        🌐 PLAY ONLINE — real players, bots fill the rest
+        🌐 Play online — real players, bots fill the rest
       </a>
 
       <section style={sectionStyle}>
         <h2 style={sectionHeading}>Mode</h2>
         <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
           {PLAY_MODES.map((m) => (
-            <button key={m.label} onClick={() => setMode(m.value)} style={pillButton(mode === m.value)}>
+            <button key={m.label} onClick={() => setMode(m.value)} aria-pressed={mode === m.value} style={pillButton(mode === m.value)}>
+              {mode === m.value && <span aria-hidden>▶ </span>}
               {m.label}
             </button>
           ))}
@@ -96,8 +98,8 @@ export function PlayModeScreen({ onStart, onBack }: PlayModeScreenProps) {
       <section
         style={{
           ...sectionStyle,
-          fontSize: 11,
-          color: TEXT_MUTED,
+          fontSize: 15,
+          color: INK_MUTED,
           lineHeight: 1.6,
         }}
       >
@@ -123,7 +125,7 @@ export function PlayModeScreen({ onStart, onBack }: PlayModeScreenProps) {
         disabled={moves.length === 0}
         style={startButton}
       >
-        START
+        <span aria-hidden>▶ </span>Start
       </button>
     </div>
   );
@@ -135,80 +137,105 @@ const containerStyle: CSSProperties = {
   display: 'flex',
   flexDirection: 'column',
   alignItems: 'center',
-  gap: 20,
+  gap: 16,
   padding: 24,
   boxSizing: 'border-box',
   overflowY: 'auto',
-  fontFamily: 'monospace',
-  color: TEXT,
-  background: BG,
+  fontFamily: FONT_BODY,
+  color: INK,
+  background: GROUND,
 };
 
-const sectionStyle: CSSProperties = { width: '100%', maxWidth: 420 };
+// The Lobby artboard's picker panel: white message box, ink outline, teal trim.
+const sectionStyle: CSSProperties = {
+  width: '100%',
+  maxWidth: 420,
+  boxSizing: 'border-box',
+  padding: 16,
+  background: PANEL,
+  border: OUTLINE,
+  borderRadius: 8,
+  boxShadow: `inset 0 0 0 3px ${PANEL}, inset 0 0 0 6px ${FRAME}`,
+};
 
 const sectionHeading: CSSProperties = {
-  fontSize: 12,
-  textTransform: 'uppercase',
-  letterSpacing: 1,
-  opacity: 0.65,
-  margin: '0 0 8px',
+  fontFamily: FONT_UI,
+  fontSize: 24,
+  fontWeight: 700,
+  margin: '0 0 10px',
 };
 
 const backButton: CSSProperties = {
-  fontSize: 11,
-  fontFamily: 'monospace',
-  padding: '5px 10px',
-  borderRadius: 5,
-  border: `1px solid ${textAlpha(0.2)}`,
-  background: textAlpha(0.05),
-  color: TEXT,
+  width: 46,
+  height: 46,
+  flex: 'none',
+  fontSize: 22,
+  fontFamily: FONT_UI,
+  fontWeight: 700,
+  borderRadius: 8,
+  border: OUTLINE,
+  background: PANEL,
+  color: INK,
   cursor: 'pointer',
 };
 
 const chosenChip: CSSProperties = {
-  fontSize: 13,
-  fontWeight: 'bold',
+  minHeight: 44,
+  display: 'inline-flex',
+  alignItems: 'center',
+  fontFamily: FONT_UI,
+  fontSize: 22,
+  fontWeight: 700,
   textTransform: 'uppercase',
-  padding: '6px 12px',
-  borderRadius: 6,
-  border: `2px solid ${PRIMARY}`,
-  background: primaryAlpha(0.12),
+  padding: '0 12px',
+  borderRadius: 8,
+  border: OUTLINE,
+  background: INFO_BOX,
 };
 
 function pillButton(active: boolean): CSSProperties {
   return {
-    fontSize: 12,
-    fontFamily: 'monospace',
-    padding: '6px 12px',
-    borderRadius: 16,
-    border: active ? `1px solid ${PRIMARY}` : `1px solid ${textAlpha(0.2)}`,
-    background: active ? primaryAlpha(0.18) : textAlpha(0.05),
-    color: active ? PRIMARY : TEXT_MUTED,
+    minHeight: 46,
+    padding: '0 14px',
+    fontSize: 18,
+    fontFamily: FONT_UI,
+    fontWeight: active ? 700 : 600,
+    borderRadius: 8,
+    border: OUTLINE,
+    background: active ? ACTION : PANEL,
+    color: INK,
+    boxShadow: `inset 0 -4px 0 ${active ? ACTION_BEVEL : SUNK}`,
     cursor: 'pointer',
   };
 }
 
 const onlineButton: CSSProperties = {
-  padding: '10px 18px',
-  fontSize: 13,
-  fontFamily: 'monospace',
-  fontWeight: 'bold',
-  color: PRIMARY,
-  border: `2px solid ${PRIMARY}`,
-  borderRadius: 6,
+  minHeight: 50,
+  display: 'inline-flex',
+  alignItems: 'center',
+  padding: '0 20px',
+  fontSize: 20,
+  fontFamily: FONT_UI,
+  fontWeight: 600,
+  color: INK,
+  background: PANEL,
+  border: OUTLINE,
+  borderRadius: 8,
+  boxShadow: `inset 0 -4px 0 ${SUNK}`,
   textDecoration: 'none',
 };
 
 const startButton: CSSProperties = {
   marginTop: 8,
-  padding: '12px 40px',
-  fontSize: 16,
-  fontFamily: 'monospace',
-  fontWeight: 'bold',
-  letterSpacing: 1,
-  color: PRIMARY_TEXT,
-  background: PRIMARY,
-  border: 'none',
-  borderRadius: 6,
+  minHeight: 58,
+  padding: '0 40px',
+  fontSize: 26,
+  fontFamily: FONT_UI,
+  fontWeight: 700,
+  color: INK,
+  background: ACTION,
+  border: OUTLINE,
+  borderRadius: 8,
+  boxShadow: `inset 0 -5px 0 ${ACTION_BEVEL}`,
   cursor: 'pointer',
 };

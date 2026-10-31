@@ -1,94 +1,78 @@
-import type { LiveRoomStats } from './liveStats';
-import { PlayIcon } from './icons';
+import { CrowdIcon, PlayIcon } from './icons';
 
 interface LandingHeroProps {
-  /** The autoPlay showcase room's id once the room list has it — WATCH LIVE
-   * links straight into it. */
-  featuredRoomId: string | null;
-  stats: LiveRoomStats;
-  /** At least one /api/rooms poll has succeeded. */
-  loaded: boolean;
-  /** Two or more polls in a row have failed (see LandingScreen). */
-  offline: boolean;
-  /** LandingScreen's HERO_VIEWER_TOTAL_ENABLED — whether the live pill may
-   * show the viewer total, which counts showcase bots. */
-  showViewerTotal: boolean;
+  /** Players seated in online rooms right now, or null until the room list
+   * loads. The pill only shows a real, non-zero count. */
+  playersOnline: number | null;
+  /** Scrolls to the open-rooms list, where the crowd links are. */
+  onWatch: () => void;
 }
 
-/** The pitch above the featured room: a live-status pill, the two-line
- * headline, one lead sentence, and the CTAs. Stacked above the embed rather
- * than beside it on desktop, since the embed carries its own 340px chat
- * sidebar at that width and a side column would squeeze its arena.
- *
- * The pill is a plain paragraph, deliberately without `aria-live`: it
- * changes on every 2s poll and would flood a screen reader. */
-export function LandingHero({ featuredRoomId, stats, loaded, offline, showViewerTotal }: LandingHeroProps) {
-  const loading = !loaded && !offline;
-  const pill = livePill(stats, loaded, offline, showViewerTotal);
-
+/** The pitch: a players-online pill (real data only), the headline, the
+ * three ways in (solo, online, crowd), and a CSS-drawn court showing a
+ * Crowd Call landing. The court is decoration, not a live preview. */
+export function LandingHero({ playersOnline, onWatch }: LandingHeroProps) {
   return (
-    <section className="lp-hero" aria-labelledby="lp-hero-title">
+    <section className="lp-hero lp-container" aria-labelledby="lp-hero-title">
       <div className="lp-hero-copy">
-        <p className={pill.neutral ? 'lp-live-pill is-neutral' : 'lp-live-pill'}>
-          <span className={pill.neutral ? 'lp-badge-live is-neutral' : 'lp-badge-live'}>
-            <span className="lp-dot" aria-hidden="true" />
-            {pill.badge}
-          </span>
-          <span className="lp-live-pill-text">{pill.text}</span>
-        </p>
-        <p className="lp-hero-tagline">Watch Pokémon brawl. Bet on the winner.</p>
+        {playersOnline !== null && playersOnline > 0 && (
+          <p className="lp-pill">
+            <span className="lp-pill-dot" aria-hidden="true" />
+            {playersOnline} playing online now
+          </p>
+        )}
+        <h1 id="lp-hero-title" className="lp-h1">
+          You fight. <span className="lp-crowd-text">The crowd calls it.</span>
+        </h1>
         <p className="lp-lead">
-          Free-for-all auto-battles, live 24/7. Grab $100 in play money, back a fighter, and cash in if it wins.
+          Real-time Pokémon brawls in your browser. Move, dodge, aim four moves, take three lives into a three-minute match. Everyone
+          watching votes on what lands on the court next.
         </p>
-      </div>
-      <div className="lp-hero-actions">
-        {featuredRoomId !== null ? (
-          <a className="lp-btn lp-btn-primary" href={`#/room/${featuredRoomId}`}>
+        <div className="lp-hero-actions">
+          <a className="lp-btn lp-btn-primary lp-btn-xl" href="#/local">
             <PlayIcon />
-            WATCH LIVE
+            Play now
           </a>
-        ) : loading ? (
-          // No href until the showcase room's id arrives; role="link" keeps
-          // aria-disabled meaningful on an href-less anchor.
-          <a className="lp-btn lp-btn-primary is-disabled" role="link" aria-disabled="true" tabIndex={-1}>
-            <PlayIcon />
-            WATCH LIVE
+          <a className="lp-btn lp-btn-secondary lp-btn-xl" href="#/play">
+            Play online
           </a>
-        ) : (
-          // Offline before anything loaded, or no showcase room at all —
-          // Solo Play is the one thing that still works, so it gets the
-          // primary slot and the duplicate secondary button is dropped.
-          <a className="lp-btn lp-btn-primary" href="#/local">
-            PLAY SOLO
-          </a>
-        )}
-        {(featuredRoomId !== null || loading) && (
-          <a className="lp-btn lp-btn-secondary" href="#/local">
-            PLAY SOLO
-          </a>
-        )}
-        <p className="lp-trust">No sign-up · Play money only</p>
+          <button type="button" className="lp-btn lp-btn-crowd-outline lp-btn-xl" onClick={onWatch}>
+            <CrowdIcon />
+            Watch &amp; join the crowd
+          </button>
+        </div>
+        <p className="lp-trust">Free. No account, no download. Bots fill empty seats, so a match starts in seconds.</p>
       </div>
+      <HeroCourt />
     </section>
   );
 }
 
-function livePill(
-  stats: LiveRoomStats,
-  loaded: boolean,
-  offline: boolean,
-  showViewerTotal: boolean
-): { badge: string; neutral: boolean; text: string } {
-  if (offline) {
-    return { badge: 'OFFLINE', neutral: true, text: loaded ? 'Reconnecting…' : 'Live rooms are down right now' };
-  }
-  if (!loaded) return { badge: 'LIVE', neutral: true, text: 'Connecting to the arena…' };
-
-  const battles = `${stats.battling} live ${stats.battling === 1 ? 'battle' : 'battles'}`;
-  const roomsOpen = `${stats.roomCount} ${stats.roomCount === 1 ? 'room' : 'rooms'} open`;
-  if (showViewerTotal) {
-    const watching = `${stats.watching} watching`;
-    return { badge: 'LIVE', neutral: false, text: stats.battling > 0 ? `${watching} · ${battles}` : `${watching} · next battle soon` };
-  }
-  return { badge: 'LIVE', neutral: false, text: stats.battling > 0 ? `${battles} · ${roomsOpen}` : `${roomsOpen} · next battle soon` };
+function HeroCourt() {
+  return (
+    <div className="lp-hero-art" role="img" aria-label="Illustration: a 2v2 match where Sapphire's crowd has called a Shield">
+      <div className="lp-court">
+        <span className="lp-court-line" />
+        <span className="lp-court-circle" />
+        <span className="lp-token lp-token-ruby lp-hero-t1">
+          <span className="lp-hide-mobile">CHAR</span>
+        </span>
+        <span className="lp-token lp-token-ruby lp-hero-t2">
+          <span className="lp-hide-mobile">PIKA</span>
+        </span>
+        <span className="lp-shield-ring lp-hero-t3">
+          <span className="lp-token-sapphire" />
+        </span>
+        <span className="lp-shield-ring lp-hero-t4 lp-hide-mobile">
+          <span className="lp-token-sapphire" />
+        </span>
+      </div>
+      <div className="lp-msgbox lp-hero-msg">
+        <span>
+          Sapphire&rsquo;s crowd called <strong className="lp-crowd-text">SHIELD</strong>!
+          <span className="lp-hide-mobile"> It lands in 2.</span>
+        </span>
+      </div>
+    </div>
+  );
 }

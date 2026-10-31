@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { PredictionOptionSummary, PredictionSummary } from '../../net/protocol';
 import { TEAM_A_COLOR_CSS } from '../teamColors';
-import { SOLARIZED_ACCENTS } from '../theme';
+import { TEXT_ACCENTS } from '../theme';
 import {
   canAffordChip,
   canBetOn,
@@ -104,7 +104,7 @@ describe('favourite / stakes / bettability', () => {
 });
 
 describe('result lines', () => {
-  it('is silent until settled, then names the winner and this viewer\'s net', () => {
+  it("is silent until settled, then names the winner and this viewer's net", () => {
     expect(resultText(prediction(), { matchNo: 1, staked: 10, returned: 0, watched: 100 })).toBeNull();
     const won = prediction({ status: 'settled', winnerOptionId: 'p0-1', pool: 200 });
     expect(resultText(won, { matchNo: 1, staked: 50, returned: 170, watched: 100 })).toBe('LUNATONE WINS · you +$120');
@@ -114,9 +114,13 @@ describe('result lines', () => {
   });
 
   it('explains a refund, and a pool nobody joined', () => {
-    expect(resultText(prediction({ status: 'settled', refunded: true, pool: 60 }), { matchNo: 1, staked: 60, returned: 60, watched: 0 })).toBe('NO WINNER · bets refunded');
+    expect(
+      resultText(prediction({ status: 'settled', refunded: true, pool: 60 }), { matchNo: 1, staked: 60, returned: 60, watched: 0 })
+    ).toBe('NO WINNER · bets refunded');
     expect(resultText(prediction({ status: 'settled', refunded: true, pool: 0 }), null)).toBe('NO WINNER');
-    expect(resultText(prediction({ status: 'settled', winnerOptionId: 'p1-2', refunded: true, pool: 40 }), null)).toBe('AGGRON WINS · bets refunded');
+    expect(resultText(prediction({ status: 'settled', winnerOptionId: 'p1-2', refunded: true, pool: 40 }), null)).toBe(
+      'AGGRON WINS · bets refunded'
+    );
   });
 
   it('mentions the watch reward only when one was earned', () => {
@@ -127,9 +131,9 @@ describe('result lines', () => {
 });
 
 describe('optionColor', () => {
-  it('matches chat\'s per-seat hue in a free-for-all and the side colour in a team room', () => {
-    expect(optionColor(option('p3-77', { instanceIds: ['p3-77'] }))).toBe(SOLARIZED_ACCENTS[3]);
-    expect(optionColor(option('p9-77', { instanceIds: ['p9-77'] }))).toBe(SOLARIZED_ACCENTS[1]);
+  it("matches chat's per-seat hue in a free-for-all and the side colour in a team room", () => {
+    expect(optionColor(option('p3-77', { instanceIds: ['p3-77'] }))).toBe(TEXT_ACCENTS[3]);
+    expect(optionColor(option('p9-77', { instanceIds: ['p9-77'] }))).toBe(TEXT_ACCENTS[1]);
     expect(optionColor(option('teamA', { instanceIds: ['p0-1', 'p1-2'] }))).toBe(TEAM_A_COLOR_CSS);
     expect(typeof optionColor(option('boss', { instanceIds: ['boss-5'] }))).toBe('string');
   });

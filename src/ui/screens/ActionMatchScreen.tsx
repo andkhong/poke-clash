@@ -2,22 +2,64 @@ import { lazy, Suspense, useMemo, useRef, useState, type CSSProperties, type Poi
 import type { StageRect } from '../../render/PhaserGame';
 import type { ActionEngine } from '../../sim/action/ActionEngine';
 import type { PlayerController } from '../../sim/action/playerController';
-import { ACTION_MATCH_LIMIT_MS, DASH_CHARGES, DASH_RECHARGE_MS, ENERGY_MAX, moveCooldownMs, moveEnergyCost } from '../../sim/action/rules';
+import {
+  ACTION_MATCH_LIMIT_MS,
+  DASH_CHARGES,
+  DASH_RECHARGE_MS,
+  ENERGY_MAX,
+  LIVES,
+  moveCooldownMs,
+  moveEnergyCost,
+} from '../../sim/action/rules';
 import { isMobileArena } from '../../sim/constants';
 import type { MoveDefinition, SimState } from '../../sim/types';
+import type { CrowdSide } from '../../net/play/playProtocol';
 import { IS_MOBILE_DEVICE } from '../../app/config';
 import { saveLockOn } from '../playModeSettings';
 import { useSimSnapshot } from '../hooks/useSimSnapshot';
 import type { SimStore } from '../state/simStore';
 import { TEAM_A_COLOR_CSS, TEAM_B_COLOR_CSS, teamColorCss } from '../teamColors';
-import { typeColorCss } from '../typeColorCss';
-import { PRIMARY, PRIMARY_TEXT } from '../theme';
+import { typeColorCss, typeTextCss } from '../typeColorCss';
+import {
+  ACTION,
+  COOLDOWN,
+  CROWD,
+  ENERGY,
+  FONT_BODY,
+  FONT_PIXEL,
+  FONT_UI,
+  GROUND,
+  HP_GREEN,
+  HP_RED,
+  HP_YELLOW,
+  INFO_BOX,
+  INK,
+  INK_MUTED,
+  PANEL,
+  RUBY,
+  STAGE_BG,
+  primaryAlpha,
+} from '../theme';
+import { CrowdCallBanner } from '../crowd/CrowdCallBanner';
+import { CrowdCallsTimeline } from '../crowd/CrowdCallsTimeline';
+import { isCrowdSide, type CrowdCallsStore } from '../crowd/crowdModel';
+import { barFill, barTrack, chip, hoennButton, messageBox, teamMarker } from '../crowd/hoenn';
 
 const PhaserGame = lazy(() => import('../../render/PhaserGame').then((m) => ({ default: m.PhaserGame })));
 
 const JOYSTICK_RADIUS = 56;
 const DRAG_AIM_THRESHOLD = 18;
-const HUD_FONT = '"Space Mono", monospace';
+/** Below this stage width the HUD stacks at the top (phones, narrow windows). */
+const STACKED_MAX_WIDTH = 760;
+
+export interface ActionMatchCrowd {
+  /** The online match's Crowd Calls (read on every HUD tick). */
+  calls: CrowdCallsStore;
+  /** A viewer's locked side; fighters use their own team. */
+  side: CrowdSide | null;
+  /** Results: this viewer's bet outcome, one line. */
+  betResult?: string | null;
+}
 
 interface ActionMatchScreenProps {
   store: SimStore;
@@ -32,11 +74,14 @@ interface ActionMatchScreenProps {
   exitLabel?: string;
   /** Online: a small connection readout (ping), refreshed with the HUD. */
   netInfo?: () => string | null;
+  /** Online team matches: Crowd Call message box and the results timeline. Solo omits it. */
+  crowd?: ActionMatchCrowd;
 }
 
-/** Play Mode's in-match screen: the ActionScene canvas plus the player's HUD —
- * HP/lives/energy, move and dash buttons, the lock-on toggle, touch joystick,
- * KO/respawn banners and the results table. */
+/** Play Mode's in-match screen: the ActionScene canvas plus a Gen III
+ * battle-style HUD — team info boxes, your info box (HP/EN/lives/dash), the
+ * Crowd Call message box, the fight menu / touch controls, KO banners and
+ * the results. */
 export function ActionMatchScreen({
   store,
   engine,
@@ -47,6 +92,7 @@ export function ActionMatchScreen({
   playAgainLabel = 'PLAY AGAIN',
   exitLabel = 'BACK',
   netInfo,
+  crowd,
 }: ActionMatchScreenProps) {
   const state = useSimSnapshot(store);
   const [stageRect, setStageRect] = useState<StageRect | null>(null);
@@ -59,6 +105,30 @@ export function ActionMatchScreen({
     controller?.toggleLock();
     if (controller) saveLockOn(controller.lockOn);
   };
+  const stacked = touch || (stageRect !== null && stageRect.width < STACKED_MAX_WIDTH);
+  const playing = state.phase !== 'complete';
+  const myTeam = controller ? state.pokemon[playerId].team : crowd?.side;
+  const calls = crowd && state.teams ? crowd.calls.get() : null;
+  const banner = calls && playing && (
+    <CrowdCallBanner
+      current={calls.current}
+      nowMs={state.elapsedMs}
+      myTeam={isCrowdSide(myTeam) ? myTeam : null}
+      compact={stacked}
+      style={stacked ? undefined : { flex: '1 1 0', minWidth: 0, minHeight: 112 }}
+    />
+  );
+  const ping = netInfo?.();
+  const meta = (
+    <div style={metaRowStyle}>
+      {playing && (
+        <button onClick={onExit} style={quitButton}>
+          ✕ QUIT
+        </button>
+      )}
+      {ping && <span style={pingStyle}>{ping}</span>}
+    </div>
+  );
 
   return (
     <div style={pageStyle}>
@@ -76,24 +146,39 @@ export function ActionMatchScreen({
               height: stageRect.height,
             }}
           >
-            <TopBar state={state} engine={engine} touch={touch} />
-            {state.phase !== 'complete' && (
-              <button onClick={onExit} style={quitButton}>
-                ✕ QUIT
-              </button>
-            )}
-            {netInfo?.() && <div style={netInfoStyle}>{netInfo()}</div>}
-            {state.phase === 'intro' && <Banner title="GET READY" />}
-            {controller && state.phase === 'battle' && !engine.isAlive(playerId) && <DeathBanner state={state} controller={controller} />}
-            {controller && state.phase !== 'complete' && (
+            {stacked ? (
+              <div style={stackStyle}>
+                <TopHud state={state} engine={engine} compact />
+                {meta}
+                {controller && playing && <InfoBox state={state} controller={controller} />}
+                {banner}
+                {!state.teams && <Standings state={state} engine={engine} />}
+              </div>
+            ) : (
               <>
-                <StatusPanel state={state} controller={controller} touch={touch} />
-                {touch ? (
-                  <TouchControls controller={controller} moves={moves} onToggleLock={toggleLock} />
-                ) : (
-                  <DesktopBar controller={controller} moves={moves} onToggleLock={toggleLock} />
+                <TopHud state={state} engine={engine} compact={false} />
+                <div style={{ position: 'absolute', top: 84, left: '50%', transform: 'translateX(-50%)' }}>{meta}</div>
+                {!state.teams && (
+                  <div style={{ position: 'absolute', right: 24, top: 16, width: 220 }}>
+                    <Standings state={state} engine={engine} />
+                  </div>
                 )}
               </>
+            )}
+            {state.phase === 'intro' && <Banner title="GET READY" />}
+            {controller && state.phase === 'battle' && !engine.isAlive(playerId) && <DeathBanner state={state} controller={controller} />}
+            {controller && playing && touch && <TouchControls controller={controller} moves={moves} onToggleLock={toggleLock} />}
+            {!stacked && playing && (controller || banner) && (
+              <div style={bottomRowStyle}>
+                {controller && <InfoBox state={state} controller={controller} />}
+                {banner || <div style={{ flex: '1 1 0' }} />}
+                {controller && !touch && <FightMenu controller={controller} moves={moves} onToggleLock={toggleLock} />}
+              </div>
+            )}
+            {stacked && !touch && controller && playing && (
+              <div style={{ position: 'absolute', left: 10, right: 10, bottom: 10, display: 'flex', justifyContent: 'center' }}>
+                <FightMenu controller={controller} moves={moves} onToggleLock={toggleLock} />
+              </div>
             )}
             {state.phase === 'complete' && (
               <Results
@@ -103,6 +188,8 @@ export function ActionMatchScreen({
                 labels={[playAgainLabel, exitLabel]}
                 onPlayAgain={onPlayAgain}
                 onExit={onExit}
+                crowd={crowd && state.teams ? { history: calls?.history ?? [], betResult: crowd.betResult } : undefined}
+                stacked={stacked}
               />
             )}
           </div>
@@ -112,105 +199,175 @@ export function ActionMatchScreen({
   );
 }
 
-function TopBar({ state, engine, touch }: { state: SimState; engine: ActionEngine; touch: boolean }) {
-  const remaining = Math.max(0, ACTION_MATCH_LIMIT_MS - state.elapsedMs);
-  const clock = `${Math.floor(remaining / 60000)}:${String(Math.floor((remaining % 60000) / 1000)).padStart(2, '0')}`;
-  const livesOf = (team: string) =>
-    state.allInstanceIds.filter((id) => state.pokemon[id].team === team).reduce((sum, id) => sum + engine.getFighter(id).lives, 0);
+const hpFraction = (state: SimState, engine: ActionEngine, id: string) =>
+  engine.isAlive(id) ? state.pokemon[id].currentHp / state.pokemon[id].maxHp : 0;
+const hpColor = (hp: number) => (hp > 0.5 ? HP_GREEN : hp > 0.2 ? HP_YELLOW : HP_RED);
+const teamName = (team: string) => (team === 'teamA' ? 'Ruby' : 'Sapphire');
 
-  if (state.teams) {
+function clockText(state: SimState) {
+  const remaining = Math.max(0, ACTION_MATCH_LIMIT_MS - state.elapsedMs);
+  return `${Math.floor(remaining / 60000)}:${String(Math.floor((remaining % 60000) / 1000)).padStart(2, '0')}`;
+}
+
+/** Team info boxes (or, stacked, one-line chips) either side of the clock. */
+function TopHud({ state, engine, compact }: { state: SimState; engine: ActionEngine; compact: boolean }) {
+  const clock = <div style={compact ? clockCompact : clockStyle}>{clockText(state)}</div>;
+  if (!state.teams)
+    return compact ? <div style={{ display: 'flex', justifyContent: 'center' }}>{clock}</div> : <div style={clockWrap}>{clock}</div>;
+  const ids = (team: string) => state.allInstanceIds.filter((id) => state.pokemon[id].team === team);
+  const lives = (team: string) => ids(team).reduce((sum, id) => sum + engine.getFighter(id).lives, 0);
+
+  if (compact) {
     return (
-      <div style={topBarStyle}>
-        <span style={teamScore(TEAM_A_COLOR_CSS)}>♥ {livesOf('teamA')}</span>
-        <span>{clock}</span>
-        <span style={teamScore(TEAM_B_COLOR_CSS)}>♥ {livesOf('teamB')}</span>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 6 }}>
+        <span style={{ ...teamChip, color: TEAM_A_COLOR_CSS }}>
+          <span style={teamMarker('teamA', 10)} />
+          RUBY {lives('teamA')}
+        </span>
+        {clock}
+        <span style={{ ...teamChip, color: TEAM_B_COLOR_CSS }}>
+          {lives('teamB')} SAPPHIRE
+          <span style={teamMarker('teamB', 10)} />
+        </span>
       </div>
     );
   }
-  const standings = [...state.allInstanceIds].sort(
-    (a, b) => engine.getFighter(b).lives - engine.getFighter(a).lives || engine.getFighter(b).kos - engine.getFighter(a).kos
+  const box = (team: 'teamA' | 'teamB') => (
+    <div
+      style={{
+        ...teamBoxStyle,
+        [team === 'teamA' ? 'left' : 'right']: 24,
+        borderRadius: team === 'teamA' ? '8px 8px 28px 8px' : '8px 8px 8px 28px',
+      }}
+    >
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+        <span style={teamMarker(team)} />
+        <strong style={{ fontFamily: FONT_UI, fontSize: 20, color: team === 'teamA' ? TEAM_A_COLOR_CSS : TEAM_B_COLOR_CSS }}>
+          TEAM {teamName(team).toUpperCase()}
+        </strong>
+        <span style={{ marginLeft: 'auto', fontFamily: FONT_UI, fontSize: 17 }}>{lives(team)} lives</span>
+      </div>
+      {ids(team).map((id) => {
+        const hp = hpFraction(state, engine, id);
+        const f = engine.getFighter(id);
+        return (
+          <div
+            key={id}
+            style={{ display: 'flex', alignItems: 'center', gap: 8, fontFamily: FONT_UI, fontSize: 16, opacity: f.lives === 0 ? 0.5 : 1 }}
+          >
+            <span style={{ width: 92, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+              {state.pokemon[id].name}
+              {id === engine.playerId ? ' ◀' : ''}
+            </span>
+            <div style={{ ...barTrack(6), flex: 1 }}>
+              <div style={barFill(hpColor(hp), hp)} />
+            </div>
+            <Buffs speedMs={f.speedMs} shieldMs={f.shieldMs} />
+          </div>
+        );
+      })}
+    </div>
   );
   return (
     <>
-      <div style={topBarStyle}>
-        <span>FFA · {clock}</span>
-      </div>
-      <div style={{ ...standingsStyle, top: touch ? 128 : 48 }}>
-        {standings.map((id) => (
-          <div
-            key={id}
-            style={{
-              display: 'flex',
-              gap: 6,
-              opacity: engine.getFighter(id).lives === 0 ? 0.45 : 1,
-              color: id === engine.playerId ? '#9ff3ea' : '#fff',
-            }}
-          >
-            <span
-              style={{
-                flex: 1,
-                overflow: 'hidden',
-                textOverflow: 'ellipsis',
-                whiteSpace: 'nowrap',
-              }}
-            >
-              {state.pokemon[id].name.toUpperCase()}
-            </span>
-            <span style={{ color: '#ff6b9a' }}>{hearts(engine.getFighter(id).lives)}</span>
-          </div>
-        ))}
-      </div>
+      {box('teamA')}
+      <div style={clockWrap}>{clock}</div>
+      {box('teamB')}
     </>
   );
 }
 
-function StatusPanel({ state, controller, touch }: { state: SimState; controller: PlayerController; touch: boolean }) {
+/** Crowd Call buffs on a fighter: a speed burst and/or an unused shield. */
+function Buffs({ speedMs, shieldMs }: { speedMs: number; shieldMs: number }) {
+  if (speedMs <= 0 && shieldMs <= 0) return null;
+  return (
+    <span style={{ display: 'flex', gap: 3 }}>
+      {speedMs > 0 && (
+        <span title="Speed Burst" style={buffTag}>
+          SPD
+        </span>
+      )}
+      {shieldMs > 0 && (
+        <span title="Shield" style={buffTag}>
+          SHD
+        </span>
+      )}
+    </span>
+  );
+}
+
+function Standings({ state, engine }: { state: SimState; engine: ActionEngine }) {
+  const standings = [...state.allInstanceIds].sort(
+    (a, b) => engine.getFighter(b).lives - engine.getFighter(a).lives || engine.getFighter(b).kos - engine.getFighter(a).kos
+  );
+  return (
+    <div style={{ ...standingsStyle, alignSelf: 'flex-end' }}>
+      <strong style={{ fontFamily: FONT_UI, fontSize: 18 }}>FREE-FOR-ALL</strong>
+      {standings.map((id) => (
+        <div
+          key={id}
+          style={{
+            display: 'flex',
+            gap: 6,
+            opacity: engine.getFighter(id).lives === 0 ? 0.5 : 1,
+            fontWeight: id === engine.playerId ? 700 : 400,
+          }}
+        >
+          <span style={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+            {id === engine.playerId ? '▶ ' : ''}
+            {state.pokemon[id].name}
+          </span>
+          <span>{engine.getFighter(id).lives > 0 ? `${engine.getFighter(id).lives} ♥` : 'OUT'}</span>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+/** Your fighter's info box: HP (with a draining trail), energy, lives and dash charges. */
+function InfoBox({ state, controller }: { state: SimState; controller: PlayerController }) {
   const me = state.pokemon[controller.playerId];
   const fighter = controller.engine.getFighter(controller.playerId);
   const hp = controller.engine.isAlive(controller.playerId) ? me.currentHp / me.maxHp : 0;
+  const lifeColor = teamColorCss(me.team) ?? RUBY;
   return (
-    // Phones keep the bottom of the screen for thumbs, so the panel sits under the score.
-    <div style={touch ? { ...statusPanelStyle, left: 10, right: 10, top: 46 } : { ...statusPanelStyle, left: 14, bottom: 14, width: 260 }}>
-      <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8 }}>
-        <b
-          style={{
-            overflow: 'hidden',
-            textOverflow: 'ellipsis',
-            whiteSpace: 'nowrap',
-          }}
-        >
-          YOU · {me.name.toUpperCase()}
-        </b>
-        <span style={{ color: '#ff6b9a', letterSpacing: 1 }}>{hearts(fighter.lives)}</span>
+    <div style={infoBoxStyle}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', gap: 8 }}>
+        <strong style={{ fontFamily: FONT_UI, fontSize: 22, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+          {me.name.toUpperCase()}
+        </strong>
+        <Buffs speedMs={fighter.speedMs} shieldMs={fighter.shieldMs} />
+        <span style={{ fontFamily: FONT_UI, fontSize: 17, whiteSpace: 'nowrap' }}>
+          {Math.max(0, Math.ceil(hp * me.maxHp))}/{me.maxHp}
+        </span>
       </div>
-      <div style={barTrack(10)}>
-        {/* The white trail drains after a beat, so a big hit reads at a glance. */}
-        <div
-          style={{
-            ...barFill('#ffffff', hp),
-            transition: 'width 400ms ease 300ms',
-          }}
-        />
-        <div
-          style={{
-            ...barFill(hp > 0.5 ? '#4caf50' : hp > 0.2 ? '#cb4b16' : '#dc322f', hp),
-            transition: 'width 80ms linear',
-          }}
-        />
-      </div>
-      <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-        <div style={{ ...barTrack(6), flex: 1 }}>
-          <div style={barFill('#f8d030', fighter.energy / ENERGY_MAX)} />
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+        <span style={{ ...barTag, color: ACTION }}>HP</span>
+        <div style={{ ...barTrack(10, 3), flex: 1 }}>
+          {/* The white trail drains after a beat, so a big hit reads at a glance. */}
+          <div style={{ ...barFill(PANEL, hp), transition: 'width 400ms ease 300ms' }} />
+          <div style={{ ...barFill(hpColor(hp), hp), transition: 'width 80ms linear' }} />
         </div>
-        <span
-          style={{
-            color: '#ffd479',
-            fontSize: 11,
-            minWidth: 34,
-            textAlign: 'right',
-          }}
-        >
-          ⚡{Math.floor(fighter.energy)}
+      </div>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+        <span style={{ ...barTag, color: PANEL }}>EN</span>
+        <div style={{ ...barTrack(5, 3), flex: 1 }}>
+          <div style={barFill(ENERGY, fighter.energy / ENERGY_MAX)} />
+        </div>
+        <span style={{ fontFamily: FONT_UI, fontSize: 15, minWidth: 26, textAlign: 'right' }}>{Math.floor(fighter.energy)}</span>
+      </div>
+      <div style={{ display: 'flex', justifyContent: 'space-between', fontFamily: FONT_UI, fontSize: 16 }}>
+        <span style={{ display: 'flex', alignItems: 'center', gap: 5 }} aria-label={`${fighter.lives} lives`}>
+          LIVES
+          {Array.from({ length: Math.max(LIVES, fighter.lives) }, (_, i) => (
+            <span key={i} style={{ ...pip(12, '50%'), background: i < fighter.lives ? lifeColor : 'transparent' }} />
+          ))}
+        </span>
+        <span style={{ display: 'flex', alignItems: 'center', gap: 5 }} aria-label={`${fighter.dashCharges} dashes`}>
+          DASH
+          {Array.from({ length: DASH_CHARGES }, (_, i) => (
+            <span key={i} style={{ ...pip(10, 2), width: 20, background: i < fighter.dashCharges ? ENERGY : 'transparent' }} />
+          ))}
         </span>
       </div>
     </div>
@@ -223,35 +380,57 @@ interface ControlsProps {
   onToggleLock: () => void;
 }
 
-function DesktopBar({ controller, moves, onToggleLock }: ControlsProps) {
+/** Desktop: the 2×2 type-coloured fight menu, with dash/lock above it. */
+function FightMenu({ controller, moves, onToggleLock }: ControlsProps) {
   const fighter = controller.engine.getFighter(controller.playerId);
   return (
-    <div style={desktopBarStyle}>
-      {moves.map((move, slot) => (
-        <button key={move.id} onClick={() => controller.fire(slot)} style={desktopSlot(fighter.energy < moveEnergyCost(move.pp))}>
-          <span style={keyHint}>{slot + 1}</span>
-          <div style={slotTop(typeColorCss(move.type))}>
-            <div style={sweep(fighter.cooldowns[slot] / moveCooldownMs(move.pp))} />
-            <span style={{ position: 'relative' }}>{move.name}</span>
-          </div>
-          <span style={{ fontSize: 10 }}>
-            ⚡{moveEnergyCost(move.pp)} · {(moveCooldownMs(move.pp) / 1000).toFixed(1)}s
+    <div style={{ flex: '0 1 420px', minWidth: 300, display: 'flex', flexDirection: 'column', gap: 6 }}>
+      <div style={{ display: 'flex', gap: 6, alignItems: 'center', justifyContent: 'flex-end' }}>
+        <button onClick={() => controller.dash()} style={smallKey(fighter.dashCharges > 0)}>
+          <div style={sweepBar(dashSweep(fighter.dashCharges, fighter.dashRechargeMs))} />
+          <span style={{ position: 'relative' }}>
+            <span style={keyCap}>␣</span> DASH {pips(fighter.dashCharges)}
           </span>
         </button>
-      ))}
-      <button onClick={() => controller.dash()} style={desktopSlot(fighter.dashCharges === 0)}>
-        <span style={keyHint}>␣</span>
-        <div style={slotTop('#2a2e36')}>
-          <div style={sweep(dashSweep(fighter.dashCharges, fighter.dashRechargeMs))} />
-          <span style={{ position: 'relative' }}>DASH</span>
-        </div>
-        <span style={{ fontSize: 10, color: '#9ff3ea' }}>{pips(fighter.dashCharges)}</span>
-      </button>
-      <button onClick={onToggleLock} style={{ ...desktopSlot(false), width: 74 }}>
-        <span style={keyHint}>L</span>
-        <div style={slotTop(controller.lockOn ? '#2aa198' : '#2a2e36')}>{controller.lockOn ? '◎ LOCK' : '✛ FREE'}</div>
-        <span style={{ fontSize: 10 }}>Tab: target</span>
-      </button>
+        <button
+          onClick={onToggleLock}
+          aria-pressed={controller.lockOn}
+          style={{ ...smallKey(true), background: controller.lockOn ? ACTION : PANEL }}
+        >
+          <span style={keyCap}>L</span> {controller.lockOn ? '◎ LOCK-ON' : '✛ FREE AIM'}
+        </button>
+        <span style={{ ...smallKey(true), cursor: 'default' }}>
+          <span style={keyCap}>Tab</span> target
+        </span>
+      </div>
+      <div style={fightMenuStyle}>
+        {moves.map((move, slot) => {
+          const cost = moveEnergyCost(move.pp);
+          const cdMs = fighter.cooldowns[slot];
+          const broke = fighter.energy < cost;
+          return (
+            <button key={move.id} onClick={() => controller.fire(slot)} style={moveButton(move, broke)}>
+              <span style={sweepBar(cdMs / moveCooldownMs(move.pp))} />
+              <span
+                style={{
+                  position: 'relative',
+                  fontSize: 19,
+                  fontWeight: 700,
+                  whiteSpace: 'nowrap',
+                  overflow: 'hidden',
+                  textOverflow: 'ellipsis',
+                  maxWidth: '100%',
+                }}
+              >
+                <span style={{ fontFamily: FONT_PIXEL, fontSize: 10 }}>{slot + 1}</span> {move.name}
+              </span>
+              <span style={{ position: 'relative', fontSize: 14, color: broke ? RUBY : undefined }}>
+                {cdMs > 0 ? `${(cdMs / 1000).toFixed(1)} s` : broke ? 'Need energy' : `${cost} EN`}
+              </span>
+            </button>
+          );
+        })}
+      </div>
     </div>
   );
 }
@@ -285,25 +464,16 @@ function TouchControls({ controller, moves, onToggleLock }: ControlsProps) {
           controller.dash();
         }}
         style={{
-          ...roundButton(58, '#2a2e36', fighter.dashCharges === 0),
+          ...roundButton(58, INFO_BOX, INK, fighter.dashCharges === 0),
           right: 178,
           bottom: 20,
         }}
       >
         <div style={sweep(dashSweep(fighter.dashCharges, fighter.dashRechargeMs))} />
-        <span style={{ position: 'relative', fontSize: 11 }}>DASH</span>
-        <span
-          style={{
-            position: 'absolute',
-            bottom: 6,
-            fontSize: 10,
-            color: '#9ff3ea',
-          }}
-        >
-          {pips(fighter.dashCharges)}
-        </span>
+        <span style={{ position: 'relative', fontSize: 14 }}>DASH</span>
+        <span style={{ position: 'absolute', bottom: 5, fontSize: 11 }}>{pips(fighter.dashCharges)}</span>
       </button>
-      <button onClick={onToggleLock} style={{ ...lockPill(controller.lockOn), right: 12, bottom: 178 }}>
+      <button onClick={onToggleLock} aria-pressed={controller.lockOn} style={{ ...lockPill(controller.lockOn), right: 12, bottom: 178 }}>
         {controller.lockOn ? '◎ LOCK-ON' : '✛ FREE AIM'}
       </button>
     </>
@@ -354,7 +524,7 @@ function TouchMoveButton({
       onPointerUp={onUp}
       onPointerCancel={onCancel}
       style={{
-        ...roundButton(layout.size, typeColorCss(move.type), disabled),
+        ...roundButton(layout.size, typeColorCss(move.type), typeTextCss(move.type), disabled),
         right: layout.right,
         bottom: layout.bottom,
       }}
@@ -363,15 +533,15 @@ function TouchMoveButton({
       <span
         style={{
           position: 'relative',
-          fontSize: layout.size > 70 ? 11 : 9,
-          lineHeight: 1.1,
+          fontSize: layout.size > 70 ? 13 : 11,
+          lineHeight: 1.05,
           padding: '0 6px',
           overflowWrap: 'anywhere',
         }}
       >
         {move.name}
       </span>
-      <span style={{ position: 'absolute', bottom: 5, fontSize: 9 }}>⚡{moveEnergyCost(move.pp)}</span>
+      <span style={{ position: 'absolute', bottom: 5, fontSize: 11 }}>{moveEnergyCost(move.pp)} EN</span>
     </button>
   );
 }
@@ -432,12 +602,7 @@ function DeathBanner({ state, controller }: { state: SimState; controller: Playe
   const fighter = controller.engine.getFighter(controller.playerId);
   if (fighter.respawnAtMs !== null) {
     const secs = Math.max(1, Math.ceil((fighter.respawnAtMs - state.elapsedMs) / 1000));
-    return (
-      <Banner
-        title="FAINTED"
-        subtitle={`${hearts(fighter.lives)}  ${fighter.lives} ${fighter.lives === 1 ? 'life' : 'lives'} left · back in ${secs}`}
-      />
-    );
+    return <Banner title="FAINTED" subtitle={`${fighter.lives} ${fighter.lives === 1 ? 'life' : 'lives'} left · back in ${secs}`} />;
   }
   return <Banner title="OUT OF LIVES" subtitle={state.teams ? 'Spectating — your team can still win' : 'Spectating'} />;
 }
@@ -445,17 +610,8 @@ function DeathBanner({ state, controller }: { state: SimState; controller: Playe
 function Banner({ title, subtitle }: { title: string; subtitle?: string }) {
   return (
     <div style={bannerStyle}>
-      <div
-        style={{
-          fontSize: 30,
-          fontWeight: 'bold',
-          letterSpacing: 2,
-          textShadow: '0 3px 0 #b02f6d',
-        }}
-      >
-        {title}
-      </div>
-      {subtitle && <div style={{ fontSize: 13, marginTop: 6 }}>{subtitle}</div>}
+      <div style={{ fontFamily: FONT_UI, fontSize: 30, fontWeight: 700 }}>{title}</div>
+      {subtitle && <div style={{ fontFamily: FONT_BODY, fontSize: 15, marginTop: 4 }}>{subtitle}</div>}
     </div>
   );
 }
@@ -467,6 +623,8 @@ function Results({
   labels,
   onPlayAgain,
   onExit,
+  crowd,
+  stacked,
 }: {
   state: SimState;
   engine: ActionEngine;
@@ -474,101 +632,120 @@ function Results({
   labels: [string, string];
   onPlayAgain: () => void;
   onExit: () => void;
+  crowd?: { history: Parameters<typeof CrowdCallsTimeline>[0]['history']; betResult?: string | null };
+  stacked: boolean;
 }) {
   const winners = new Set(state.winnerInstanceIds);
   const iWon = winners.has(engine.playerId);
   const someWinner = state.winnerInstanceIds[0];
+  const winTeam = someWinner ? state.pokemon[someWinner].team : undefined;
   const title =
     winners.size === 0
-      ? 'DRAW'
+      ? 'Draw!'
       : iWon
         ? state.teams
-          ? 'YOUR TEAM WINS!'
-          : 'YOU WIN!'
+          ? 'Your team wins!'
+          : 'You win!'
         : state.teams
-          ? `${state.pokemon[someWinner].team === 'teamA' ? 'TEAM A' : 'TEAM B'} WINS`
-          : `${state.pokemon[someWinner].name.toUpperCase()} WINS`;
+          ? `Team ${teamName(winTeam ?? '')} wins!`
+          : `${state.pokemon[someWinner].name} wins!`;
   const rows = [...state.allInstanceIds].sort(
     (a, b) =>
       Number(winners.has(b)) - Number(winners.has(a)) ||
       engine.getFighter(b).kos - engine.getFighter(a).kos ||
       engine.getFighter(b).damageDealt - engine.getFighter(a).damageDealt
   );
+  const livesOf = (team: string) =>
+    state.allInstanceIds.filter((id) => state.pokemon[id].team === team).reduce((sum, id) => sum + engine.getFighter(id).lives, 0);
+  const twoCol = !!crowd && !stacked;
   return (
-    <div style={resultsStyle}>
-      <div
-        style={{
-          fontSize: 26,
-          fontWeight: 'bold',
-          textAlign: 'center',
-          color: iWon ? '#ffd479' : '#fff',
-        }}
-      >
-        {title}
+    <div style={{ ...resultsStyle, width: twoCol ? 'min(94%, 780px)' : 'min(94%, 460px)' }}>
+      <div>
+        <h2
+          style={{ margin: 0, fontFamily: FONT_UI, fontSize: 40, lineHeight: 1, color: state.teams ? (teamColorCss(winTeam) ?? INK) : INK }}
+        >
+          {title}
+        </h2>
+        {state.teams && (
+          <span style={{ fontSize: 15, color: INK_MUTED }}>
+            Ruby {livesOf('teamA')} lives left · Sapphire {livesOf('teamB')}
+          </span>
+        )}
       </div>
-      <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
-        <thead>
-          <tr>
-            <th style={cellLeft}>Pokémon</th>
-            <th style={cell}>KO</th>
-            <th style={cell}>DMG</th>
-            <th style={cell}>♥</th>
-          </tr>
-        </thead>
-        <tbody>
+      <div style={{ display: 'grid', gridTemplateColumns: twoCol ? 'minmax(0, 1fr) minmax(0, 1fr)' : 'minmax(0, 1fr)', gap: 16 }}>
+        <section aria-label="Fighters" style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+          <div style={{ ...resultRow, background: 'transparent', border: 'none', color: INK_MUTED, fontSize: 14 }}>
+            <span>POKÉMON</span>
+            <span>KO</span>
+            <span>DMG</span>
+            <span>♥</span>
+          </div>
           {rows.map((id) => {
             const f = engine.getFighter(id);
             const p = state.pokemon[id];
             return (
-              <tr
-                key={id}
-                style={{
-                  color: id === engine.playerId ? '#9ff3ea' : '#fff',
-                }}
-              >
-                <td
-                  style={{
-                    ...cellLeft,
-                    borderLeft: `4px solid ${teamColorCss(p.team) ?? 'transparent'}`,
-                  }}
-                >
-                  {winners.has(id) ? '🏆 ' : ''}
-                  {names?.[id] ? `${names[id]} · ` : ''}
-                  {p.name.toUpperCase()}
-                  {id === engine.playerId ? ' (you)' : ''}
-                </td>
-                <td style={cell}>{f.kos}</td>
-                <td style={cell}>{f.damageDealt}</td>
-                <td style={cell}>{f.lives}</td>
-              </tr>
+              <div key={id} style={{ ...resultRow, outline: id === engine.playerId ? `3px solid ${ACTION}` : undefined }}>
+                <span style={{ display: 'flex', alignItems: 'center', gap: 8, minWidth: 0 }}>
+                  {state.teams && <span style={teamMarker(p.team, 11)} />}
+                  <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                    {winners.has(id) ? '🏆 ' : ''}
+                    {p.name}
+                    {id === engine.playerId ? ' (you)' : ''}
+                    {names?.[id] && <span style={{ fontFamily: FONT_BODY, fontSize: 13, color: INK_MUTED }}> {names[id]}</span>}
+                  </span>
+                </span>
+                <span>{f.kos}</span>
+                <span>{f.damageDealt}</span>
+                <span>{f.lives}</span>
+              </div>
             );
           })}
-        </tbody>
-      </table>
-      <div style={{ display: 'flex', gap: 10, justifyContent: 'center' }}>
-        <button onClick={onPlayAgain} style={primaryButton}>
-          {labels[0]}
-        </button>
-        <button onClick={onExit} style={secondaryButton}>
+          {crowd?.betResult && (
+            <div style={betBox}>
+              <span style={{ fontFamily: FONT_UI, fontSize: 17 }}>Your bet</span>
+              <span style={{ fontSize: 15 }}>{crowd.betResult}</span>
+            </div>
+          )}
+        </section>
+        {crowd && <CrowdCallsTimeline history={crowd.history} />}
+      </div>
+      <div style={{ display: 'flex', gap: 10, justifyContent: 'center', flexWrap: 'wrap' }}>
+        <button onClick={onExit} style={hoennButton('secondary')}>
           {labels[1]}
+        </button>
+        <button onClick={onPlayAgain} style={hoennButton('primary')}>
+          ▶ {labels[0]}
         </button>
       </div>
     </div>
   );
 }
 
-const hearts = (n: number) => (n > 0 ? '♥'.repeat(n) : '✕');
 const pips = (n: number) => '●'.repeat(n) + '○'.repeat(Math.max(0, DASH_CHARGES - n));
 /** Only an empty dash shows a sweep — with a charge left the button still works. */
 const dashSweep = (charges: number, rechargeMs: number) => (charges > 0 ? 0 : 1 - rechargeMs / DASH_RECHARGE_MS);
+const clamp01 = (n: number) => Math.max(0, Math.min(1, n));
 
-/** Dark pie over a button showing how much of its cooldown is left. */
+/** Pie over a round button showing how much of its cooldown is left. */
 function sweep(fractionLeft: number): CSSProperties {
   return {
     position: 'absolute',
     inset: 0,
     borderRadius: 'inherit',
-    background: `conic-gradient(rgba(16,18,22,0.72) ${Math.max(0, Math.min(1, fractionLeft)) * 360}deg, transparent 0)`,
+    background: `conic-gradient(rgba(168,180,188,0.85) ${clamp01(fractionLeft) * 360}deg, transparent 0)`,
+    pointerEvents: 'none',
+  };
+}
+
+/** The fight menu's sweep: a COOLDOWN block from the left that shrinks as the move comes back. */
+function sweepBar(fractionLeft: number): CSSProperties {
+  return {
+    position: 'absolute',
+    left: 0,
+    top: 0,
+    bottom: 0,
+    width: `${clamp01(fractionLeft) * 100}%`,
+    background: COOLDOWN,
     pointerEvents: 'none',
   };
 }
@@ -579,7 +756,7 @@ const pageStyle: CSSProperties = {
   display: 'flex',
   alignItems: 'center',
   justifyContent: 'center',
-  background: '#101216',
+  background: STAGE_BG,
 };
 const mobileFrameStyle: CSSProperties = {
   position: 'relative',
@@ -600,180 +777,198 @@ const overlayStyle: CSSProperties = {
   position: 'absolute',
   overflow: 'hidden',
   pointerEvents: 'none',
-  fontFamily: HUD_FONT,
-  color: '#fff',
+  fontFamily: FONT_BODY,
+  color: INK,
   userSelect: 'none',
   WebkitUserSelect: 'none',
 };
-const pill: CSSProperties = {
-  background: 'rgba(40,44,52,0.85)',
-  border: '1px solid rgba(255,255,255,0.15)',
-  borderRadius: 8,
-};
-const topBarStyle: CSSProperties = {
-  ...pill,
+const stackStyle: CSSProperties = {
   position: 'absolute',
-  top: 10,
-  left: '50%',
-  transform: 'translateX(-50%)',
-  display: 'flex',
-  gap: 12,
-  alignItems: 'center',
-  padding: '4px 10px',
-  fontSize: 14,
-  fontWeight: 'bold',
-};
-const standingsStyle: CSSProperties = {
-  ...pill,
-  position: 'absolute',
+  top: 8,
+  left: 10,
   right: 10,
-  width: 150,
-  padding: '6px 8px',
-  fontSize: 10,
   display: 'flex',
   flexDirection: 'column',
-  gap: 2,
+  gap: 6,
 };
-function teamScore(color: string): CSSProperties {
-  return {
-    background: color,
-    borderRadius: 5,
-    padding: '1px 8px',
-    whiteSpace: 'nowrap',
-  };
-}
-const quitButton: CSSProperties = {
-  ...pill,
-  position: 'absolute',
-  top: 10,
-  left: 10,
-  padding: '5px 10px',
-  fontSize: 11,
-  fontFamily: HUD_FONT,
-  color: '#e8e2d4',
-  cursor: 'pointer',
-  pointerEvents: 'auto',
+const clockWrap: CSSProperties = { position: 'absolute', top: 18, left: '50%', transform: 'translateX(-50%)' };
+const clockStyle: CSSProperties = {
+  fontFamily: FONT_PIXEL,
+  fontSize: 24,
+  padding: '12px 14px',
+  borderRadius: 8,
+  background: PANEL,
+  border: `3px solid ${INK}`,
 };
-const netInfoStyle: CSSProperties = {
-  ...pill,
-  position: 'absolute',
-  top: 10,
-  right: 10,
-  padding: '4px 8px',
-  fontSize: 10,
+const clockCompact: CSSProperties = { ...clockStyle, fontSize: 13, padding: '6px 8px', border: `2px solid ${INK}`, borderRadius: 4 };
+const teamChip: CSSProperties = {
+  display: 'inline-flex',
+  alignItems: 'center',
+  gap: 6,
+  padding: '2px 8px',
+  borderRadius: 4,
+  background: INFO_BOX,
+  border: `2px solid ${INK}`,
+  fontFamily: FONT_UI,
+  fontSize: 16,
+  whiteSpace: 'nowrap',
 };
-const statusPanelStyle: CSSProperties = {
-  ...pill,
+const teamBoxStyle: CSSProperties = {
   position: 'absolute',
-  padding: '6px 10px',
-  fontSize: 12,
+  top: 16,
+  width: 'min(300px, 32%)',
+  boxSizing: 'border-box',
+  background: INFO_BOX,
+  border: `3px solid ${INK}`,
+  padding: '8px 14px',
   display: 'flex',
   flexDirection: 'column',
   gap: 5,
 };
-function barTrack(height: number): CSSProperties {
-  return {
-    position: 'relative',
-    height,
-    background: '#1a1a1a',
-    borderRadius: height / 2,
-    overflow: 'hidden',
-    border: '1px solid rgba(255,255,255,0.15)',
-  };
-}
-function barFill(color: string, fraction: number): CSSProperties {
-  return {
-    position: 'absolute',
-    left: 0,
-    top: 0,
-    bottom: 0,
-    width: `${Math.max(0, Math.min(1, fraction)) * 100}%`,
-    background: color,
-  };
-}
-const desktopBarStyle: CSSProperties = {
-  position: 'absolute',
-  bottom: 14,
-  left: '50%',
-  transform: 'translateX(-50%)',
+const buffTag: CSSProperties = { ...chip(CROWD, PANEL), minHeight: 0, padding: '0 4px', fontSize: 12, borderWidth: 1 };
+const standingsStyle: CSSProperties = {
+  background: INFO_BOX,
+  border: `3px solid ${INK}`,
+  borderRadius: 8,
+  padding: '6px 10px',
+  fontFamily: FONT_UI,
+  fontSize: 15,
   display: 'flex',
-  gap: 8,
-  alignItems: 'flex-end',
+  flexDirection: 'column',
+  gap: 2,
+  minWidth: 170,
 };
-function desktopSlot(dim: boolean): CSSProperties {
+const metaRowStyle: CSSProperties = { display: 'flex', gap: 6, alignItems: 'center', justifyContent: 'center' };
+const quitButton: CSSProperties = {
+  minHeight: 32,
+  padding: '0 10px',
+  borderRadius: 6,
+  border: `2px solid ${INK}`,
+  background: PANEL,
+  color: INK,
+  fontFamily: FONT_UI,
+  fontSize: 15,
+  cursor: 'pointer',
+  pointerEvents: 'auto',
+};
+const pingStyle: CSSProperties = { ...chip(PANEL), fontSize: 13, minHeight: 0, padding: '2px 6px' };
+const bottomRowStyle: CSSProperties = {
+  position: 'absolute',
+  left: 24,
+  right: 24,
+  bottom: 16,
+  display: 'flex',
+  alignItems: 'flex-end',
+  gap: 14,
+};
+const infoBoxStyle: CSSProperties = {
+  flex: '0 1 320px',
+  minWidth: 230,
+  boxSizing: 'border-box',
+  background: INFO_BOX,
+  border: `3px solid ${INK}`,
+  borderRadius: '28px 8px 8px 8px',
+  padding: '10px 16px',
+  display: 'flex',
+  flexDirection: 'column',
+  gap: 6,
+};
+const barTag: CSSProperties = { fontFamily: FONT_PIXEL, fontSize: 9, background: INK, padding: '3px 5px', borderRadius: 3 };
+function pip(size: number, radius: number | string): CSSProperties {
+  return { width: size, height: size, borderRadius: radius, border: `2px solid ${INK}`, boxSizing: 'border-box', display: 'inline-block' };
+}
+const fightMenuStyle: CSSProperties = {
+  background: PANEL,
+  border: `3px solid ${INK}`,
+  borderRadius: 8,
+  padding: 8,
+  display: 'grid',
+  gridTemplateColumns: 'repeat(2, minmax(0, 1fr))',
+  gap: 8,
+  pointerEvents: 'auto',
+};
+function moveButton(move: MoveDefinition, broke: boolean): CSSProperties {
   return {
-    ...pill,
     position: 'relative',
-    width: 104,
-    padding: '0 0 4px',
     overflow: 'hidden',
+    minHeight: 52,
+    padding: '4px 10px',
+    border: broke ? `3px dashed ${INK_MUTED}` : `3px solid ${INK}`,
+    borderRadius: 6,
+    background: broke ? GROUND : typeColorCss(move.type),
+    color: broke ? INK : typeTextCss(move.type),
+    fontFamily: FONT_UI,
     display: 'flex',
     flexDirection: 'column',
-    alignItems: 'center',
-    gap: 3,
-    color: '#fff',
-    fontFamily: HUD_FONT,
+    alignItems: 'flex-start',
+    justifyContent: 'center',
+    gap: 1,
     cursor: 'pointer',
-    pointerEvents: 'auto',
-    filter: dim ? 'grayscale(1) brightness(0.6)' : undefined,
+    textAlign: 'left',
   };
 }
-function slotTop(color: string): CSSProperties {
+function smallKey(enabled: boolean): CSSProperties {
   return {
     position: 'relative',
-    width: '100%',
-    height: 38,
-    background: color,
-    display: 'grid',
-    placeItems: 'center',
-    fontSize: 11,
-    fontWeight: 'bold',
-    lineHeight: 1.1,
-    textShadow: '0 1px 1px rgba(0,0,0,0.6)',
     overflow: 'hidden',
+    minHeight: 44,
+    padding: '0 10px',
+    display: 'inline-flex',
+    alignItems: 'center',
+    gap: 4,
+    borderRadius: 6,
+    border: `2px solid ${INK}`,
+    background: enabled ? PANEL : GROUND,
+    color: INK,
+    fontFamily: FONT_UI,
+    fontSize: 15,
+    fontWeight: 700,
+    cursor: 'pointer',
+    pointerEvents: 'auto',
+    whiteSpace: 'nowrap',
   };
 }
-const keyHint: CSSProperties = {
-  position: 'absolute',
-  top: 2,
-  left: 3,
-  zIndex: 2,
+const keyCap: CSSProperties = {
+  fontFamily: FONT_PIXEL,
   fontSize: 9,
-  background: '#101216',
+  padding: '2px 4px',
   borderRadius: 3,
-  padding: '0 3px',
+  background: INK,
+  color: PANEL,
 };
-function roundButton(size: number, color: string, dim: boolean): CSSProperties {
+function roundButton(size: number, color: string, text: string, dim: boolean): CSSProperties {
   return {
     position: 'absolute',
     width: size,
     height: size,
     borderRadius: '50%',
     background: color,
-    border: '3px solid rgba(255,255,255,0.85)',
-    color: '#fff',
-    fontFamily: HUD_FONT,
-    fontWeight: 'bold',
+    border: `3px solid ${INK}`,
+    color: text,
+    fontFamily: FONT_UI,
+    fontWeight: 700,
     display: 'grid',
     placeItems: 'center',
     textAlign: 'center',
-    textShadow: '0 1px 2px rgba(0,0,0,0.7)',
     overflow: 'hidden',
-    boxShadow: '0 4px 0 rgba(0,0,0,0.35)',
+    boxShadow: `0 4px 0 ${INK}`,
     pointerEvents: 'auto',
     touchAction: 'none',
-    filter: dim ? 'grayscale(1) brightness(0.6)' : undefined,
+    filter: dim ? 'grayscale(1) brightness(0.8)' : undefined,
   };
 }
 function lockPill(on: boolean): CSSProperties {
   return {
-    ...pill,
     position: 'absolute',
-    padding: '6px 10px',
-    fontSize: 11,
-    fontFamily: HUD_FONT,
-    color: '#fff',
-    background: on ? '#2aa198' : 'rgba(40,44,52,0.85)',
+    minHeight: 44,
+    padding: '0 12px',
+    borderRadius: 8,
+    border: `3px solid ${INK}`,
+    fontSize: 15,
+    fontFamily: FONT_UI,
+    fontWeight: 700,
+    color: INK,
+    background: on ? ACTION : PANEL,
     pointerEvents: 'auto',
     touchAction: 'none',
   };
@@ -792,8 +987,8 @@ const joystickBase: CSSProperties = {
   width: JOYSTICK_RADIUS * 2,
   height: JOYSTICK_RADIUS * 2,
   borderRadius: '50%',
-  background: 'rgba(255,255,255,0.12)',
-  border: '3px solid rgba(255,255,255,0.35)',
+  background: 'rgba(255,255,255,0.25)',
+  border: `3px solid ${INK}`,
   display: 'grid',
   placeItems: 'center',
 };
@@ -801,60 +996,62 @@ const joystickKnob: CSSProperties = {
   width: 50,
   height: 50,
   borderRadius: '50%',
-  background: 'rgba(255,255,255,0.75)',
-  boxShadow: '0 4px 8px rgba(0,0,0,0.45)',
+  background: PANEL,
+  border: `3px solid ${INK}`,
+  boxShadow: `0 4px 0 ${INK}`,
 };
 const joystickHint: CSSProperties = {
+  ...chip(PANEL),
   position: 'absolute',
   left: 16,
   bottom: 24,
-  fontSize: 10,
-  opacity: 0.55,
+  fontSize: 13,
+  opacity: 0.85,
 };
 const bannerStyle: CSSProperties = {
+  ...messageBox,
   position: 'absolute',
-  left: 0,
-  right: 0,
+  left: '50%',
   top: '32%',
+  transform: 'translateX(-50%)',
+  padding: '14px 28px',
   textAlign: 'center',
-  textShadow: '0 2px 4px rgba(0,0,0,0.7)',
+  maxWidth: '90%',
 };
 const resultsStyle: CSSProperties = {
+  ...messageBox,
   position: 'absolute',
   left: '50%',
   top: '50%',
   transform: 'translate(-50%, -50%)',
-  width: 'min(92%, 440px)',
-  maxHeight: '90%',
+  maxHeight: '92%',
   overflowY: 'auto',
-  background: 'rgba(16,18,22,0.9)',
-  border: '1px solid rgba(255,255,255,0.15)',
-  borderRadius: 12,
-  padding: 16,
+  padding: 20,
   display: 'flex',
   flexDirection: 'column',
-  gap: 12,
+  gap: 14,
   pointerEvents: 'auto',
+  fontFamily: FONT_BODY,
 };
-const cell: CSSProperties = {
-  padding: '4px 6px',
-  textAlign: 'right',
-  borderBottom: '1px solid rgba(255,255,255,0.12)',
-};
-const cellLeft: CSSProperties = { ...cell, textAlign: 'left' };
-const primaryButton: CSSProperties = {
-  padding: '10px 22px',
-  fontSize: 13,
-  fontFamily: HUD_FONT,
-  fontWeight: 'bold',
-  color: PRIMARY_TEXT,
-  background: PRIMARY,
-  border: 'none',
+const resultRow: CSSProperties = {
+  display: 'grid',
+  gridTemplateColumns: 'minmax(0, 1fr) 36px 48px 28px',
+  gap: 6,
+  alignItems: 'center',
+  padding: '6px 10px',
   borderRadius: 6,
-  cursor: 'pointer',
+  background: INFO_BOX,
+  border: `2px solid ${INK}`,
+  fontFamily: FONT_UI,
+  fontSize: 17,
 };
-const secondaryButton: CSSProperties = {
-  ...primaryButton,
-  background: '#2a2e36',
-  color: '#fff',
+const betBox: CSSProperties = {
+  marginTop: 6,
+  padding: 12,
+  borderRadius: 8,
+  background: primaryAlpha(0.3),
+  border: `3px solid ${INK}`,
+  display: 'flex',
+  flexDirection: 'column',
+  gap: 2,
 };

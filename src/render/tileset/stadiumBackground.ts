@@ -10,19 +10,22 @@ import type { ArenaBounds } from '../../sim/types';
 
 const COURT_MARGIN = 44;
 const WALL = 18;
+// Hoenn Handheld (src/ui/theme.ts): pale bag-screen stands, an ink wall that
+// reads as the message boxes' outline with a teal FRAME stripe, clay court.
 const COLORS = {
-  stands: 0x232733,
-  standsRow: 0x2c3140,
-  wall: 0x3a3f4f,
-  wallStripe: 0xd8403a,
-  court: 0xc69a5e,
-  courtGrain: 0xbb8f55,
-  line: 0xf5efe2,
-  ballTop: 0xd8403a,
-  ballBottom: 0xf5efe2,
-  ballBand: 0x2a2a2a,
+  stands: 0xb8ccd8,
+  standsRow: 0xa4bcca,
+  wall: 0x283038,
+  wallStripe: 0x78b0c8,
+  court: 0xc9663b,
+  courtGrain: 0xbb5a32,
+  line: 0xffffff,
+  ballTop: 0xe04830,
+  ballBottom: 0xffffff,
+  ballBand: 0x283038,
 };
-const CROWD_COLORS = [0xe9c46a, 0xf4a261, 0xe76f51, 0x2a9d8f, 0x8ab17d, 0x9b5de5, 0xf15bb5, 0x4cc9f0, 0xf1faee, 0x6d6875];
+// Team Ruby/Sapphire, Emerald, badge gold and friends — saturated enough to pop on the pale stands.
+const CROWD_COLORS = [0xb01830, 0x2048a0, 0x6c9cec, 0x0f7f50, 0xf8c840, 0xe04830, 0x50c060, 0x5848a8, 0xffffff, 0x283038];
 
 /** Each layer is a full-arena texture drawn every frame, so fewer is cheaper on a phone's GPU; two still ripple. */
 const CROWD_LAYERS = 2;

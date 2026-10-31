@@ -2,7 +2,21 @@ import { useEffect, useRef, useState, type CSSProperties } from 'react';
 import type { MyBet, PredictionOptionSummary, PredictionSummary, WalletEventPayload } from '../../net/protocol';
 import { STAKE_CHIPS } from '../../net/predictions';
 import { useCountdown } from '../../net/useCountdown';
-import { DESTRUCTIVE, PRIMARY, PRIMARY_TEXT, SUCCESS, TEXT, TEXT_MUTED, primaryAlpha, textAlpha } from '../theme';
+import {
+  ACTION,
+  ACTION_BEVEL,
+  DESTRUCTIVE,
+  FONT_BODY,
+  FONT_UI,
+  INFO_BOX,
+  INK,
+  INK_MUTED,
+  OUTLINE,
+  PANEL,
+  SAPPHIRE_DEEP,
+  SUCCESS,
+  SUNK,
+} from '../theme';
 import {
   betErrorNotice,
   canAffordChip,
@@ -91,7 +105,7 @@ export function PredictionsPanel({ prediction, balance, myBet, settled, canBet, 
     <section style={panelStyle} aria-label="Predictions">
       <header style={headerStyle}>
         <span style={titleStyle}>🔮 PREDICTIONS</span>
-        {status && <span style={{ ...statusStyle, color: open ? PRIMARY : TEXT_MUTED }}>{status}</span>}
+        {status && <span style={{ ...statusStyle, color: open ? SAPPHIRE_DEEP : INK_MUTED }}>{status}</span>}
       </header>
 
       {balance !== null && (
@@ -147,8 +161,9 @@ export function PredictionsPanel({ prediction, balance, myBet, settled, canBet, 
                   aria-label={`Bet ${formatDollars(stake)} on ${option.label}`}
                   style={{
                     ...optionStyle,
-                    borderColor: winner ? SUCCESS : mine ? PRIMARY : option.id === favourite ? `${color}` : textAlpha(0.15),
-                    boxShadow: winner || mine ? `0 0 0 1px ${winner ? SUCCESS : PRIMARY}` : 'none',
+                    borderColor: winner ? SUCCESS : option.id === favourite && !mine ? color : INK,
+                    // Your bet: a gold ring outside the ink border, like the focus ring.
+                    outline: winner || mine ? `3px solid ${winner ? SUCCESS : ACTION}` : 'none',
                     opacity: option.alive || winner ? 1 : 0.45,
                     cursor: clickable ? 'pointer' : 'default',
                   }}
@@ -162,11 +177,19 @@ export function PredictionsPanel({ prediction, balance, myBet, settled, canBet, 
                     <span style={oddsStyle}>{percentLabel(option.odds)}</span>
                   </div>
                   <div style={barTrackStyle}>
-                    <div style={{ width: `${Math.round(share * 100)}%`, height: '100%', background: color, transition: 'width 300ms ease-out' }} />
+                    <div
+                      style={{
+                        width: `${Math.round(share * 100)}%`,
+                        height: '100%',
+                        background: color,
+                        transition: 'width 300ms ease-out',
+                      }}
+                    />
                   </div>
                   <div style={optionBottomStyle}>
                     <span>
-                      {formatDollars(option.total)} · {option.bettors} {option.bettors === 1 ? 'bet' : 'bets'} · {impliedMultiplier(prediction.pool, option.total)}
+                      {formatDollars(option.total)} · {option.bettors} {option.bettors === 1 ? 'bet' : 'bets'} ·{' '}
+                      {impliedMultiplier(prediction.pool, option.total)}
                     </span>
                     {mine && <span style={mineStyle}>YOU {formatDollars(myBet.amount)}</span>}
                   </div>
@@ -181,7 +204,7 @@ export function PredictionsPanel({ prediction, balance, myBet, settled, canBet, 
             <span>
               Pool: <strong>{formatAmount(prediction.pool)}</strong> 🪙
             </span>
-            {open && canBet && balance !== null && <span style={{ opacity: 0.7 }}>Tap a fighter to stake {formatDollars(stake)}</span>}
+            {open && canBet && balance !== null && <span style={{ color: INK_MUTED }}>Tap a fighter to stake {formatDollars(stake)}</span>}
           </div>
 
           {result && (
@@ -202,8 +225,8 @@ const panelStyle: CSSProperties = {
   gap: 8,
   padding: 10,
   boxSizing: 'border-box',
-  fontFamily: 'monospace',
-  color: TEXT,
+  fontFamily: FONT_BODY,
+  color: INK,
 };
 
 const headerStyle: CSSProperties = {
@@ -214,15 +237,14 @@ const headerStyle: CSSProperties = {
 };
 
 const titleStyle: CSSProperties = {
-  fontSize: 12,
-  fontWeight: 'bold',
-  letterSpacing: 1,
+  fontFamily: FONT_UI,
+  fontSize: 20,
+  fontWeight: 700,
 };
 
 const statusStyle: CSSProperties = {
-  fontSize: 11,
+  fontSize: 13,
   fontWeight: 'bold',
-  letterSpacing: 0.5,
   whiteSpace: 'nowrap',
   fontVariantNumeric: 'tabular-nums',
 };
@@ -231,38 +253,36 @@ const walletRowStyle: CSSProperties = {
   display: 'flex',
   alignItems: 'baseline',
   justifyContent: 'space-between',
-  padding: '6px 8px',
-  borderRadius: 6,
-  background: primaryAlpha(0.08),
-  border: `1px solid ${primaryAlpha(0.25)}`,
+  padding: '6px 10px',
+  borderRadius: 8,
+  background: INFO_BOX,
+  border: OUTLINE,
 };
 
 const walletLabelStyle: CSSProperties = {
-  fontSize: 9,
+  fontSize: 13,
   fontWeight: 'bold',
-  letterSpacing: 1,
-  opacity: 0.7,
+  color: INK_MUTED,
 };
 
 const walletValueStyle: CSSProperties = {
-  fontSize: 15,
-  fontWeight: 'bold',
-  color: PRIMARY,
+  fontFamily: FONT_UI,
+  fontSize: 20,
+  fontWeight: 700,
   fontVariantNumeric: 'tabular-nums',
 };
 
 const emptyStyle: CSSProperties = {
   margin: 0,
-  fontSize: 12,
-  opacity: 0.6,
+  fontSize: 14,
+  color: INK_MUTED,
 };
 
 const questionStyle: CSSProperties = {
   margin: 0,
-  fontSize: 11,
-  fontWeight: 'bold',
-  letterSpacing: 1,
-  opacity: 0.7,
+  fontFamily: FONT_UI,
+  fontSize: 18,
+  fontWeight: 600,
 };
 
 const chipRowStyle: CSSProperties = {
@@ -272,27 +292,28 @@ const chipRowStyle: CSSProperties = {
 
 const chipStyle: CSSProperties = {
   flex: '1 0 auto',
-  padding: '5px 8px',
-  fontSize: 11,
-  fontFamily: 'monospace',
-  fontWeight: 'bold',
-  color: TEXT,
-  background: textAlpha(0.06),
-  border: `1px solid ${textAlpha(0.18)}`,
-  borderRadius: 14,
+  minHeight: 44,
+  padding: '0 8px',
+  fontSize: 17,
+  fontFamily: FONT_UI,
+  fontWeight: 600,
+  color: INK,
+  background: PANEL,
+  border: `2px solid ${INK}`,
+  borderRadius: 8,
+  boxShadow: `inset 0 -3px 0 ${SUNK}`,
   cursor: 'pointer',
 };
 
 const chipSelectedStyle: CSSProperties = {
-  color: PRIMARY_TEXT,
-  background: PRIMARY,
-  borderColor: PRIMARY,
+  background: ACTION,
+  boxShadow: `inset 0 -3px 0 ${ACTION_BEVEL}`,
 };
 
 const optionListStyle: CSSProperties = {
   display: 'flex',
   flexDirection: 'column',
-  gap: 6,
+  gap: 8,
 };
 
 const optionStyle: CSSProperties = {
@@ -300,17 +321,18 @@ const optionStyle: CSSProperties = {
   flexDirection: 'column',
   gap: 4,
   width: '100%',
-  padding: '6px 8px',
+  padding: '6px 10px',
   boxSizing: 'border-box',
   textAlign: 'left',
-  fontFamily: 'monospace',
-  color: TEXT,
-  background: textAlpha(0.04),
+  fontFamily: FONT_BODY,
+  color: INK,
+  background: INFO_BOX,
   // Longhands, not the `border` shorthand: the row sets borderColor per
   // render and React warns when a shorthand and a longhand disagree.
-  borderWidth: 1,
+  borderWidth: 3,
   borderStyle: 'solid',
-  borderRadius: 6,
+  borderRadius: 8,
+  outlineOffset: 1,
 };
 
 const optionTopStyle: CSSProperties = {
@@ -324,10 +346,10 @@ const optionNameStyle: CSSProperties = {
   display: 'inline-flex',
   alignItems: 'center',
   gap: 6,
-  fontSize: 12,
-  fontWeight: 'bold',
+  fontFamily: FONT_UI,
+  fontSize: 18,
+  fontWeight: 700,
   textTransform: 'uppercase',
-  letterSpacing: 0.5,
   minWidth: 0,
   overflow: 'hidden',
   textOverflow: 'ellipsis',
@@ -335,25 +357,27 @@ const optionNameStyle: CSSProperties = {
 };
 
 const favTagStyle: CSSProperties = {
-  fontSize: 8,
-  letterSpacing: 1,
-  padding: '1px 4px',
-  border: '1px solid currentColor',
-  borderRadius: 3,
+  fontSize: 12,
+  padding: '0 4px',
+  border: '2px solid currentColor',
+  borderRadius: 4,
 };
 
 const oddsStyle: CSSProperties = {
-  fontSize: 13,
-  fontWeight: 'bold',
+  fontFamily: FONT_UI,
+  fontSize: 18,
+  fontWeight: 700,
   fontVariantNumeric: 'tabular-nums',
   flex: 'none',
 };
 
 const barTrackStyle: CSSProperties = {
   width: '100%',
-  height: 6,
-  background: textAlpha(0.12),
-  borderRadius: 3,
+  height: 8,
+  boxSizing: 'border-box',
+  background: SUNK,
+  border: `2px solid ${INK}`,
+  borderRadius: 4,
   overflow: 'hidden',
 };
 
@@ -361,19 +385,20 @@ const optionBottomStyle: CSSProperties = {
   display: 'flex',
   justifyContent: 'space-between',
   gap: 8,
-  fontSize: 10,
-  opacity: 0.8,
+  fontSize: 13,
+  color: INK_MUTED,
   fontVariantNumeric: 'tabular-nums',
 };
 
 const mineStyle: CSSProperties = {
-  color: PRIMARY,
+  color: INK,
   fontWeight: 'bold',
 };
 
 const noticeStyle: CSSProperties = {
   margin: 0,
-  fontSize: 11,
+  fontSize: 14,
+  fontWeight: 'bold',
   color: DESTRUCTIVE,
 };
 
@@ -381,7 +406,7 @@ const footerStyle: CSSProperties = {
   display: 'flex',
   justifyContent: 'space-between',
   gap: 8,
-  fontSize: 11,
+  fontSize: 14,
   flexWrap: 'wrap',
 };
 
@@ -390,13 +415,15 @@ const resultStyle: CSSProperties = {
   display: 'flex',
   flexDirection: 'column',
   gap: 2,
-  fontSize: 12,
-  fontWeight: 'bold',
-  color: PRIMARY,
+  fontFamily: FONT_UI,
+  fontSize: 18,
+  fontWeight: 700,
+  color: SAPPHIRE_DEEP,
 };
 
 const watchedStyle: CSSProperties = {
-  fontSize: 11,
-  fontWeight: 'normal',
+  fontFamily: FONT_BODY,
+  fontSize: 14,
+  fontWeight: 'bold',
   color: SUCCESS,
 };

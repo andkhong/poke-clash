@@ -1,6 +1,6 @@
 import { useMemo, useState, type CSSProperties } from 'react';
 import type { SpeciesSummary } from '../../data/loader';
-import { TEXT, TEXT_MUTED, textAlpha } from '../theme';
+import { FONT_BODY, FONT_UI, INFO_BOX, INK, OUTLINE, PANEL } from '../theme';
 
 interface SpeciesPickerProps {
   allSpecies: SpeciesSummary[];
@@ -22,11 +22,17 @@ export function SpeciesPicker({ allSpecies, excludeSpeciesIds, onPick }: Species
 
   return (
     <div style={{ width: '100%' }}>
-      <input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Search a Pokémon…" style={searchInput} />
+      <input
+        value={query}
+        onChange={(e) => setQuery(e.target.value)}
+        placeholder="Search a Pokémon…"
+        aria-label="Search a Pokémon"
+        style={searchInput}
+      />
       {results.length > 0 && (
-        <div style={{ marginTop: 6, display: 'flex', flexWrap: 'wrap', gap: 4, maxHeight: 140, overflowY: 'auto' }}>
+        <div style={resultsGrid}>
           {results.map((s) => (
-            <button key={s.id} onClick={() => onPick(s.id)} style={pillButton}>
+            <button key={s.id} type="button" onClick={() => onPick(s.id)} style={tileButton}>
               {s.name}
             </button>
           ))}
@@ -38,24 +44,35 @@ export function SpeciesPicker({ allSpecies, excludeSpeciesIds, onPick }: Species
 
 const searchInput: CSSProperties = {
   width: '100%',
+  minHeight: 46,
   boxSizing: 'border-box',
-  fontSize: 13,
-  fontFamily: 'monospace',
-  padding: '8px 10px',
-  borderRadius: 6,
-  border: `1px solid ${textAlpha(0.2)}`,
-  background: textAlpha(0.05),
-  color: TEXT,
-  outline: 'none',
+  fontSize: 16,
+  fontFamily: FONT_BODY,
+  padding: '0 12px',
+  borderRadius: 8,
+  border: OUTLINE,
+  background: PANEL,
+  color: INK,
 };
 
-const pillButton: CSSProperties = {
-  fontSize: 12,
-  fontFamily: 'monospace',
-  padding: '6px 12px',
-  borderRadius: 16,
-  border: `1px solid ${textAlpha(0.2)}`,
-  background: textAlpha(0.05),
-  color: TEXT_MUTED,
+const resultsGrid: CSSProperties = {
+  marginTop: 8,
+  display: 'grid',
+  gridTemplateColumns: 'repeat(auto-fill, minmax(110px, 1fr))',
+  gap: 6,
+  maxHeight: 180,
+  overflowY: 'auto',
+};
+
+// The Lobby artboard's dex tiles: info-box fill, ink outline.
+const tileButton: CSSProperties = {
+  minHeight: 44,
+  padding: '0 8px',
+  fontSize: 16,
+  fontFamily: FONT_UI,
+  borderRadius: 6,
+  border: OUTLINE,
+  background: INFO_BOX,
+  color: INK,
   cursor: 'pointer',
 };

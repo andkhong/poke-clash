@@ -2,119 +2,121 @@
 
 Draft. Lines marked [CONFIRM] are placeholders to check before posting.
 
+The pitch: **You fight. The crowd calls it.** Real-time Pokémon brawls in the browser: you control one Pokémon, and everyone watching votes on what help lands next. (The old AI-only "live games" with an always-on showcase room and bot spectators are gone, so don't mention them.)
+
 Framing rules for every post:
-- Free.
+- Free. No account, no download.
 - Non-commercial fan project.
 - **Play money only**, with no cash value and nothing to buy in the game.
 - Not affiliated with Nintendo, The Pokémon Company or Game Freak.
 - Credit the PMDCollab sprites.
-- Be upfront that the Featured Showcase has bot spectators.
+- No invented numbers: no player counts or "thousands of matches" unless they come from real data.
 - Never ask for upvotes. It breaks Product Hunt rules and most subreddit rules.
 
 Gameplay facts the copy below relies on, as the code has them (check again if the rules change):
-- Every tab starts with $100 (`STARTING_BALANCE`, game-server/wallets.ts). The dev server shows a huge balance instead (`DEVELOPMENT_UNLIMITED_CASH`).
-- Bets close 45 seconds into a match (`AGGRESSION_TRIGGER_MS`), and backers of the winner split the pot (parimutuel; a shared win at the 2-minute cap refunds everyone).
-- Everyone still watching when a match ends gets $10 (`MATCH_WATCHED_REWARD`).
-- The shop (src/net/shop.ts) sells a Potion ($40, +25% HP), a Super Potion ($90, +50% HP) and a Revive ($1,000). It is **one item per viewer per match**, with a small room-wide stock and at most 2 heals per fighter, and it only works on a room's full page. It heals *any* fighter, so it helps your pick but can't keep it alive on its own.
-- Open (non-showcase) rooms have a JOIN ROOM button; a seated player picks their Pokémon in the lobby countdown (RoomLobbyScreen + SpeciesPicker). The Featured Showcase is spectate-only.
-- The live grid already includes boss rooms and a 2v2 team room (game-server/server.ts), so don't pitch those as future modes.
+- Play Mode: you control one Pokémon. Move (WASD or the touch joystick), aim, four moves, a dash, 3 lives (`LIVES`), 3-minute matches (`ACTION_MATCH_LIMIT_MS`), both in src/sim/action/rules.ts. Original 151 only (`KANTO_IDS`, src/app/playMode.ts).
+- Modes: 1v1, 2v2, 3v3, 4v4 and FFA up to 8 (`PLAY_MODES`). Bots fill every empty seat when a match starts.
+- Solo vs bots needs no server (Play now). Online rooms are at `#/play`: pick a room or create one, share the link, and bots hold the open seats.
+- The crowd: anyone can watch a room, sign up with a display name (no account), chat, bet play money and buy potions.
+- Crowd Calls (src/net/play/playProtocol.ts): in team matches, every 30 seconds (first at 0:20) each side's crowd is offered three of four cards (Speed Burst, Shield, Energy Refill, Supply Drop) and votes for 10 seconds. The winner lands on that side's fighters 2 seconds after the vote closes. No votes means a random "house pick". Fighters never vote. FFA has no Crowd Calls yet, so don't promise any.
+- Every tab starts with $100 (`STARTING_BALANCE`, game-server/wallets.ts); everyone watching when a match ends gets $10 (`MATCH_WATCHED_REWARD`). The dev server shows a huge balance instead (`DEVELOPMENT_UNLIMITED_CASH`).
 
 ## G1. Product Hunt
 PH limits: tagline max 60 chars, description ≤260 chars, thumbnail 240×240, gallery 1270×760 (2 or more images; the first also becomes the social share image), images under 3MB, and no emoji in the name ([PH help](https://help.producthunt.com/en/articles/479557-how-to-post-a-product), [Submitator](https://submitator.com/blog/product-hunt-launch-assets)).
 
 - **Name:** `Pokémon Brawl`
-- **Tagline (43/60):** `Bet play money on live Pokémon auto-battles`
-  - Alternative (55/60): `Watch Pokémon auto-battle 24/7 and bet play money on it`
-- **Description (221/260):** `A free, fan-made browser game where Pokémon auto-battle in free-for-all arenas around the clock. Watch live, chat, and bet play money on who is left standing. Winners split the pot. No sign-up, no download, no real money.`
+- **Tagline (56/60):** `Real-time Pokémon brawls where the crowd calls the shots`
+  - Alternative (30/60): `You fight. The crowd calls it.`
+- **Description (230/260):** `A free, fan-made browser game: control a Pokémon in real-time brawls, 1v1 to 4v4 or FFA up to 8. Play solo vs bots or online. Everyone watching votes every 30 seconds on what help lands on their side next. No account, no download.`
 - **Topics:** Games, Indie Games
 - **Link:** `https://pokemonbrawl.com/`
-- **Thumbnail (240×240):** pokeball.png at 6× (180×180, nearest-neighbor) centered on `#fdf6e3`, 30px padding.
+- **Thumbnail (240×240):** pokeball.png at 6× (180×180, nearest-neighbor) centered on `#dde9f2`, 30px padding.
 
 **Maker first comment:**
 > Hey Product Hunt!
 >
-> [CONFIRM] I kept watching those Pokémon auto-battle videos on TikTok and wanted to argue about who'd win *while it was happening*, with other people, and with something on the line. So I built Pokémon Brawl.
+> [CONFIRM] I wanted Pokémon battles that feel like a brawler, not a menu, and I wanted the people watching to matter. So I built Pokémon Brawl.
 >
 > **How it works**
-> • Open the site. A free-for-all battle is already running in the Featured Showcase.
-> • Every tab starts with $100 in play money. Back a fighter in the first 45 seconds of a match.
-> • If your pick is the last one standing, you split the pot with everyone else who backed it. Watching a full match also earns $10.
-> • Chat with the room, spend play money on a Potion to heal your pick mid-fight (one item per match, while stock lasts), or grab a seat in an open room and send in your own Pokémon.
+> • Hit Play now and you're in a match against bots in seconds. Move, dodge, aim four moves, dash, and keep your three lives for three minutes.
+> • Play online: open a room, share the link, and bots hold the empty seats until friends arrive. 1v1 up to 4v4, or a free-for-all for 8.
+> • Or watch and join the crowd: pick a name (no account), chat, bet play money, and every 30 seconds vote in a Crowd Call. The winning card (Speed Burst, Shield, Energy Refill or Supply Drop) lands on your side two seconds later, and both teams see it coming.
 >
 > **What it isn't:** real gambling. The money is play money with no cash value, and there's nothing to buy. It's a free, non-commercial fan project, not affiliated with Nintendo, The Pokémon Company or Game Freak. The pixel sprites come from the amazing PMDCollab SpriteCollab community (CC BY-NC).
 >
-> Full disclosure: the Featured Showcase has bot spectators, so chat and bets aren't empty at 3am.
->
-> Built with React, Phaser 3 and a server-authoritative battle sim, running on Fly.io.
+> Built with React, Phaser 3 and a server-authoritative real-time sim over WebSockets, running on Fly.io.
 >
 > Two questions I'd love your take on:
-> 1. What would make you stay for a second match?
-> 2. What should come next: tournaments, creating your own rooms, or something else?
+> 1. Does the crowd feel like it matters in a match?
+> 2. What should come next: more Pokémon, ranked matches, or something else?
 
 **Gallery (1270×760, in this order):**
-1. **Hero card:** the og-image composition re-laid-out at 1270×760, with the same panel centered and sprites flanking. It doubles as the PH share image.
-2. **Desktop room mid-battle:** `#/room/room-6` at 1440×810 with the chat sidebar and the predictions panel showing odds, captured while a real (non-dev) wallet shows $100. The dev server shows $1,000,000,000 (`DEVELOPMENT_UNLIMITED_CASH`), so **capture from production or with NODE_ENV≠development**. Headline overlay: "Bet before the 45-second mark".
-3. **Win moment:** the "{NAME} WINS!" banner with the chat reacting. Overlay: "Last one standing takes the pot".
-4. **Mobile trio:** three 390px phone frames (landing hero, room with ticker and bets drawer, shop with Potions) on a `#fdf6e3` background. Overlay: "Plays great on your phone".
-5. **Landing page:** the full desktop landing, with the live rooms grid showing real thumbnails. Overlay: "Always live. No sign-up."
+1. **Hero card:** the og-image composition re-laid-out at 1270×760. It doubles as the PH share image. [CONFIRM] the og-image still shows the old watch-and-bet pitch; re-make it for Play Mode.
+2. **Desktop match mid-fight:** a 2v2 online room at 1440×810 during a Crowd Call vote. Overlay: "The crowd calls it".
+3. **Crowd Call landing:** the "crowd called SHIELD" moment on one team. Overlay: "Every 30 seconds, the stands vote".
+4. **Mobile trio:** three 390px phone frames (landing hero, a match with the touch joystick, the crowd drawer with votes and bets) on a `#dde9f2` background. Overlay: "Plays great on your phone".
+5. **Landing page:** the full desktop landing with the open-rooms list. Overlay: "Free. No account. Bots fill empty seats."
 
 Launch timing: PH days reset at 12:01am PT. Reply to every comment on launch day.
 
 ## G2. Reddit
 General caveats:
-- Reddit rules pages couldn't be fetched when this was drafted, so **read each subreddit's sidebar rules before posting**. The member counts below are rough and unverified.
+- Read each subreddit's sidebar rules before posting. Member counts are rough and unverified.
 - Many subreddits filter new or low-karma accounts, and the traditional guideline is about 1 self-promo post per 9 other contributions ([Medium: game marketing](https://medium.com/game-marketing/how-to-post-your-game-on-reddit-2049f613e1ed)).
-- Space the posts out over several days, not the same hour. Stay in the comments for the first 2–3 hours.
+- Space the posts out over several days. Stay in the comments for the first 2–3 hours.
 - Link posts pull the OG card once, so deploy the metadata first.
 - Don't use URL shorteners.
+- Online rooms only feel alive with people in them: post when you can sit in a room yourself, and link the room in the comments.
 
 ### 1. r/WebGames (~140k members; browser games with no downloads or sign-ups)
-- Caveat: posting your own free browser game there is generally treated as original content, and the no-sign-up / no-download premise matches this game ([abhi sundu](https://abhisundu.com/posts/marketing-free-games/)). Check the sidebar for a required title tag or flair. Post as a **link post** straight to the game URL.
-- Title: `Pokémon Brawl: watch Pokémon auto-battle live and bet play money on the winner (free, no sign-up)`
+- Caveat: check the sidebar for a required title tag or flair. Post as a **link post** straight to the game URL.
+- Title: `Pokémon Brawl: real-time Pokémon brawls in the browser, and the crowd votes on what lands next (free, no sign-up)`
 - First comment:
-> I made this! Pokémon fight free-for-all battles on their own, 24/7. You get $100 in play money (no real money, nothing to buy), back a fighter in the first 45 seconds, and if it's the last one standing you split the pot. There's live chat, a Potion you can buy with play money to heal a fighter mid-battle (one per match), and open rooms where you can take a seat and send in your own Pokémon.
+> I made this! You control one Pokémon in a real-time match: move, dodge, aim four moves, dash, three lives. Play solo against bots, or open an online room (1v1 to 4v4, or FFA for 8) and share the link; bots fill any empty seats.
 >
-> Works on phones too. The Featured Showcase has bot spectators so it's never dead. Free fan project, not affiliated with Nintendo/TPC/Game Freak; sprites by PMDCollab. Feedback very welcome, especially on what would make you stay for another match.
+> Anyone watching can join the crowd: pick a name, chat, bet play money (no real money, nothing to buy), and vote every 30 seconds on a card that lands on their side, like a Shield or a Speed Burst.
+>
+> Works on phones (touch joystick). Free fan project, not affiliated with Nintendo/TPC/Game Freak; sprites by PMDCollab. Feedback very welcome, especially on controls.
 
 ### 2. r/playmygame (~130k members; devs share freely playable games for feedback)
-- Caveat: use the subreddit's own post flow and the platform flair (e.g. `[PC] (Web)`). The game must be free to play, and feedback threads are expected. Read the highlighted posts first, because new accounts posting links get filtered ([GummySearch](https://gummysearch.com/r/playmygame/)).
-- Title: `[Web] Pokémon Brawl: Pokémon auto-battle live, you bet play money on who survives`
+- Caveat: use the subreddit's own post flow and the platform flair (e.g. `[PC] (Web)`). Read the highlighted posts first, because new accounts posting links get filtered ([GummySearch](https://gummysearch.com/r/playmygame/)).
+- Title: `[Web] Pokémon Brawl: real-time Pokémon battles where the spectators vote in power-ups`
 - Body:
 > **Play:** https://pokemonbrawl.com/ (browser, desktop or mobile, no sign-up)
 >
-> **What it is:** a spectator game. Pokémon fight free-for-all battles on their own around the clock. Everyone starts with $100 in play money; you back a fighter in the first 45 seconds and winners split the pot. Chat with the room, spend play money on a Potion to heal a fighter mid-battle, or grab a seat in an open room and pick your own fighter.
+> **What it is:** a real-time arena brawler with the original 151. WASD or a touch joystick to move, four moves to aim, a dash, three lives, three-minute matches. Solo vs bots or online rooms up to 4v4 or an 8-player FFA.
 >
-> **Not real gambling:** play money only, no cash value, nothing to buy.
+> **The twist:** spectators are part of the game. Every 30 seconds in a team match, each side's crowd votes on one of three cards (Speed Burst, Shield, Energy Refill, Supply Drop), and it lands on their fighters two seconds later.
 >
 > **Feedback I'm looking for:**
-> 1. Is it clear what to do in the first 10 seconds?
-> 2. Does betting feel fair and readable (odds, when bets close)?
-> 3. What would make you stay for a second match?
+> 1. Do the controls feel good on your device?
+> 2. Is it clear what the Crowd Call did and when?
+> 3. What would make you play a second match?
 >
-> [CONFIRM] Solo project, free and non-commercial. Not affiliated with Nintendo, The Pokémon Company or Game Freak. Sprites by the PMDCollab SpriteCollab contributors. The showcase room has bot spectators so it isn't empty.
+> [CONFIRM] Solo project, free and non-commercial, play money only. Not affiliated with Nintendo, The Pokémon Company or Game Freak. Sprites by the PMDCollab SpriteCollab contributors.
 
 ### 3. r/SideProject
-- Caveat: self-promotion of real, working products is welcome, but a maker story and a live product are expected, not a waitlist. Engagement matters more than the link ([GrowReddit](https://www.growreddit.com/blog/reddit-self-promotion-rules-sideproject)). Use a **text post**.
-- Title: `I built a site where Pokémon auto-battle 24/7 and people bet play money on the winner`
+- Caveat: self-promotion of real, working products is welcome, but a maker story and a live product are expected ([GrowReddit](https://www.growreddit.com/blog/reddit-self-promotion-rules-sideproject)). Use a **text post**.
+- Title: `I built a real-time Pokémon brawler where the people watching vote on what help each team gets`
 - Body:
-> [CONFIRM] I kept watching Pokémon auto-battle clips on TikTok and wanted to watch them *live* with other people, with something riding on the result. So I built Pokémon Brawl: https://pokemonbrawl.com/
+> [CONFIRM] I wanted Pokémon battles you actually play with your thumbs, and I wanted spectators to matter instead of just watching. So I built Pokémon Brawl: https://pokemonbrawl.com/
 >
-> **How it plays:** a server runs free-for-all battles nonstop. Every visitor gets $100 in play money, bets close 45 seconds into a match, and winners split the pot (parimutuel). You also get $10 per match watched, and you can spend play money on a Potion to heal your pick mid-fight (one item per match).
+> **How it plays:** you control one Pokémon: move, aim four moves, dash, three lives. Play solo vs bots or online with friends; bots hold open seats. Viewers sign up with just a name, chat, bet play money, and vote in a "Crowd Call" every 30 seconds that drops a Shield, Speed Burst, Energy Refill or Supply Drop on their side.
 >
-> **Stack:** React 18 + Phaser 3 on the client, a server-authoritative battle sim streamed over SSE, PMDCollab pixel sprites, deployed on Fly.io.
+> **Stack:** React 18 + Phaser 3 on the client, a server-authoritative real-time sim over WebSockets, PMDCollab pixel sprites, deployed on Fly.io.
 >
 > **Things I learned:**
-> - [CONFIRM] An always-on showcase room with bot spectators made the first visit feel alive. (Being upfront about it: they're bots.)
-> - [CONFIRM] Closing bets at 45s, when fighters get aggressive, stopped last-second sniping.
+> - [CONFIRM] Landing the crowd's card two seconds after the vote, with a visible countdown, made it feel fair to the other team.
+> - [CONFIRM] Filling empty seats with bots means a match starts in seconds, even with nobody else online.
 >
-> It's free and non-commercial: play money only, nothing to buy, not affiliated with Nintendo/TPC/Game Freak. I'd love feedback on the first-10-seconds experience.
+> It's free and non-commercial: play money only, nothing to buy, not affiliated with Nintendo/TPC/Game Freak. I'd love feedback on the controls.
 
 ### 4. r/PokemonMysteryDungeon (the art comes from the PMD sprite community)
-- Caveat: **rules unverified**. Many fan subs restrict self-promotion or require a flair or a specific day, so check the sidebar or message the mods first. Lead with credit to PMDCollab. **Avoid r/pokemon**: a huge generalist sub with strict spam and self-promo enforcement, where removal risk is high. Only post there if its current rules explicitly allow fan projects.
-- Title: `I made a live auto-battle arena using the PMDCollab sprites. Pokémon fight 24/7 and you bet play money on who wins`
+- Caveat: **rules unverified**. Many fan subs restrict self-promotion or require a flair or a specific day, so check the sidebar or message the mods first. Lead with credit to PMDCollab. **Avoid r/pokemon**: strict spam and self-promo enforcement, high removal risk.
+- Title: `I made a real-time Pokémon brawler with the PMDCollab sprites. You fight, and the crowd votes on power-ups`
 - Body:
-> Huge thanks to the PMDCollab SpriteCollab contributors. Every fighter uses their sprites (CC BY-NC), and the idle, attack, hurt and faint animations are what make the battles readable.
+> Huge thanks to the PMDCollab SpriteCollab contributors. Every fighter uses their sprites (CC BY-NC), and the walk, attack, hurt and faint animations are what make the fights readable.
 >
-> https://pokemonbrawl.com/ runs free-for-all battles nonstop. You start with $100 in play money (no real money, nothing to buy), back a fighter in the first 45 seconds, and split the pot if it's the last one standing.
+> https://pokemonbrawl.com/ is a real-time arena brawler with the original 151: you control one Pokémon, solo vs bots or online, and spectators vote every 30 seconds on a card that lands on their team.
 >
-> Free fan project, not affiliated with Nintendo, The Pokémon Company or Game Freak. If any sprite looks off in battle, tell me and I'll fix it.
+> Free fan project, play money only, not affiliated with Nintendo, The Pokémon Company or Game Freak. If any sprite looks off in battle, tell me and I'll fix it.

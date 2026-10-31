@@ -1,9 +1,13 @@
-import { useEffect, useState, type CSSProperties } from 'react';
+import { memo, useEffect, useState, type CSSProperties } from 'react';
 import { ChatPanel, type ChatPanelProps } from './ChatPanel';
 import { CHAT_SIDEBAR_WIDTH, countUnread, latestChatId } from './chatModel';
 import { PredictionsPanel, type PredictionsPanelProps } from '../predictions/PredictionsPanel';
 import { ShopPanel, type ShopPanelProps } from '../shop/ShopPanel';
-import { BG_ALT, PRIMARY, PRIMARY_TEXT, SUCCESS, TEXT, textAlpha } from '../theme';
+import { CrowdCallPanel, type CrowdCallPanelProps } from '../crowd/CrowdCallPanel';
+import { BG_ALT, CROWD, FONT_BODY, FONT_UI, INFO_BOX, INK, PRIMARY, PRIMARY_TEXT, SUCCESS, TEXT, textAlpha } from '../theme';
+
+// Memoized here (ChatPanel itself isn't) so a vote/bet update re-rendering the sidebar leaves the chat list alone.
+const MemoChatPanel = memo(ChatPanel);
 
 const COLLAPSED_STORAGE_KEY = 'poke-clash:chat-sidebar-collapsed';
 
@@ -32,23 +36,25 @@ export type ChatSidebarProps = ChatPanelProps & {
    * keeps its share of the column, and a third stacked panel would eat into
    * that every time an item is added. */
   shop?: ShopPanelProps;
+  /** Play Mode's Crowd Call vote — the first tab of that same region. */
+  vote?: CrowdCallPanelProps;
   /** Overrides CHAT_SIDEBAR_WIDTH — the landing page's embedded preview
    * passes a narrower one (see chatModel.ts's CHAT_SIDEBAR_EMBEDDED_WIDTH). */
   width?: number;
 };
 
 /** Which of the two panels the column's top region is showing. */
-type TopTab = 'bets' | 'shop';
+type TopTab = 'vote' | 'bets' | 'shop';
 
 /** The web layout's stream-style right column, rendered by RoomScreen to the
  * right of the arena (lobby and match alike): the betting pool / item shop on
  * top, chat below. Collapsible to a narrow strip that keeps an unread badge,
  * like a stream page's "hide chat". */
-export function ChatSidebar({ predictions, shop, width = CHAT_SIDEBAR_WIDTH, ...props }: ChatSidebarProps) {
+export function ChatSidebar({ vote, predictions, shop, width = CHAT_SIDEBAR_WIDTH, ...props }: ChatSidebarProps) {
   const { messages, room } = props;
   const [collapsed, setCollapsed] = useState(readCollapsed);
   const [lastSeenId, setLastSeenId] = useState(() => latestChatId(messages));
-  const [topTab, setTopTab] = useState<TopTab>('bets');
+  const [topTab, setTopTab] = useState<TopTab>(vote ? 'vote' : 'bets');
 
   // While expanded everything is "seen"; the badge only accrues while hidden.
   useEffect(() => {
@@ -75,28 +81,47 @@ export function ChatSidebar({ predictions, shop, width = CHAT_SIDEBAR_WIDTH, ...
   }
 
   const seated = room ? room.slots.filter((s) => s.occupied).length : 0;
-  // With only one of the two to show there's no tab row, so whichever exists
+  // With only one panel to show there's no tab row, so whichever exists
   // simply fills the region.
-  const showShop = shop !== undefined && (predictions === undefined || topTab === 'shop');
+  const tabs = (
+    [
+      ['vote', vote, 'VOTE'],
+      ['bets', predictions, 'BETS'],
+      ['shop', shop, 'ITEMS'],
+    ] as const
+  ).filter(([, panel]) => panel !== undefined);
+  const shown = tabs.some(([id]) => id === topTab) ? topTab : tabs[0]?.[0];
   const shopHasStock = Object.values(shop?.shop?.stockLeft ?? {}).some((left) => left > 0);
 
   return (
     <aside style={{ ...sidebarStyle, width }}>
-      {(predictions || shop) && (
+      {tabs.length > 0 && (
         <div style={topRegionStyle}>
-          {predictions && shop && (
-            <div style={topTabRowStyle}>
-              <button type="button" onClick={() => setTopTab('bets')} style={topTabStyle(topTab === 'bets')}>
-                🔮 BETS
-              </button>
-              <button type="button" onClick={() => setTopTab('shop')} style={topTabStyle(topTab === 'shop')}>
-                🎒 SHOP
-                {shopHasStock && <span style={dotStyle} aria-hidden />}
-              </button>
+          {tabs.length > 1 && (
+            <div role="tablist" style={topTabRowStyle}>
+              {tabs.map(([id, , label]) => (
+                <button
+                  key={id}
+                  type="button"
+                  role="tab"
+                  aria-selected={shown === id}
+                  onClick={() => setTopTab(id)}
+                  style={topTabStyle(shown === id, id === 'vote')}
+                >
+                  {label}
+                  {id === 'shop' && shopHasStock && <span style={dotStyle} aria-hidden />}
+                </button>
+              ))}
             </div>
           )}
           <div style={topBodyStyle}>
-            {showShop ? <ShopPanel {...(shop as ShopPanelProps)} /> : predictions ? <PredictionsPanel {...predictions} /> : null}
+            {shown === 'vote' && vote ? (
+              <CrowdCallPanel {...vote} />
+            ) : shown === 'shop' && shop ? (
+              <ShopPanel {...shop} />
+            ) : predictions ? (
+              <PredictionsPanel {...predictions} />
+            ) : null}
           </div>
         </div>
       )}
@@ -112,7 +137,7 @@ export function ChatSidebar({ predictions, shop, width = CHAT_SIDEBAR_WIDTH, ...
         )}
       </header>
       <div style={bodyStyle}>
-        <ChatPanel {...props} listHeight="flex" showTimestamps />
+        <MemoChatPanel {...props} listHeight="flex" showTimestamps />
       </div>
     </aside>
   );
@@ -126,8 +151,8 @@ const sidebarStyle: CSSProperties = {
   display: 'flex',
   flexDirection: 'column',
   background: BG_ALT,
-  borderLeft: `1px solid ${textAlpha(0.12)}`,
-  fontFamily: 'monospace',
+  borderLeft: `3px solid ${INK}`,
+  fontFamily: FONT_BODY,
   color: TEXT,
 };
 
@@ -145,26 +170,29 @@ const topRegionStyle: CSSProperties = {
 };
 
 const topTabRowStyle: CSSProperties = {
-  display: 'flex',
-  gap: 6,
+  display: 'grid',
+  gridAutoFlow: 'column',
+  gridAutoColumns: 'minmax(0, 1fr)',
   flex: 'none',
-  padding: '8px 10px 0',
+  background: INFO_BOX,
+  borderBottom: `3px solid ${INK}`,
 };
 
-function topTabStyle(active: boolean): CSSProperties {
+/** Mock tabs: the selected one goes white with a bottom bar — crowd green for VOTE, gold otherwise. */
+function topTabStyle(active: boolean, crowd: boolean): CSSProperties {
   return {
     display: 'inline-flex',
     alignItems: 'center',
+    justifyContent: 'center',
     gap: 5,
-    padding: '4px 8px',
-    fontSize: 11,
-    fontFamily: 'monospace',
-    fontWeight: 'bold',
-    letterSpacing: 0.5,
-    color: active ? PRIMARY_TEXT : TEXT,
-    background: active ? PRIMARY : textAlpha(0.06),
-    border: `1px solid ${active ? PRIMARY : textAlpha(0.18)}`,
-    borderRadius: 4,
+    minHeight: 46,
+    fontSize: 18,
+    fontFamily: FONT_UI,
+    fontWeight: active ? 700 : 500,
+    color: INK,
+    background: active ? BG_ALT : 'transparent',
+    border: 'none',
+    boxShadow: active ? `inset 0 -4px 0 ${crowd ? CROWD : PRIMARY}` : 'none',
     cursor: 'pointer',
   };
 }
@@ -194,9 +222,9 @@ const headerStyle: CSSProperties = {
 };
 
 const titleStyle: CSSProperties = {
-  fontSize: 12,
-  fontWeight: 'bold',
-  letterSpacing: 1,
+  fontSize: 18,
+  fontFamily: FONT_UI,
+  fontWeight: 700,
 };
 
 const roomMetaStyle: CSSProperties = {
@@ -209,9 +237,10 @@ const roomMetaStyle: CSSProperties = {
 };
 
 const headerButtonStyle: CSSProperties = {
-  fontSize: 14,
+  fontSize: 16,
   lineHeight: 1,
-  padding: '4px 6px',
+  minWidth: 44,
+  minHeight: 44,
   color: TEXT,
   background: 'transparent',
   border: `1px solid ${textAlpha(0.15)}`,
@@ -259,7 +288,7 @@ const badgeStyle: CSSProperties = {
   minWidth: 16,
   padding: '1px 4px',
   fontSize: 10,
-  fontFamily: 'monospace',
+  fontFamily: FONT_BODY,
   fontWeight: 'bold',
   color: PRIMARY_TEXT,
   background: PRIMARY,

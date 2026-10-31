@@ -1,7 +1,7 @@
 import type { ChatMessage, RoomSummary } from '../../net/protocol';
 import { CHAT_LOG_LIMIT } from '../../net/chat';
 import { teamColorCss } from '../teamColors';
-import { SOLARIZED_ACCENTS } from '../theme';
+import { TEXT_ACCENTS } from '../theme';
 import { withBalance } from '../predictions/predictionModel';
 
 /** Pure chat-presentation logic, kept out of the components so it can be
@@ -75,9 +75,9 @@ export function chatSenderLabel(
   return isSelf ? `${name} (You)` : name;
 }
 
-// Eight hues that read on the light chat background — one per seat, Twitch
+// Eight text-safe hues on the white chat panel — one per seat, Twitch
 // style, so a reader can follow a sender by color alone.
-const SENDER_PALETTE = SOLARIZED_ACCENTS;
+const SENDER_PALETTE = TEXT_ACCENTS;
 
 /** Stable string hash → palette index, so a spectator's generated name (no
  * slotIndex to key off) still gets a consistent color across messages. */

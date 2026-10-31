@@ -70,3 +70,13 @@ export function moveKind(move: MoveDefinition): MoveKind {
   if (move.targeting === 'all-enemies-in-radius') return 'aoe';
   return move.category === 'physical' ? 'physical' : 'ranged';
 }
+
+// Crowd Calls (see playProtocol.ts): the cards a team's spectators vote onto it.
+export const CROWD_SPEED_MULT = 1.3;
+export const CROWD_SPEED_MS = 4000;
+/** A shield soaks up the next hit whole, or fades unused after this. */
+export const CROWD_SHIELD_MS = 3000;
+export const SUPPLY_HEAL_FRACTION = 0.25;
+export const SUPPLY_TTL_MS = 10_000;
+/** Touch distance is this plus the fighter's own collision radius. */
+export const SUPPLY_RADIUS = 28;

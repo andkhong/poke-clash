@@ -240,4 +240,118 @@ describe('online Play Mode rooms', () => {
       expect(ask(watcher, { t: 'buy', itemId: 'potion', targetId: hostId })).toBe('session_limit');
     });
   });
+
+  describe('Crowd Calls', () => {
+    /** Two idle humans and no bots, so nobody gets KO'd and the match outlasts several calls. */
+    function teamMatch(mode: number | 'ffa' = 1) {
+      const players = lobbyOf(mode, ['Ash', 'Gary']);
+      const [host] = players;
+      const fan = connect('Brock');
+      fan.say({ t: 'join', roomId: host.room().id, watch: true });
+      fan.say({ t: 'signup', name: 'Brock' });
+      players.forEach((p, i) => {
+        p.say({ t: 'pick', speciesId: KANTO_IDS[i] });
+        p.say({ t: 'ready', ready: true });
+      });
+      host.say({ t: 'start' });
+      let req = 0;
+      const ask = (who: FakeConn, message: object): string | null => {
+        req += 1;
+        who.say({ ...message, req });
+        return who.inbox.find((m): m is Extract<ServerMessage, { t: 'ack' }> => m.t === 'ack' && m.req === req)!.error;
+      };
+      const call = () => fan.last('calls')!.current;
+      return { host, fan, ask, call };
+    }
+    const systemLines = (who: FakeConn) => who.inbox.flatMap((m) => (m.t === 'chat' ? m.messages : [])).filter((m) => m.kind === 'system');
+
+    it('opens at 20 s, votes for 10 s and lands 2 s later, telling the chat', () => {
+      const { fan, call } = teamMatch();
+      expect(fan.last('calls')).toMatchObject({ current: null, history: [] });
+      vi.advanceTimersByTime(19_900);
+      expect(call()).toBeNull();
+      vi.advanceTimersByTime(200);
+      expect(call()).toMatchObject({ index: 1, phase: 'voting', opensAtMs: 20_000, closesAtMs: 30_000, landsAtMs: 32_000 });
+      for (const side of ['teamA', 'teamB'] as const) {
+        const cards = call()!.sides[side].cards;
+        expect(new Set(cards).size).toBe(3);
+        expect(cards.every((c) => ['speed', 'shield', 'energy', 'supply'].includes(c))).toBe(true);
+      }
+      const before = fan.inbox.filter((m) => m.t === 'calls').length;
+      vi.advanceTimersByTime(1000);
+      const perSecond = fan.inbox.filter((m) => m.t === 'calls').length - before;
+      expect(perSecond).toBeGreaterThanOrEqual(3);
+      expect(perSecond).toBeLessThanOrEqual(5);
+
+      vi.advanceTimersByTime(9_000);
+      expect(call()!.phase).toBe('landing');
+      // Nobody voted: the house picks one of the offered cards on both sides.
+      for (const side of ['teamA', 'teamB'] as const) {
+        const s = call()!.sides[side];
+        expect(s.housePick).toBe(true);
+        expect(s.cards).toContain(s.winner);
+      }
+      expect(systemLines(fan)).toHaveLength(0);
+      vi.advanceTimersByTime(2_000);
+      expect(call()!.phase).toBe('landed');
+      expect(systemLines(fan).map((m) => m.text)).toEqual([
+        expect.stringMatching(/^House pick for Team Ruby: /),
+        expect.stringMatching(/^House pick for Team Sapphire: /),
+      ]);
+      const landed = fan.inbox.flatMap((m) => (m.t === 'snap' ? m.s.events : [])).filter((e) => e.type === 'crowdCall');
+      expect(landed.map((e) => e.type === 'crowdCall' && e.team)).toEqual(['teamA', 'teamB']);
+
+      vi.advanceTimersByTime(18_000); // 50 s: the next call
+      expect(call()).toMatchObject({ index: 2, phase: 'voting', opensAtMs: 50_000 });
+      expect(fan.last('calls')!.history).toHaveLength(2);
+    });
+
+    it('tallies votes, moves a re-vote, and holds a viewer to the first side they picked', () => {
+      const { host, fan, ask, call } = teamMatch();
+      const stranger = connect('Misty');
+      stranger.say({ t: 'join', roomId: host.room().id, watch: true });
+      expect(ask(fan, { t: 'vote', side: 'teamA', card: 'speed' })).toBe('no_call');
+      vi.advanceTimersByTime(20_100);
+      const [first, second] = call()!.sides.teamA.cards;
+      const missing = (['speed', 'shield', 'energy', 'supply'] as const).find((c) => !call()!.sides.teamA.cards.includes(c));
+      expect(ask(host, { t: 'vote', side: 'teamA', card: first })).toBe('fighters_cant');
+      expect(ask(stranger, { t: 'vote', side: 'teamA', card: first })).toBe('not_signed_up');
+      expect(ask(fan, { t: 'vote', side: 'teamA', card: missing })).toBe('bad_card');
+      expect(ask(fan, { t: 'vote', side: 'teamC', card: first })).toBe('invalid_message');
+      expect(fan.last('me')!.side).toBeNull();
+
+      expect(ask(fan, { t: 'vote', side: 'teamA', card: first })).toBeNull();
+      expect(fan.last('me')).toMatchObject({ side: 'teamA', myVote: first });
+      expect(ask(fan, { t: 'vote', side: 'teamA', card: second })).toBeNull();
+      expect(fan.last('me')!.myVote).toBe(second);
+      expect(ask(fan, { t: 'vote', side: 'teamB', card: call()!.sides.teamB.cards[0] })).toBe('side_locked');
+      vi.advanceTimersByTime(300);
+      expect(call()!.sides.teamA.votes).toEqual({ [first]: 0, [second]: 1 });
+
+      vi.advanceTimersByTime(10_000);
+      expect(call()!.sides.teamA).toMatchObject({ winner: second, housePick: false });
+      expect(call()!.sides.teamB.housePick).toBe(true);
+      vi.advanceTimersByTime(2_000);
+      expect(systemLines(fan)[0].text).toMatch(/^Team Ruby crowd: .+!$/);
+    });
+
+    it('locks the side with a first bet, and then refuses votes and potions for the other side', () => {
+      const { fan, ask } = teamMatch();
+      const start = fan.last('start')!;
+      const teamAFighter = `p0-${start.config.speciesIds[0]}`;
+      expect(ask(fan, { t: 'bet', optionId: 'teamB', amount: 10 })).toBeNull();
+      expect(fan.last('me')!.side).toBe('teamB');
+      expect(ask(fan, { t: 'bet', optionId: 'teamA', amount: 10 })).toBe('side_locked');
+      expect(ask(fan, { t: 'buy', itemId: 'potion', targetId: teamAFighter })).toBe('side_locked');
+      vi.advanceTimersByTime(20_100);
+      expect(ask(fan, { t: 'vote', side: 'teamA', card: fan.last('calls')!.current!.sides.teamA.cards[0] })).toBe('side_locked');
+      expect(ask(fan, { t: 'vote', side: 'teamB', card: fan.last('calls')!.current!.sides.teamB.cards[0] })).toBeNull();
+    });
+
+    it('never runs in free-for-all', () => {
+      const { fan } = teamMatch('ffa');
+      vi.advanceTimersByTime(25_000);
+      expect(fan.inbox.filter((m) => m.t === 'calls').every((m) => m.t === 'calls' && m.current === null)).toBe(true);
+    });
+  });
 });

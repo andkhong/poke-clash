@@ -4,16 +4,10 @@ import { createMatch } from '../matchSetup';
 import type { EngineLike } from '../engineLike';
 import { eventsAfter } from '../events';
 import { createRng, rngChance, type Rng } from '../rng';
-import { clampToArenaBounds, resolveCollisions, velocityToFacing } from '../movement';
+import type { CrowdCardId } from '../../net/play/playProtocol';
+import { clampToArenaBounds, getPlayableBounds, resolveCollisions, velocityToFacing } from '../movement';
 import { resolveDamage } from '../damage';
-import {
-  applyStatus,
-  canApplyStatus,
-  gateAction,
-  isIncapacitatingStatus,
-  maybeThawOnFireHit,
-  tickStatusDamage,
-} from '../statusEffects';
+import { applyStatus, canApplyStatus, gateAction, isIncapacitatingStatus, maybeThawOnFireHit, tickStatusDamage } from '../statusEffects';
 import { createNeutralStages } from '../statCalc';
 import { BotBrain } from './bot';
 import * as R from './rules';
@@ -41,6 +35,17 @@ export interface FighterState {
   spawn: Vec2;
   kos: number;
   damageDealt: number;
+  /** Crowd Call buffs: ms left on a speed burst / an unused shield. */
+  speedMs: number;
+  shieldMs: number;
+}
+
+/** A Crowd Call supply crate: heals the first fighter of `team` to touch it. */
+export interface Pickup {
+  id: number;
+  team: string;
+  position: Vec2;
+  expiresAtMs: number;
 }
 
 export interface Projectile {
@@ -84,12 +89,18 @@ export type ActionEvent =
       direction: Vec2;
       /** The shove the target took — an online client applies it to the fighter it moves itself. */
       knockback: Vec2;
+      /** A Crowd Call shield ate the hit: no damage, no shove. */
+      blocked?: true;
     }
   | { seq: number; atMs: number; type: 'dashed'; instanceId: string; from: Vec2; direction: Vec2 }
   | { seq: number; atMs: number; type: 'ko'; instanceId: string; byInstanceId: string | null; livesLeft: number }
   | { seq: number; atMs: number; type: 'respawned'; instanceId: string }
   /** A spectator's shop item landed (see game-server/playRooms.ts). */
-  | { seq: number; atMs: number; type: 'item'; instanceId: string; effect: 'heal' | 'revive'; amount: number; buyerName: string };
+  | { seq: number; atMs: number; type: 'item'; instanceId: string; effect: 'heal' | 'revive'; amount: number; buyerName: string }
+  /** A Crowd Call landed on every living fighter of `team`. */
+  | { seq: number; atMs: number; type: 'crowdCall'; team: string; card: CrowdCardId; housePick: boolean }
+  | { seq: number; atMs: number; type: 'pickupSpawned'; pickupId: number; team: string; position: Vec2 }
+  | { seq: number; atMs: number; type: 'pickupTaken'; pickupId: number; instanceId: string; amount: number };
 
 /** What an online client needs of one fighter, 20 times a second. */
 export interface FighterSnapshot {
@@ -112,6 +123,8 @@ export interface FighterSnapshot {
   respawnAtMs: number | null;
   kos: number;
   damageDealt: number;
+  speedMs: number;
+  shieldMs: number;
 }
 
 /** The server's whole-match broadcast (see snapshot()). `events` are the
@@ -124,6 +137,7 @@ export interface ActionSnapshot {
   winnerInstanceIds: string[];
   fighters: Record<string, FighterSnapshot>;
   projectiles: Projectile[];
+  pickups: Pickup[];
   events: ActionEvent[];
 }
 
@@ -184,6 +198,8 @@ export class ActionEngine implements EngineLike {
   protected readonly fighters: Record<string, FighterState> = {};
   private readonly bots: BotBrain[] = [];
   protected projectiles: Projectile[] = [];
+  protected pickups: Pickup[] = [];
+  private nextPickupId = 1;
   private readonly events: SimEvent[] = [];
   protected readonly actionEvents: ActionEvent[] = [];
   private seq = 0;
@@ -194,7 +210,13 @@ export class ActionEngine implements EngineLike {
   private readonly reportedMovers: Set<string>;
   private readonly lastReportAtMs = new Map<string, number>();
 
-  constructor(config: MatchConfig, species: Record<number, SpeciesData>, moves: MoveLookup, seed: number, options: ActionEngineOptions = {}) {
+  constructor(
+    config: MatchConfig,
+    species: Record<number, SpeciesData>,
+    moves: MoveLookup,
+    seed: number,
+    options: ActionEngineOptions = {}
+  ) {
     this.rng = createRng(seed);
     this.moves = moves;
     this.state = createMatch(config, species, moves, this.rng);
@@ -224,6 +246,8 @@ export class ActionEngine implements EngineLike {
         spawn: { ...p.position },
         kos: 0,
         damageDealt: 0,
+        speedMs: 0,
+        shieldMs: 0,
       };
       if (options.bots !== false && !humans.has(id)) this.bots.push(new BotBrain(id, createRng(seed + this.bots.length + 1)));
     }
@@ -248,6 +272,10 @@ export class ActionEngine implements EngineLike {
 
   getProjectiles(): readonly Projectile[] {
     return this.projectiles;
+  }
+
+  getPickups(): readonly Pickup[] {
+    return this.pickups;
   }
 
   getMove(moveId: number): MoveDefinition | undefined {
@@ -387,7 +415,8 @@ export class ActionEngine implements EngineLike {
     const now = this.state.elapsedMs;
     const sinceSec = Math.max(R.ACTION_TICK_MS, now - (this.lastReportAtMs.get(id) ?? now - 100)) / 1000;
     this.lastReportAtMs.set(id, now);
-    const maxStep = (R.DASH_SPEED + R.KNOCKBACK_PHYSICAL * 1.5) * sinceSec + 40;
+    const burst = this.fighters[id].speedMs > 0 ? R.MAX_SPEED * (R.CROWD_SPEED_MULT - 1) : 0;
+    const maxStep = (R.DASH_SPEED + R.KNOCKBACK_PHYSICAL * 1.5 + burst) * sinceSec + 40;
     const dx = position.x - self.position.x;
     const dy = position.y - self.position.y;
     const d = Math.hypot(dx, dy);
@@ -425,6 +454,62 @@ export class ActionEngine implements EngineLike {
     }
     this.pushAction({ type: 'item', instanceId: id, effect, amount, buyerName });
     return amount;
+  }
+
+  /** A Crowd Call's winning card, on every living fighter of `team` (supply drops one crate for the side). */
+  applyCrowdCard(team: string, card: CrowdCardId, housePick = false): void {
+    if (this.state.phase !== 'battle') return;
+    const side = this.state.livingOrder.filter((id) => this.state.pokemon[id].team === team);
+    for (const id of side) {
+      const f = this.fighters[id];
+      if (card === 'speed') f.speedMs = R.CROWD_SPEED_MS;
+      else if (card === 'shield') f.shieldMs = R.CROWD_SHIELD_MS;
+      else if (card === 'energy') f.energy = R.ENERGY_MAX;
+    }
+    this.pushAction({ type: 'crowdCall', team, card, housePick });
+    if (card === 'supply') this.spawnSupply(team);
+  }
+
+  /** A random spot on `team`'s half of the court — the half its spawn points sit in. */
+  private spawnSupply(team: string): void {
+    const b = getPlayableBounds(this.state.arena);
+    const centroid = (mine: boolean): Vec2 => {
+      const spawns = this.state.allInstanceIds
+        .filter((id) => (this.state.pokemon[id].team === team) === mine)
+        .map((id) => this.fighters[id].spawn);
+      const n = Math.max(1, spawns.length);
+      return { x: spawns.reduce((a, s) => a + s.x, 0) / n, y: spawns.reduce((a, s) => a + s.y, 0) / n };
+    };
+    const own = centroid(true);
+    const other = centroid(false);
+    const midX = (b.minX + b.maxX) / 2;
+    const midY = (b.minY + b.maxY) / 2;
+    let x = b.minX + this.rng() * (b.maxX - b.minX);
+    let y = b.minY + this.rng() * (b.maxY - b.minY);
+    // Split along whichever axis the two sides' spawns are further apart on.
+    if (Math.abs(own.y - other.y) >= Math.abs(own.x - other.x)) y = own.y < midY ? b.minY + (y - b.minY) / 2 : midY + (y - b.minY) / 2;
+    else x = own.x < midX ? b.minX + (x - b.minX) / 2 : midX + (x - b.minX) / 2;
+    const pickup: Pickup = { id: this.nextPickupId++, team, position: { x, y }, expiresAtMs: this.state.elapsedMs + R.SUPPLY_TTL_MS };
+    this.pickups.push(pickup);
+    this.pushAction({ type: 'pickupSpawned', pickupId: pickup.id, team, position: { ...pickup.position } });
+  }
+
+  private stepPickups(nowMs: number): void {
+    if (this.pickups.length === 0) return;
+    this.pickups = this.pickups.filter((pickup) => {
+      if (nowMs >= pickup.expiresAtMs) return false;
+      for (const id of this.state.livingOrder) {
+        const p = this.state.pokemon[id];
+        // A fighter at full HP walks over it, leaving it for a hurt teammate.
+        if (p.team !== pickup.team || p.currentHp <= 0 || p.currentHp >= p.maxHp) continue;
+        if (Math.hypot(p.position.x - pickup.position.x, p.position.y - pickup.position.y) > p.collisionRadius + R.SUPPLY_RADIUS) continue;
+        const amount = Math.min(p.maxHp - p.currentHp, Math.round(p.maxHp * R.SUPPLY_HEAL_FRACTION));
+        p.currentHp += amount;
+        this.pushAction({ type: 'pickupTaken', pickupId: pickup.id, instanceId: id, amount });
+        return false;
+      }
+      return true;
+    });
   }
 
   /** A player who left: out of the match for good, whatever lives they had. */
@@ -470,6 +555,8 @@ export class ActionEngine implements EngineLike {
         respawnAtMs: f.respawnAtMs,
         kos: f.kos,
         damageDealt: f.damageDealt,
+        speedMs: Math.round(f.speedMs),
+        shieldMs: Math.round(f.shieldMs),
       };
     }
     return {
@@ -484,6 +571,7 @@ export class ActionEngine implements EngineLike {
         position: { x: round1(p.position.x), y: round1(p.position.y) },
         velocity: { x: round1(p.velocity.x), y: round1(p.velocity.y) },
       })),
+      pickups: this.pickups.map((p) => ({ ...p, position: { ...p.position } })),
       events: this.getActionEventsSince(sinceSeq),
     };
   }
@@ -541,6 +629,7 @@ export class ActionEngine implements EngineLike {
     }
     resolveCollisions(this.state.livingOrder, this.state.pokemon, this.state.arena);
     this.stepProjectiles(dtSec);
+    this.stepPickups(nowMs);
 
     for (const id of this.state.livingOrder) {
       const self = this.state.pokemon[id];
@@ -560,6 +649,8 @@ export class ActionEngine implements EngineLike {
     f.globalCooldownMs = Math.max(0, f.globalCooldownMs - dt);
     f.invulnMs = Math.max(0, f.invulnMs - dt);
     f.aimFacingMs = Math.max(0, f.aimFacingMs - dt);
+    f.speedMs = Math.max(0, f.speedMs - dt);
+    f.shieldMs = Math.max(0, f.shieldMs - dt);
     f.energy = Math.min(R.ENERGY_MAX, f.energy + (R.ENERGY_REGEN_PER_SEC * dt) / 1000);
     if (f.dashCharges < R.DASH_CHARGES) {
       f.dashRechargeMs += dt;
@@ -573,7 +664,13 @@ export class ActionEngine implements EngineLike {
       if (f.statusTurnMs <= 0) {
         const gate = gateAction(self, this.rng);
         if (gate.clearedStatus) {
-          this.events.push({ seq: this.nextSeq(), atMs: this.state.elapsedMs, type: 'statusCleared', instanceId: self.instanceId, status: gate.clearedStatus });
+          this.events.push({
+            seq: this.nextSeq(),
+            atMs: this.state.elapsedMs,
+            type: 'statusCleared',
+            instanceId: self.instanceId,
+            status: gate.clearedStatus,
+          });
         }
         f.statusTurnMs = R.ACTION_STATUS_TURN_MS;
       }
@@ -586,7 +683,7 @@ export class ActionEngine implements EngineLike {
     if (f.dashMs > 0) {
       f.dashMs -= R.ACTION_TICK_MS;
     } else {
-      const max = R.MAX_SPEED * (self.status === 'paralysis' ? R.PARALYSIS_MOVE_MULT : 1);
+      const max = R.MAX_SPEED * (self.status === 'paralysis' ? R.PARALYSIS_MOVE_MULT : 1) * (f.speedMs > 0 ? R.CROWD_SPEED_MULT : 1);
       const moving = input.x !== 0 || input.y !== 0;
       const a = Math.min(1, (moving ? R.ACCEL_RATE : R.FRICTION_RATE) * dtSec);
       v.x += (input.x * max - v.x) * a;
@@ -658,6 +755,24 @@ export class ActionEngine implements EngineLike {
   }
 
   private applyHit(attacker: PokemonInstance, target: PokemonInstance, move: MoveDefinition, direction: Vec2, position: Vec2): void {
+    const shielded = this.fighters[target.instanceId];
+    if (shielded.shieldMs > 0) {
+      shielded.shieldMs = 0;
+      this.pushAction({
+        type: 'hit',
+        attackerId: attacker.instanceId,
+        targetId: target.instanceId,
+        moveId: move.id,
+        damage: 0,
+        crit: false,
+        effectiveness: 1,
+        position,
+        direction,
+        knockback: { x: 0, y: 0 },
+        blocked: true,
+      });
+      return;
+    }
     // Aim is the accuracy check: a projectile that connects always hits.
     const result = resolveDamage(this.rng, { ...move, accuracy: null }, attacker, target);
     let damage = 0;
@@ -677,7 +792,13 @@ export class ActionEngine implements EngineLike {
         kb.y += shoveVec.y;
       }
       if (maybeThawOnFireHit(target, move.type === 'fire' && !move.typeless)) {
-        this.events.push({ seq: this.nextSeq(), atMs: this.state.elapsedMs, type: 'statusCleared', instanceId: target.instanceId, status: 'freeze' });
+        this.events.push({
+          seq: this.nextSeq(),
+          atMs: this.state.elapsedMs,
+          type: 'statusCleared',
+          instanceId: target.instanceId,
+          status: 'freeze',
+        });
       }
       this.applyMoveEffect(move, attacker, target);
     }
@@ -704,7 +825,13 @@ export class ActionEngine implements EngineLike {
       if (!canApplyStatus(recipient, effect.status)) return;
       applyStatus(recipient, effect.status, this.rng);
       if (isIncapacitatingStatus(effect.status)) this.fighters[recipient.instanceId].statusTurnMs = R.ACTION_STATUS_TURN_MS;
-      this.events.push({ seq: this.nextSeq(), atMs: this.state.elapsedMs, type: 'statusApplied', instanceId: recipient.instanceId, status: effect.status });
+      this.events.push({
+        seq: this.nextSeq(),
+        atMs: this.state.elapsedMs,
+        type: 'statusApplied',
+        instanceId: recipient.instanceId,
+        status: effect.status,
+      });
     } else if (effect.kind === 'statStage' && effect.statChanges) {
       for (const [key, delta] of Object.entries(effect.statChanges) as [StageKey, number][]) {
         recipient.statStages[key] = Math.max(-6, Math.min(6, recipient.statStages[key] + delta));
@@ -759,6 +886,8 @@ export class ActionEngine implements EngineLike {
       invulnMs: R.SPAWN_SHIELD_MS,
       knockback: { x: 0, y: 0 },
       respawnAtMs: null,
+      speedMs: 0,
+      shieldMs: 0,
     });
     const living = new Set([...this.state.livingOrder, id]);
     this.state.livingOrder = this.state.allInstanceIds.filter((other) => living.has(other));
@@ -795,6 +924,7 @@ export class ActionEngine implements EngineLike {
       this.state.pokemon[id].aiState = 'attack';
     }
     this.projectiles = [];
+    this.pickups = [];
     this.events.push({ seq: this.nextSeq(), atMs: this.state.elapsedMs, type: 'milestone', kind: 'matchEnd' });
   }
 }

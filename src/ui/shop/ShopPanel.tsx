@@ -4,7 +4,7 @@ import { ITEMS, MATCH_ITEM_LIMIT_PER_SESSION, type ItemId, type ShopItem } from 
 import type { SimStore } from '../state/simStore';
 import { useSimSnapshot } from '../hooks/useSimSnapshot';
 import { formatDollars } from '../predictions/predictionModel';
-import { DESTRUCTIVE, PRIMARY, SUCCESS, TEXT, TEXT_MUTED, primaryAlpha, textAlpha } from '../theme';
+import { DESTRUCTIVE, FONT_BODY, FONT_UI, INFO_BOX, INK, INK_MUTED, OUTLINE, PANEL, SUCCESS, SUNK } from '../theme';
 import {
   canBuyItem,
   hpColor,
@@ -124,7 +124,7 @@ function ShopPanelBody({
       <header style={headerStyle}>
         <span style={titleStyle}>🎒 SHOP</span>
         {canBuy && (
-          <span style={{ ...statusStyle, color: myItemUses >= MATCH_ITEM_LIMIT_PER_SESSION ? TEXT_MUTED : SUCCESS }}>
+          <span style={{ ...statusStyle, color: myItemUses >= MATCH_ITEM_LIMIT_PER_SESSION ? INK_MUTED : SUCCESS }}>
             {myItemUses}/{MATCH_ITEM_LIMIT_PER_SESSION} used
           </span>
         )}
@@ -200,10 +200,20 @@ function ShopPanelBody({
               >
                 <span style={targetNameStyle}>{row.name.toUpperCase()}</span>
                 <span style={hpBarStyle} aria-hidden>
-                  <span style={{ ...hpFillStyle, width: `${Math.max(0, Math.min(1, row.hpFraction)) * 100}%`, background: hpColor(row.hpFraction) }} />
+                  <span
+                    style={{
+                      ...hpFillStyle,
+                      width: `${Math.max(0, Math.min(1, row.hpFraction)) * 100}%`,
+                      background: hpColor(row.hpFraction),
+                    }}
+                  />
                 </span>
                 <span style={row.blocked === null ? healStyle : blockedStyle}>
-                  {row.blocked === null ? (pickedItem.effect === 'revive' ? `REVIVE ${row.heal}` : `+${row.heal}`) : targetBlockedLabel(row.blocked)}
+                  {row.blocked === null
+                    ? pickedItem.effect === 'revive'
+                      ? `REVIVE ${row.heal}`
+                      : `+${row.heal}`
+                    : targetBlockedLabel(row.blocked)}
                 </span>
               </button>
             ))}
@@ -240,8 +250,8 @@ const panelStyle: CSSProperties = {
   gap: 8,
   padding: 10,
   boxSizing: 'border-box',
-  fontFamily: 'monospace',
-  color: TEXT,
+  fontFamily: FONT_BODY,
+  color: INK,
 };
 
 const headerStyle: CSSProperties = {
@@ -252,15 +262,14 @@ const headerStyle: CSSProperties = {
 };
 
 const titleStyle: CSSProperties = {
-  fontSize: 12,
-  fontWeight: 'bold',
-  letterSpacing: 1,
+  fontFamily: FONT_UI,
+  fontSize: 20,
+  fontWeight: 700,
 };
 
 const statusStyle: CSSProperties = {
-  fontSize: 11,
+  fontSize: 13,
   fontWeight: 'bold',
-  letterSpacing: 0.5,
   whiteSpace: 'nowrap',
   fontVariantNumeric: 'tabular-nums',
 };
@@ -269,38 +278,36 @@ const walletRowStyle: CSSProperties = {
   display: 'flex',
   alignItems: 'baseline',
   justifyContent: 'space-between',
-  padding: '6px 8px',
-  borderRadius: 6,
-  background: primaryAlpha(0.08),
-  border: `1px solid ${primaryAlpha(0.25)}`,
+  padding: '6px 10px',
+  borderRadius: 8,
+  background: INFO_BOX,
+  border: OUTLINE,
 };
 
 const walletLabelStyle: CSSProperties = {
-  fontSize: 9,
+  fontSize: 13,
   fontWeight: 'bold',
-  letterSpacing: 1,
-  opacity: 0.7,
+  color: INK_MUTED,
 };
 
 const walletValueStyle: CSSProperties = {
-  fontSize: 15,
-  fontWeight: 'bold',
-  color: PRIMARY,
+  fontFamily: FONT_UI,
+  fontSize: 20,
+  fontWeight: 700,
   fontVariantNumeric: 'tabular-nums',
 };
 
 const captionStyle: CSSProperties = {
   margin: 0,
-  fontSize: 9,
+  fontSize: 12,
   fontWeight: 'bold',
-  letterSpacing: 1,
-  opacity: 0.6,
+  color: INK_MUTED,
 };
 
 const emptyStyle: CSSProperties = {
   margin: 0,
-  fontSize: 12,
-  opacity: 0.6,
+  fontSize: 14,
+  color: INK_MUTED,
 };
 
 const listStyle: CSSProperties = {
@@ -315,24 +322,27 @@ const itemStyle: CSSProperties = {
   alignItems: 'center',
   gap: 8,
   width: '100%',
-  padding: '8px 10px',
-  fontFamily: 'monospace',
-  color: TEXT,
+  minHeight: 52,
+  padding: '6px 10px 9px',
+  fontFamily: FONT_BODY,
+  color: INK,
   textAlign: 'left',
-  background: textAlpha(0.05),
-  border: `1px solid ${textAlpha(0.18)}`,
-  borderRadius: 6,
+  background: PANEL,
+  border: OUTLINE,
+  borderRadius: 8,
   cursor: 'pointer',
   overflow: 'hidden',
 };
 
 const disabledStyle: CSSProperties = {
-  opacity: 0.4,
+  background: SUNK,
+  color: INK_MUTED,
+  borderStyle: 'dashed',
   cursor: 'default',
 };
 
 const itemEmojiStyle: CSSProperties = {
-  fontSize: 18,
+  fontSize: 20,
   lineHeight: 1,
 };
 
@@ -345,34 +355,32 @@ const itemTextStyle: CSSProperties = {
 };
 
 const itemNameStyle: CSSProperties = {
-  fontSize: 12,
-  fontWeight: 'bold',
-  letterSpacing: 0.5,
+  fontFamily: FONT_UI,
+  fontSize: 18,
+  fontWeight: 700,
 };
 
 const itemTermsStyle: CSSProperties = {
-  fontSize: 10,
-  opacity: 0.7,
+  fontSize: 13,
   fontVariantNumeric: 'tabular-nums',
 };
 
 const stockStyle: CSSProperties = {
-  fontSize: 10,
+  fontSize: 13,
   fontWeight: 'bold',
-  letterSpacing: 0.5,
   whiteSpace: 'nowrap',
   fontVariantNumeric: 'tabular-nums',
 };
 
-// A hairline along the bottom edge of the row, so the shelf draining reads
+// A thin bar along the bottom edge of the row, so the shelf draining reads
 // without taking a line of its own.
 const stockBarStyle: CSSProperties = {
   position: 'absolute',
   left: 0,
   right: 0,
   bottom: 0,
-  height: 2,
-  background: textAlpha(0.08),
+  height: 4,
+  background: SUNK,
 };
 
 const stockFillStyle: CSSProperties = {
@@ -387,22 +395,23 @@ const stepHeaderStyle: CSSProperties = {
 };
 
 const backStyle: CSSProperties = {
-  padding: '3px 6px',
-  fontSize: 10,
-  fontFamily: 'monospace',
-  fontWeight: 'bold',
-  letterSpacing: 0.5,
-  color: TEXT,
-  background: 'transparent',
-  border: `1px solid ${textAlpha(0.18)}`,
-  borderRadius: 4,
+  minHeight: 44,
+  padding: '0 10px',
+  fontSize: 17,
+  fontFamily: FONT_UI,
+  fontWeight: 600,
+  color: INK,
+  background: PANEL,
+  border: OUTLINE,
+  borderRadius: 8,
+  boxShadow: `inset 0 -3px 0 ${SUNK}`,
   cursor: 'pointer',
 };
 
 const stepTitleStyle: CSSProperties = {
-  fontSize: 11,
-  fontWeight: 'bold',
-  letterSpacing: 0.5,
+  fontFamily: FONT_UI,
+  fontSize: 18,
+  fontWeight: 700,
   fontVariantNumeric: 'tabular-nums',
 };
 
@@ -411,22 +420,23 @@ const targetStyle: CSSProperties = {
   alignItems: 'center',
   gap: 8,
   width: '100%',
-  padding: '6px 10px',
-  fontFamily: 'monospace',
-  color: TEXT,
+  minHeight: 46,
+  padding: '0 10px',
+  fontFamily: FONT_BODY,
+  color: INK,
   textAlign: 'left',
-  background: textAlpha(0.05),
-  border: `1px solid ${textAlpha(0.18)}`,
-  borderRadius: 6,
+  background: INFO_BOX,
+  border: OUTLINE,
+  borderRadius: 8,
   cursor: 'pointer',
 };
 
 const targetNameStyle: CSSProperties = {
   flex: 1,
   minWidth: 0,
-  fontSize: 11,
-  fontWeight: 'bold',
-  letterSpacing: 0.5,
+  fontFamily: FONT_UI,
+  fontSize: 18,
+  fontWeight: 700,
   whiteSpace: 'nowrap',
   overflow: 'hidden',
   textOverflow: 'ellipsis',
@@ -434,10 +444,12 @@ const targetNameStyle: CSSProperties = {
 
 const hpBarStyle: CSSProperties = {
   flex: 'none',
-  width: 52,
-  height: 6,
-  borderRadius: 3,
-  background: textAlpha(0.12),
+  width: 56,
+  height: 10,
+  boxSizing: 'border-box',
+  border: `2px solid ${INK}`,
+  borderRadius: 4,
+  background: SUNK,
   overflow: 'hidden',
 };
 
@@ -450,7 +462,7 @@ const healStyle: CSSProperties = {
   flex: 'none',
   minWidth: 36,
   textAlign: 'right',
-  fontSize: 11,
+  fontSize: 14,
   fontWeight: 'bold',
   color: SUCCESS,
   fontVariantNumeric: 'tabular-nums',
@@ -458,20 +470,20 @@ const healStyle: CSSProperties = {
 
 const blockedStyle: CSSProperties = {
   ...healStyle,
-  color: TEXT_MUTED,
+  color: INK_MUTED,
 };
 
 const noticeStyle: CSSProperties = {
   margin: 0,
-  fontSize: 11,
+  fontSize: 14,
   fontWeight: 'bold',
   color: DESTRUCTIVE,
 };
 
 const blockedNoticeStyle: CSSProperties = {
   margin: 0,
-  fontSize: 11,
-  opacity: 0.7,
+  fontSize: 14,
+  color: INK_MUTED,
 };
 
 const logStyle: CSSProperties = {
@@ -479,12 +491,12 @@ const logStyle: CSSProperties = {
   flexDirection: 'column',
   gap: 2,
   paddingTop: 6,
-  borderTop: `1px solid ${textAlpha(0.12)}`,
+  borderTop: `2px solid ${INK}`,
 };
 
 const logRowStyle: CSSProperties = {
-  fontSize: 10,
-  opacity: 0.7,
+  fontSize: 13,
+  color: INK_MUTED,
   whiteSpace: 'nowrap',
   overflow: 'hidden',
   textOverflow: 'ellipsis',

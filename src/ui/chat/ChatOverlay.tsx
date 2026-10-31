@@ -2,10 +2,21 @@ import { memo, useEffect, useRef, useState, type CSSProperties } from 'react';
 import type { ChatMessage } from '../../net/protocol';
 import { ChatPanel, type ChatPanelProps } from './ChatPanel';
 import { useKeyboardInset } from '../hooks/useKeyboardInset';
-import { CHAT_TICKER_FADE_MS, CHAT_TICKER_MAX, CHAT_TICKER_MS, chatSenderColor, chatSenderLabel, countUnread, isSystemMessage, latestChatId } from './chatModel';
+import {
+  CHAT_TICKER_FADE_MS,
+  CHAT_TICKER_MAX,
+  CHAT_TICKER_MS,
+  chatSenderColor,
+  chatSenderLabel,
+  countUnread,
+  isSystemMessage,
+  latestChatId,
+} from './chatModel';
 import { PredictionsPanel, type PredictionsPanelProps } from '../predictions/PredictionsPanel';
 import { ShopPanel, type ShopPanelProps } from '../shop/ShopPanel';
-import { PRIMARY, PRIMARY_TEXT, SUCCESS, TEXT, bgAlpha, textAlpha } from '../theme';
+import { CrowdCallPanel, type CrowdCallPanelProps } from '../crowd/CrowdCallPanel';
+import { useCrowdCalls, type CrowdCallsStore } from '../crowd/crowdModel';
+import { CROWD, FONT_BODY, FONT_UI, INFO_BOX, INK, PANEL, PRIMARY, PRIMARY_TEXT, SUCCESS, TEXT, bgAlpha } from '../theme';
 
 export type ChatOverlayProps = Omit<ChatPanelProps, 'listHeight' | 'showTimestamps'> & {
   /** The room's predictions pool — gets its own 🔮 BET button beside 💬 CHAT
@@ -14,9 +25,11 @@ export type ChatOverlayProps = Omit<ChatPanelProps, 'listHeight' | 'showTimestam
   /** The room's item shop — a third tab beside CHAT and BETS, and a 🎒
    * button when collapsed (see ShopPanel). */
   shop?: ShopPanelProps;
+  /** Play Mode's Crowd Call vote — the drawer's first tab, and a VOTE button that dots while a call is open. */
+  vote?: CrowdCallPanelProps;
 };
 
-type DrawerTab = 'chat' | 'bets' | 'shop';
+type DrawerTab = 'vote' | 'chat' | 'bets' | 'shop';
 
 interface TickerEntry {
   message: ChatMessage;
@@ -37,7 +50,7 @@ interface TickerEntry {
  * useSimSnapshot) and none of this overlay's props come from the sim, so
  * without this the whole message list was re-rendered ten times a second.
  */
-export const ChatOverlay = memo(function ChatOverlay({ predictions, shop, ...props }: ChatOverlayProps) {
+export const ChatOverlay = memo(function ChatOverlay({ vote, predictions, shop, ...props }: ChatOverlayProps) {
   const { messages } = props;
   // Which drawer tab is showing, or null while the drawer is closed.
   const [openTab, setOpenTab] = useState<DrawerTab | null>(null);
@@ -89,18 +102,47 @@ export const ChatOverlay = memo(function ChatOverlay({ predictions, shop, ...pro
     return (
       <div style={{ ...drawerStyle, bottom: keyboardInset, maxHeight: `calc(100% - ${keyboardInset}px)` }}>
         <div style={drawerHeaderStyle}>
-          <div style={tabRowStyle}>
-            <button type="button" onClick={() => setOpenTab('chat')} style={tabStyle(openTab === 'chat')}>
-              💬 CHAT
+          <div role="tablist" style={tabRowStyle}>
+            {vote && (
+              <button
+                type="button"
+                role="tab"
+                aria-selected={openTab === 'vote'}
+                onClick={() => setOpenTab('vote')}
+                style={tabStyle(openTab === 'vote', true)}
+              >
+                Vote
+              </button>
+            )}
+            <button
+              type="button"
+              role="tab"
+              aria-selected={openTab === 'chat'}
+              onClick={() => setOpenTab('chat')}
+              style={tabStyle(openTab === 'chat')}
+            >
+              Chat
             </button>
             {predictions && (
-              <button type="button" onClick={() => setOpenTab('bets')} style={tabStyle(openTab === 'bets')}>
-                🔮 BETS
+              <button
+                type="button"
+                role="tab"
+                aria-selected={openTab === 'bets'}
+                onClick={() => setOpenTab('bets')}
+                style={tabStyle(openTab === 'bets')}
+              >
+                Bet
               </button>
             )}
             {shop && (
-              <button type="button" onClick={() => setOpenTab('shop')} style={tabStyle(openTab === 'shop')}>
-                🎒 SHOP
+              <button
+                type="button"
+                role="tab"
+                aria-selected={openTab === 'shop'}
+                onClick={() => setOpenTab('shop')}
+                style={tabStyle(openTab === 'shop')}
+              >
+                Items
               </button>
             )}
           </div>
@@ -108,7 +150,11 @@ export const ChatOverlay = memo(function ChatOverlay({ predictions, shop, ...pro
             ▾
           </button>
         </div>
-        {openTab === 'bets' && predictions ? (
+        {openTab === 'vote' && vote ? (
+          <div style={panelBodyStyle}>
+            <CrowdCallPanel {...vote} />
+          </div>
+        ) : openTab === 'bets' && predictions ? (
           <div style={panelBodyStyle}>
             <PredictionsPanel {...predictions} />
           </div>
@@ -134,7 +180,7 @@ export const ChatOverlay = memo(function ChatOverlay({ predictions, shop, ...pro
    * bottom-right LEAVE ROOM control. With all three present they drop to
    * icons (and the bet badge to a dot), which is how a phone toolbar reads
    * anyway; with only two, the labels stay exactly as they were. */
-  const compact = predictions !== undefined && shop !== undefined;
+  const compact = [vote, predictions, shop].filter((panel) => panel !== undefined).length >= 2;
 
   return (
     <>
@@ -147,7 +193,9 @@ export const ChatOverlay = memo(function ChatOverlay({ predictions, shop, ...pro
                 <span style={{ color: SUCCESS, fontStyle: 'italic' }}>{message.text}</span>
               ) : (
                 <>
-                  <span style={{ color: chatSenderColor(message), fontWeight: 'bold', textTransform: 'capitalize' }}>{chatSenderLabel(message, props.mySlotIndex, props.room, props.mySpectatorName)}</span>
+                  <span style={{ color: chatSenderColor(message), fontWeight: 'bold', textTransform: 'capitalize' }}>
+                    {chatSenderLabel(message, props.mySlotIndex, props.room, props.mySpectatorName)}
+                  </span>
                   <span style={{ opacity: 0.6 }}>: </span>
                   <span>{message.text}</span>
                 </>
@@ -157,6 +205,18 @@ export const ChatOverlay = memo(function ChatOverlay({ predictions, shop, ...pro
         </div>
       )}
       <div style={buttonRowStyle}>
+        {vote && (
+          <button
+            type="button"
+            onClick={() => setOpenTab('vote')}
+            title="Crowd Call vote"
+            aria-label="Crowd Call vote"
+            style={{ ...chatButtonStyle, color: PANEL, background: CROWD }}
+          >
+            VOTE
+            <VotingDot calls={vote.calls} />
+          </button>
+        )}
         <button type="button" onClick={() => setOpenTab('chat')} title="Chat" aria-label="Chat" style={chatButtonStyle}>
           {compact ? '💬' : '💬 CHAT'}
           {unread > 0 && <span style={badgeStyle}>{unread > 99 ? '99+' : unread}</span>}
@@ -178,6 +238,12 @@ export const ChatOverlay = memo(function ChatOverlay({ predictions, shop, ...pro
   );
 });
 
+/** Lights while a Crowd Call is taking votes; subscribes on its own so the overlay doesn't re-render at 4 Hz. */
+function VotingDot({ calls }: { calls: CrowdCallsStore }) {
+  const { current } = useCrowdCalls(calls);
+  return current?.phase === 'voting' ? <span style={{ ...dotStyle, background: PANEL, width: 8, height: 8 }} aria-hidden /> : null;
+}
+
 // Same corner treatment as MatchScreen's END MATCH button, mirrored to the
 // left edge; the two never overlap, and in the complete phase the centered
 // BACK TO ROOMS button clears these at any phone width.
@@ -194,15 +260,18 @@ const chatButtonStyle: CSSProperties = {
   display: 'inline-flex',
   alignItems: 'center',
   gap: 6,
-  padding: '6px 12px',
-  fontSize: 11,
-  fontFamily: 'monospace',
-  fontWeight: 'bold',
-  letterSpacing: 1,
-  color: '#e8e2d4',
-  background: 'rgba(20,22,28,0.75)',
-  border: '1px solid rgba(232,226,212,0.4)',
-  borderRadius: 5,
+  minHeight: 44,
+  minWidth: 44,
+  justifyContent: 'center',
+  padding: '0 12px',
+  fontSize: 18,
+  fontFamily: FONT_UI,
+  fontWeight: 700,
+  color: INK,
+  background: PANEL,
+  border: `3px solid ${INK}`,
+  borderRadius: 8,
+  boxSizing: 'border-box',
   cursor: 'pointer',
   pointerEvents: 'auto',
 };
@@ -213,6 +282,7 @@ const badgeStyle: CSSProperties = {
   fontSize: 10,
   color: PRIMARY_TEXT,
   background: PRIMARY,
+  border: `1px solid ${INK}`,
   borderRadius: 8,
 };
 
@@ -228,7 +298,7 @@ const dotStyle: CSSProperties = {
 const tickerStackStyle: CSSProperties = {
   position: 'absolute',
   left: 'max(16px, env(safe-area-inset-left))',
-  bottom: 'calc(max(16px, env(safe-area-inset-bottom)) + 40px)',
+  bottom: 'calc(max(16px, env(safe-area-inset-bottom)) + 52px)',
   maxWidth: '70%',
   display: 'flex',
   flexDirection: 'column',
@@ -238,7 +308,7 @@ const tickerStackStyle: CSSProperties = {
 
 const tickerRowStyle: CSSProperties = {
   fontSize: 12,
-  fontFamily: 'monospace',
+  fontFamily: FONT_BODY,
   lineHeight: 1.4,
   color: '#e8e2d4',
   background: 'rgba(20,22,28,0.75)',
@@ -252,12 +322,12 @@ const drawerStyle: CSSProperties = {
   position: 'absolute',
   left: 0,
   right: 0,
-  height: '45%',
+  height: '55%',
   display: 'flex',
   flexDirection: 'column',
   boxSizing: 'border-box',
   background: bgAlpha(0.97),
-  borderTop: `1px solid ${textAlpha(0.2)}`,
+  borderTop: `3px solid ${INK}`,
   borderRadius: '12px 12px 0 0',
   pointerEvents: 'auto',
   zIndex: 2,
@@ -276,39 +346,43 @@ const panelBodyStyle: CSSProperties = {
 
 const drawerHeaderStyle: CSSProperties = {
   display: 'flex',
-  alignItems: 'center',
-  justifyContent: 'space-between',
-  padding: '8px 12px 4px',
+  alignItems: 'stretch',
+  background: INFO_BOX,
+  borderBottom: `3px solid ${INK}`,
+  borderRadius: '12px 12px 0 0',
+  overflow: 'hidden',
 };
 
 const tabRowStyle: CSSProperties = {
-  display: 'flex',
-  gap: 6,
+  flex: 1,
+  display: 'grid',
+  gridAutoFlow: 'column',
+  gridAutoColumns: 'minmax(0, 1fr)',
 };
 
-function tabStyle(active: boolean): CSSProperties {
+/** Mock tabs: the selected one goes white with a bottom bar — crowd green for Vote, gold otherwise. */
+function tabStyle(active: boolean, crowd = false): CSSProperties {
   return {
-    fontSize: 12,
-    fontFamily: 'monospace',
-    fontWeight: 'bold',
-    letterSpacing: 1,
-    padding: '4px 10px',
-    color: active ? PRIMARY_TEXT : TEXT,
-    background: active ? PRIMARY : 'transparent',
-    border: `1px solid ${active ? PRIMARY : textAlpha(0.25)}`,
-    borderRadius: 4,
+    minHeight: 50,
+    fontSize: 19,
+    fontFamily: FONT_UI,
+    fontWeight: active ? 700 : 500,
+    color: INK,
+    background: active ? PANEL : 'transparent',
+    border: 'none',
+    boxShadow: active ? `inset 0 -4px 0 ${crowd ? CROWD : PRIMARY}` : 'none',
     cursor: 'pointer',
   };
 }
 
 const closeButtonStyle: CSSProperties = {
-  fontSize: 16,
+  width: 50,
+  fontSize: 18,
   lineHeight: 1,
-  padding: '2px 10px',
   color: TEXT,
   background: 'transparent',
-  border: `1px solid ${textAlpha(0.25)}`,
-  borderRadius: 4,
+  border: 'none',
+  borderLeft: `3px solid ${INK}`,
   cursor: 'pointer',
 };
 

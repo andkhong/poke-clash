@@ -18,7 +18,7 @@ import {
   targetBlockedLabel,
   targetRows,
 } from './shopModel';
-import { DESTRUCTIVE, SUCCESS, YELLOW } from '../theme';
+import { DESTRUCTIVE, HP_GREEN, HP_RED, HP_YELLOW, YELLOW } from '../theme';
 
 const POTION = getItem('potion');
 const SUPER = getItem('superPotion');
@@ -167,7 +167,9 @@ describe('shopNotice', () => {
     expect(shopNotice(state, shopWith(), cheapest - 1, 0, true)).toMatch(/Not enough/);
     expect(shopNotice(state, shopWith(), cheapest, 0, true)).toBeNull();
     // The cheap item is gone, so the expensive one sets the bar.
-    expect(shopNotice(state, shopWith({ stockLeft: { potion: 0, superPotion: 1, revive: 0 } }), SUPER.price - 1, 0, true)).toMatch(/Not enough/);
+    expect(shopNotice(state, shopWith({ stockLeft: { potion: 0, superPotion: 1, revive: 0 } }), SUPER.price - 1, 0, true)).toMatch(
+      /Not enough/
+    );
   });
 
   it('stays quiet in a read-only embed, which has nothing to explain', () => {
@@ -177,7 +179,15 @@ describe('shopNotice', () => {
 
 describe('activity log', () => {
   it('reads as buyer, target and HP restored, with the item emoji', () => {
-    const entry: ItemUse = { itemId: 'superPotion', effect: 'heal', targetInstanceId: 'p0-1', targetName: 'Piplup', buyerName: 'Slowpoke482', amount: 87, atMs: 0 };
+    const entry: ItemUse = {
+      itemId: 'superPotion',
+      effect: 'heal',
+      targetInstanceId: 'p0-1',
+      targetName: 'Piplup',
+      buyerName: 'Slowpoke482',
+      amount: 87,
+      atMs: 0,
+    };
     expect(itemUseText(entry)).toBe('Slowpoke482 → Piplup +87');
     expect(itemUseEmoji(entry)).toBe(SUPER.emoji);
   });
@@ -185,7 +195,17 @@ describe('activity log', () => {
 
 describe('itemErrorNotice', () => {
   it('maps each server rejection to its own short line', () => {
-    const codes = ['closed', 'out_of_stock', 'session_limit', 'target_fainted', 'target_full_hp', 'target_limit', 'insufficient_funds', 'rate_limited', 'no_shop'];
+    const codes = [
+      'closed',
+      'out_of_stock',
+      'session_limit',
+      'target_fainted',
+      'target_full_hp',
+      'target_limit',
+      'insufficient_funds',
+      'rate_limited',
+      'no_shop',
+    ];
     const notices = codes.map(itemErrorNotice);
     expect(new Set(notices).size).toBe(codes.length); // every code says something different
     expect(itemErrorNotice('something_unexpected')).toBe('Couldn’t buy that');
@@ -194,8 +214,8 @@ describe('itemErrorNotice', () => {
 
 describe('hpColor', () => {
   it('uses the roster HUD thresholds', () => {
-    expect(hpColor(0.9)).toBe(SUCCESS);
-    expect(hpColor(0.5)).toBe(YELLOW);
-    expect(hpColor(0.2)).toBe(DESTRUCTIVE);
+    expect(hpColor(0.9)).toBe(HP_GREEN);
+    expect(hpColor(0.5)).toBe(HP_YELLOW);
+    expect(hpColor(0.2)).toBe(HP_RED);
   });
 });

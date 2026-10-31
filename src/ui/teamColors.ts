@@ -3,10 +3,13 @@
 // HUD, and the in-arena sprite's team ring (PokemonSprite.ts). Kept as one
 // module (rather than each spot picking its own colors) so the setup screen
 // and the arena always agree on which color is which side.
-export const TEAM_A_COLOR_CSS = '#d33682';
-export const TEAM_B_COLOR_CSS = '#2aa198';
-export const TEAM_A_COLOR_HEX = 0xd33682;
-export const TEAM_B_COLOR_HEX = 0x2aa198;
+// Team Ruby vs Team Sapphire (see theme.ts). The CSS colors are text-safe on
+// light panels; the arena ring uses Sapphire's lighter fill so the two sides
+// also differ in lightness, not just hue.
+export const TEAM_A_COLOR_CSS = '#b01830';
+export const TEAM_B_COLOR_CSS = '#2048a0';
+export const TEAM_A_COLOR_HEX = 0xb01830;
+export const TEAM_B_COLOR_HEX = 0x6c9cec;
 
 export function teamColorCss(team: string | undefined): string | undefined {
   if (team === 'teamA') return TEAM_A_COLOR_CSS;

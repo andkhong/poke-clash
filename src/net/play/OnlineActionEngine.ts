@@ -81,6 +81,9 @@ export class OnlineActionEngine extends ActionEngine {
         kos: fs.kos,
         damageDealt: fs.damageDealt,
         dashRechargeMs: fs.dashRechargeMs,
+        // speedMs also lifts the cap in stepMovement for the fighter this screen moves.
+        speedMs: fs.speedMs,
+        shieldMs: fs.shieldMs,
       });
       if (id === me) {
         if (!holding)
@@ -110,6 +113,7 @@ export class OnlineActionEngine extends ActionEngine {
     this.samples.push({ atMs: now, positions });
     if (this.samples.length > MAX_SAMPLES) this.samples.shift();
 
+    this.pickups = s.pickups;
     this.projectileBase = s.projectiles;
     this.projectilesAtMs = now;
 

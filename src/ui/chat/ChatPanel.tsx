@@ -3,7 +3,7 @@ import type { ChatMessage, RoomSummary } from '../../net/protocol';
 import { CHAT_MAX_LENGTH, normalizeChatText, QUICK_REACTIONS } from '../../net/chat';
 import { containsBlockedLanguage } from '../../net/chatFilter';
 import { chatSenderColor, chatSenderLabel, formatChatTime, isSystemMessage } from './chatModel';
-import { DESTRUCTIVE, PRIMARY, PRIMARY_TEXT, SUCCESS, TEXT, textAlpha } from '../theme';
+import { ACTION, ACTION_BEVEL, CROWD, DESTRUCTIVE, FONT_BODY, FONT_UI, INK, INK_MUTED, OUTLINE, PANEL, SUNK } from '../theme';
 
 export interface ChatPanelProps {
   messages: ChatMessage[];
@@ -144,7 +144,7 @@ export function ChatPanel({
                 <span style={{ color: chatSenderColor(message), fontWeight: 'bold', textTransform: 'capitalize' }}>
                   {chatSenderLabel(message, mySlotIndex, room, mySpectatorName)}
                 </span>
-                <span style={{ opacity: 0.6 }}>: </span>
+                <span style={{ color: INK_MUTED }}>: </span>
                 <span>{message.text}</span>
               </div>
             )
@@ -208,8 +208,8 @@ const panelStyle: CSSProperties = {
   display: 'flex',
   flexDirection: 'column',
   gap: 6,
-  fontFamily: 'monospace',
-  color: TEXT,
+  fontFamily: FONT_BODY,
+  color: INK,
 };
 
 const listWrapBase: CSSProperties = {
@@ -223,18 +223,19 @@ const listStyle: CSSProperties = {
   overscrollBehavior: 'contain',
   padding: '4px 8px',
   boxSizing: 'border-box',
-  background: textAlpha(0.06),
-  borderRadius: 6,
+  background: PANEL,
+  border: OUTLINE,
+  borderRadius: 8,
 };
 
 const emptyStyle: CSSProperties = {
   margin: '8px 0',
-  fontSize: 12,
-  opacity: 0.5,
+  fontSize: 14,
+  color: INK_MUTED,
 };
 
 const rowStyle: CSSProperties = {
-  fontSize: 13,
+  fontSize: 15,
   lineHeight: 1.45,
   padding: '2px 0',
   overflowWrap: 'anywhere',
@@ -242,13 +243,13 @@ const rowStyle: CSSProperties = {
 
 const systemRowStyle: CSSProperties = {
   ...rowStyle,
-  color: SUCCESS,
-  fontStyle: 'italic',
+  color: CROWD,
+  fontWeight: 'bold',
 };
 
 const timeStyle: CSSProperties = {
-  fontSize: 11,
-  opacity: 0.45,
+  fontSize: 12,
+  color: INK_MUTED,
   marginRight: 6,
 };
 
@@ -257,21 +258,23 @@ const newBelowStyle: CSSProperties = {
   left: '50%',
   bottom: 8,
   transform: 'translateX(-50%)',
-  padding: '5px 12px',
-  fontSize: 11,
-  fontFamily: 'monospace',
-  fontWeight: 'bold',
-  color: PRIMARY_TEXT,
-  background: PRIMARY,
-  border: 'none',
-  borderRadius: 12,
+  minHeight: 36,
+  padding: '0 12px',
+  fontSize: 16,
+  fontFamily: FONT_UI,
+  fontWeight: 700,
+  color: INK,
+  background: ACTION,
+  border: OUTLINE,
+  borderRadius: 8,
   cursor: 'pointer',
-  boxShadow: '0 2px 8px rgba(0,0,0,0.4)',
+  boxShadow: `inset 0 -3px 0 ${ACTION_BEVEL}`,
 };
 
 const noticeStyle: CSSProperties = {
   margin: 0,
-  fontSize: 11,
+  fontSize: 14,
+  fontWeight: 'bold',
   color: DESTRUCTIVE,
 };
 
@@ -283,13 +286,15 @@ const chipsRowStyle: CSSProperties = {
 
 const chipStyle: CSSProperties = {
   flex: '1 0 auto',
-  padding: '6px 10px',
-  fontSize: 13,
-  fontFamily: 'monospace',
-  color: TEXT,
-  background: textAlpha(0.08),
-  border: `1px solid ${textAlpha(0.18)}`,
-  borderRadius: 14,
+  minHeight: 44,
+  padding: '0 10px',
+  fontSize: 16,
+  fontFamily: FONT_UI,
+  color: INK,
+  background: PANEL,
+  border: `2px solid ${INK}`,
+  borderRadius: 8,
+  boxShadow: `inset 0 -3px 0 ${SUNK}`,
   cursor: 'pointer',
 };
 
@@ -298,31 +303,32 @@ const composerStyle: CSSProperties = {
   gap: 6,
 };
 
-// Mirrors SpeciesPicker's search input; 16px rather than 13 because iOS
-// Safari zooms the page into any focused input smaller than that.
+// Mirrors SpeciesPicker's search input; 16px because iOS Safari zooms the
+// page into any focused input smaller than that.
 const inputStyle: CSSProperties = {
   flex: 1,
   minWidth: 0,
+  minHeight: 46,
   boxSizing: 'border-box',
   fontSize: 16,
-  fontFamily: 'monospace',
-  padding: '8px 10px',
-  borderRadius: 6,
-  border: `1px solid ${textAlpha(0.2)}`,
-  background: textAlpha(0.05),
-  color: TEXT,
-  outline: 'none',
+  fontFamily: FONT_BODY,
+  padding: '0 12px',
+  borderRadius: 8,
+  border: OUTLINE,
+  background: PANEL,
+  color: INK,
 };
 
 const sendButtonStyle: CSSProperties = {
-  padding: '8px 12px',
-  fontSize: 11,
-  fontFamily: 'monospace',
-  fontWeight: 'bold',
-  letterSpacing: 1,
-  color: PRIMARY_TEXT,
-  background: PRIMARY,
-  border: 'none',
-  borderRadius: 6,
+  minHeight: 46,
+  padding: '0 14px',
+  fontSize: 18,
+  fontFamily: FONT_UI,
+  fontWeight: 700,
+  color: INK,
+  background: ACTION,
+  border: OUTLINE,
+  borderRadius: 8,
+  boxShadow: `inset 0 -4px 0 ${ACTION_BEVEL}`,
   cursor: 'pointer',
 };

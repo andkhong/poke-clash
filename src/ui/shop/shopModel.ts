@@ -2,7 +2,7 @@ import type { ItemUse, ShopSummary } from '../../net/protocol';
 import type { PokemonInstance, SimState } from '../../sim/types';
 import { getItem, isShopOpenForPhase, ITEMS, MATCH_ITEM_LIMIT_PER_SESSION, MAX_HEALS_PER_TARGET, type ShopItem } from '../../net/shop';
 import { formatDollars } from '../predictions/predictionModel';
-import { DESTRUCTIVE, SUCCESS, YELLOW } from '../theme';
+import { DESTRUCTIVE, HP_GREEN, HP_RED, HP_YELLOW, YELLOW } from '../theme';
 
 /** Pure shop-panel presentation logic, kept out of the component so it can be
  * unit-tested under Vitest's node environment — the same split
@@ -123,13 +123,7 @@ export function itemTerms(item: ShopItem): string {
 /** Why the panel can't be used at all right now, as one line — or null when
  * it can. Ordered the way a buyer would want to hear it: is the shop even
  * trading → have I already bought → is there anything left → can I afford it. */
-export function shopNotice(
-  state: SimState,
-  shop: ShopSummary,
-  balance: number,
-  myItemUses: number,
-  canBuy: boolean
-): string | null {
+export function shopNotice(state: SimState, shop: ShopSummary, balance: number, myItemUses: number, canBuy: boolean): string | null {
   if (!canBuy) return null;
   if (state.phase === 'intro') return 'Shop opens when the battle starts';
   if (state.phase === 'complete') return 'Shop closed — match over';
@@ -196,7 +190,7 @@ export function targetBlockedLabel(reason: TargetBlockReason): string {
 /** HP-bar colour, matching the roster HUD's thresholds so a fighter reads the
  * same in both places. */
 export function hpColor(fraction: number): string {
-  if (fraction > 0.5) return SUCCESS;
-  if (fraction > 0.2) return YELLOW;
-  return DESTRUCTIVE;
+  if (fraction > 0.5) return HP_GREEN;
+  if (fraction > 0.2) return HP_YELLOW;
+  return HP_RED;
 }

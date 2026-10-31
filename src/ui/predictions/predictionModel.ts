@@ -1,6 +1,6 @@
 import type { MyBet, PredictionOptionSummary, PredictionSummary, WalletEventPayload } from '../../net/protocol';
 import { teamColorCss } from '../teamColors';
-import { ACCENT, SECONDARY, SOLARIZED_ACCENTS } from '../theme';
+import { ACCENT, SECONDARY, TEXT_ACCENTS } from '../theme';
 
 /** Pure predictions-panel presentation logic, kept out of the component so
  * it can be unit-tested under Vitest's node environment (same split as
@@ -100,7 +100,7 @@ export function optionColor(option: PredictionOptionSummary): string {
   if (option.id === 'party') return SECONDARY;
   const slot = /^p(\d+)-/.exec(option.instanceIds[0] ?? '');
   const slotIndex = slot ? Number(slot[1]) : 0;
-  return SOLARIZED_ACCENTS[slotIndex % SOLARIZED_ACCENTS.length];
+  return TEXT_ACCENTS[slotIndex % TEXT_ACCENTS.length];
 }
 
 /** Short user-facing notice for a rejected bet (server error codes from

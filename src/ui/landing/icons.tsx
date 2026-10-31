@@ -11,10 +11,47 @@ export function PlayIcon() {
   );
 }
 
-export function MailIcon() {
+export function CrowdIcon() {
   return (
-    <svg width={14} height={11} viewBox="0 0 14 11" fill="currentColor" aria-hidden="true" focusable="false">
-      <path fillRule="evenodd" d="M0 0H14V11H0ZM1.5 2.2V9.5H12.5V2.2L7 6.3ZM2.6 1.5L7 4.8L11.4 1.5Z" />
+    <svg
+      width={22}
+      height={22}
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth={2.5}
+      aria-hidden="true"
+      focusable="false"
+    >
+      <circle cx="8" cy="9" r="3" />
+      <circle cx="16" cy="9" r="3" />
+      <path d="M2 20c0-3.3 2.7-5 6-5s6 1.7 6 5M12 20c0-3.3 2.7-5 6-5s4 1 4 3" />
+    </svg>
+  );
+}
+
+export function MenuIcon() {
+  return (
+    <svg width={20} height={20} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={3} aria-hidden="true" focusable="false">
+      <path d="M4 7h16M4 12h16M4 17h16" />
+    </svg>
+  );
+}
+
+export function PlusIcon() {
+  return (
+    <svg
+      width={48}
+      height={48}
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth={2.5}
+      aria-hidden="true"
+      focusable="false"
+    >
+      <rect x="3" y="3" width="18" height="18" rx="2" />
+      <path d="M12 8v8M8 12h8" />
     </svg>
   );
 }

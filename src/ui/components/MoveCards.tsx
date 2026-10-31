@@ -1,8 +1,9 @@
 import type { CSSProperties } from 'react';
 import { moveLookup } from '../../data/loader';
 import { moveCooldownMs, moveEnergyCost, moveKind, type MoveKind } from '../../sim/action/rules';
-import type { MoveDefinition } from '../../sim/types';
-import { typeColorCss } from '../typeColorCss';
+import type { MoveDefinition, PokemonTypeName } from '../../sim/types';
+import { FONT_BODY, FONT_UI, INK } from '../theme';
+import { typeColorCss, typeTextCss } from '../typeColorCss';
 
 const KIND_LABEL: Record<MoveKind, string> = { physical: 'Melee', ranged: 'Ranged', aoe: 'Burst', self: 'Self' };
 
@@ -10,13 +11,13 @@ const KIND_LABEL: Record<MoveKind, string> = { physical: 'Melee', ranged: 'Range
 export function MoveCards({ moveIds }: { moveIds: number[] }) {
   const moves = moveIds.map((id) => moveLookup(id)).filter((m): m is MoveDefinition => m !== undefined);
   return (
-    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 6 }}>
+    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
       {moves.map((move, i) => (
-        <div key={move.id} style={moveCard(typeColorCss(move.type))}>
-          <b>
+        <div key={move.id} style={moveCard(move.type)}>
+          <b style={{ fontFamily: FONT_UI, fontSize: 18, fontWeight: 700 }}>
             {i + 1}. {move.name}
           </b>
-          <span style={{ opacity: 0.9 }}>
+          <span>
             {KIND_LABEL[moveKind(move)]} · ⚡{moveEnergyCost(move.pp)} · {(moveCooldownMs(move.pp) / 1000).toFixed(1)}s
           </span>
         </div>
@@ -25,16 +26,18 @@ export function MoveCards({ moveIds }: { moveIds: number[] }) {
   );
 }
 
-function moveCard(color: string): CSSProperties {
+function moveCard(type: PokemonTypeName): CSSProperties {
   return {
     display: 'flex',
     flexDirection: 'column',
     gap: 2,
-    fontSize: 11,
-    padding: '6px 8px',
+    fontFamily: FONT_BODY,
+    fontSize: 14,
+    fontWeight: 700,
+    padding: '6px 10px',
     borderRadius: 6,
-    background: color,
-    color: '#fff',
-    textShadow: '0 1px 0 rgba(0,0,0,0.4)',
+    border: `2px solid ${INK}`,
+    background: typeColorCss(type),
+    color: typeTextCss(type),
   };
 }

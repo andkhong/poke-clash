@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { ActionEngine } from '../../sim/action/ActionEngine';
-import { ACTION_TICK_MS, MAX_SPEED } from '../../sim/action/rules';
+import { ACTION_TICK_MS, CROWD_SPEED_MULT, MAX_SPEED } from '../../sim/action/rules';
 import { MOVESET, SPECIES, lookup } from '../../sim/action/testFixtures';
 import type { MatchConfig } from '../../sim/types';
 import { OnlineActionEngine } from './OnlineActionEngine';
@@ -99,5 +99,22 @@ describe('OnlineActionEngine', () => {
     expect(client.getActionEventsSince(0).some((e) => e.type === 'hit' && e.targetId === ME)).toBe(true);
     expect(client.getState().pokemon[ME].currentHp).toBeLessThan(client.getState().pokemon[ME].maxHp);
     expect(client.getState().pokemon[ME].position.y).toBeLessThan(me.y); // shoved away from the shot
+  });
+
+  it('runs a crowd speed burst on the local mirror too, and the server keeps up with it', () => {
+    const { server, client, frames } = pair();
+    const start = { x: 450, y: 300 };
+    client.getState().pokemon[ME].position = { ...start };
+    server.getState().pokemon[ME].position = { ...start };
+    server.applyCrowdCard(server.getState().pokemon[ME].team, 'speed');
+    server.applyCrowdCard(server.getState().pokemon[FOE].team, 'supply');
+    frames(50);
+    expect(client.getFighter(ME).speedMs).toBeGreaterThan(0);
+    expect(client.getPickups()).toHaveLength(1);
+    client.setMoveInput(ME, 0, 1);
+    frames(1000);
+    const v = client.getState().pokemon[ME].velocity;
+    expect(Math.hypot(v.x, v.y)).toBeCloseTo(MAX_SPEED * CROWD_SPEED_MULT, 0);
+    expect(Math.abs(server.getState().pokemon[ME].position.y - client.getState().pokemon[ME].position.y)).toBeLessThan(40);
   });
 });
