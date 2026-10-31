@@ -1,0 +1,56 @@
+{
+  "charizard": {
+    "id": 6,
+    "dir": "0006",
+    "width": 108,
+    "height": 100
+  },
+  "pikachu": {
+    "id": 25,
+    "dir": "0025",
+    "width": 72,
+    "height": 96
+  },
+  "gengar": {
+    "id": 94,
+    "dir": "0094",
+    "width": 100,
+    "height": 84
+  },
+  "lucario": {
+    "id": 448,
+    "dir": "0448",
+    "width": 100,
+    "height": 104
+  },
+  "blastoise": {
+    "id": 9,
+    "dir": "0009",
+    "width": 104,
+    "height": 96
+  },
+  "venusaur": {
+    "id": 3,
+    "dir": "0003",
+    "width": 100,
+    "height": 100
+  },
+  "snorlax": {
+    "id": 143,
+    "dir": "0143",
+    "width": 104,
+    "height": 108
+  },
+  "dragonite": {
+    "id": 149,
+    "dir": "0149",
+    "width": 100,
+    "height": 124
+  },
+  "charizard-attack": {
+    "id": 6,
+    "dir": "0006",
+    "width": 116,
+    "height": 108
+  }
+}

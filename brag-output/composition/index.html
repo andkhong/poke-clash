@@ -1,0 +1,1339 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=1920, height=1080" />
+    <title>Pokémon Brawl — brag</title>
+    <script src="assets/vendor/gsap.min.js"></script>
+    <style>
+      /* ---- Fonts: the project's own pair (src/ui/theme.ts FONT_DISPLAY / FONT_MONO),
+             vendored locally so the render is deterministic. ---- */
+      @font-face {
+        font-family: "Press Start 2P";
+        src: url("assets/fonts/PressStart2P-Regular.ttf") format("truetype");
+        font-weight: 400;
+        font-style: normal;
+        font-display: block;
+      }
+      @font-face {
+        font-family: "Space Mono";
+        src: url("assets/fonts/SpaceMono-Regular.ttf") format("truetype");
+        font-weight: 400;
+        font-style: normal;
+        font-display: block;
+      }
+      @font-face {
+        font-family: "Space Mono";
+        src: url("assets/fonts/SpaceMono-Bold.ttf") format("truetype");
+        font-weight: 700;
+        font-style: normal;
+        font-display: block;
+      }
+
+      /* ---- Tokens lifted verbatim from src/ui/theme.ts ---- */
+      :root {
+        --bg: #fdf6e3;
+        --bg-alt: #eee8d5;
+        --stage: #101216;
+        --text: #073642;
+        --text-muted: #586e75;
+        --primary: #d33682;
+        --primary-deep: #b02f6d;
+        --secondary: #2aa198;
+        --accent: #cb4b16;
+        --destructive: #dc322f;
+        --success: #859900;
+        --display: "Press Start 2P", monospace;
+        --mono: "Space Mono", monospace;
+        /* written per frame by the audio-reactive sampler */
+        --glow: 0;
+      }
+
+      * {
+        margin: 0;
+        padding: 0;
+        box-sizing: border-box;
+      }
+      html,
+      body {
+        width: 1920px;
+        height: 1080px;
+        overflow: hidden;
+        background: var(--stage);
+      }
+      #root {
+        position: relative;
+        width: 100%;
+        height: 100%;
+        overflow: hidden;
+        font-family: var(--mono);
+        color: var(--bg);
+      }
+
+      /* ================= persistent camera layer =================
+         Untimed, so it needs its own positioning (root auto-layout only
+         touches timed children). One arena image carried across scenes 1-5
+         gives the cut-to-cut continuity of a real broadcast. */
+      #bg-layer {
+        position: absolute;
+        inset: 0;
+        background: var(--stage);
+        overflow: hidden;
+      }
+      #bg-cam {
+        position: absolute;
+        inset: 0;
+      }
+      #bg-cam img {
+        display: block;
+        width: 100%;
+        height: 100%;
+        image-rendering: pixelated;
+      }
+      #bg-tint {
+        position: absolute;
+        inset: 0;
+        background: #05070a;
+      }
+      /* audio-reactive: bass swells the arena's warmth */
+      #ar-warm {
+        position: absolute;
+        inset: 0;
+        background: radial-gradient(ellipse at 50% 46%, rgba(203, 75, 22, 0.55), rgba(203, 75, 22, 0) 62%);
+        opacity: 0;
+      }
+      #bg-vig {
+        position: absolute;
+        inset: 0;
+        background: radial-gradient(ellipse at 50% 48%, rgba(0, 0, 0, 0) 42%, rgba(0, 0, 0, 0.72) 100%);
+      }
+
+      .clip {
+        z-index: 2;
+      }
+      .scene {
+        position: absolute;
+        inset: 0;
+      }
+
+      /* ================= shared pieces ================= */
+      .pill {
+        display: inline-flex;
+        align-items: center;
+        gap: 14px;
+        padding: 10px 20px 10px 12px;
+        border-radius: 999px;
+        background: rgba(7, 54, 66, 0.55);
+        border: 2px solid rgba(253, 246, 227, 0.22);
+      }
+      .badge {
+        display: inline-flex;
+        align-items: center;
+        gap: 10px;
+        padding: 7px 16px;
+        border-radius: 999px;
+        background: var(--primary);
+        color: #fff;
+        font-family: var(--mono);
+        font-weight: 700;
+        font-size: 20px;
+        letter-spacing: 0.08em;
+      }
+      .dot {
+        width: 12px;
+        height: 12px;
+        border-radius: 50%;
+        background: #fff;
+        box-shadow: 0 0 calc(6px + var(--glow) * 18px) rgba(255, 255, 255, 0.9);
+      }
+      .pill-text {
+        font-family: var(--mono);
+        font-weight: 700;
+        font-size: 22px;
+        letter-spacing: 0.04em;
+        color: var(--bg);
+      }
+
+      /* The game's own match banner — src/ui/hud/BannerOverlay.tsx, scaled up
+         for video (same cream plate, tan border, monospace bold). */
+      .banner {
+        display: inline-block;
+        padding: 18px 46px;
+        border: 5px solid #8a7a5c;
+        border-radius: 8px;
+        background: rgba(245, 240, 230, 0.96);
+        color: #3a3630;
+        font-family: var(--mono);
+        font-weight: 700;
+        font-size: 46px;
+        letter-spacing: 3px;
+        white-space: nowrap;
+        box-shadow: 0 6px 26px rgba(0, 0, 0, 0.55);
+      }
+
+      .sprite {
+        display: block;
+        image-rendering: pixelated;
+      }
+
+      /* A fighter standing on the field. `.poke` is a 220px box whose bottom
+         centre sits on the given left/top, so no CSS transform is needed on
+         anything GSAP later moves. */
+      .poke {
+        position: absolute;
+        width: 220px;
+        height: 220px;
+        margin-left: -110px;
+        margin-top: -220px;
+      }
+      .poke .lift {
+        position: absolute;
+        left: 0;
+        right: 0;
+        bottom: 0;
+        display: flex;
+        align-items: flex-end;
+        justify-content: center;
+      }
+      .poke .shade {
+        position: absolute;
+        left: 50%;
+        bottom: -10px;
+        width: 96px;
+        height: 22px;
+        margin-left: -48px;
+        border-radius: 50%;
+        background: rgba(0, 0, 0, 0.42);
+      }
+      .poke .dust {
+        position: absolute;
+        left: 50%;
+        bottom: -18px;
+        width: 150px;
+        height: 38px;
+        margin-left: -75px;
+        border-radius: 50%;
+        border: 4px solid rgba(253, 246, 227, 0.75);
+        opacity: 0;
+      }
+      /* Scene 4 is punched in to 1.5x, so its two fighters get a bigger box
+         and bigger art or they read as specks against the blown-up field. */
+      .poke.is-big {
+        width: 360px;
+        height: 360px;
+        margin-left: -180px;
+        margin-top: -360px;
+      }
+      .poke.is-big .shade {
+        width: 200px;
+        height: 42px;
+        margin-left: -100px;
+        bottom: -16px;
+      }
+      .poke.is-big .hpwrap {
+        width: 240px;
+        height: 22px;
+        margin-left: -120px;
+        margin-bottom: 20px;
+      }
+      .poke.is-big .kochip {
+        font-size: 44px;
+        width: 200px;
+        margin-left: -100px;
+      }
+      .poke .name {
+        position: absolute;
+        left: -30px;
+        right: -30px;
+        top: 100%;
+        margin-top: 12px;
+        text-align: center;
+        font-family: var(--mono);
+        font-weight: 700;
+        font-size: 19px;
+        letter-spacing: 0.1em;
+        color: var(--bg);
+        text-shadow: 2px 2px 0 rgba(0, 0, 0, 0.85);
+      }
+
+      /* ================= scene 1 — cold open ================= */
+      #s1-pill {
+        position: absolute;
+        left: 80px;
+        top: 76px;
+      }
+      #s1-hook {
+        position: absolute;
+        left: 80px;
+        right: 80px;
+        top: 372px;
+        text-align: center;
+      }
+      #s1-l1 {
+        font-family: var(--display);
+        font-size: 92px;
+        line-height: 1.1;
+        color: var(--bg);
+        text-shadow: 7px 7px 0 rgba(0, 0, 0, 0.72);
+      }
+      #s1-rule {
+        width: 280px;
+        height: 10px;
+        margin: 34px auto;
+        background: var(--primary);
+        box-shadow: 0 0 calc(10px + var(--glow) * 26px) rgba(211, 54, 130, 0.85);
+      }
+      #s1-l2 {
+        font-family: var(--display);
+        font-size: 54px;
+        line-height: 1.25;
+        color: var(--bg);
+        text-shadow: 5px 5px 0 rgba(0, 0, 0, 0.72);
+      }
+
+      /* ================= scene 2 — the arena fills ================= */
+      #s2-banner {
+        position: absolute;
+        left: 0;
+        right: 0;
+        top: 44%;
+        text-align: center;
+      }
+      #s2-label {
+        position: absolute;
+        left: 80px;
+        top: 76px;
+      }
+
+      /* ================= scene 3 — the bet =================
+         Rebuilt from src/ui/predictions/PredictionsPanel.tsx: same panel
+         surface, magenta wallet row, per-row pot/bets/multiplier line. */
+      #s3-panel {
+        position: absolute;
+        left: 50%;
+        top: 50%;
+        width: 980px;
+        margin-left: -490px;
+        margin-top: -322px;
+        padding: 26px 28px;
+        display: flex;
+        flex-direction: column;
+        gap: 16px;
+        border-radius: 14px;
+        background: var(--bg-alt);
+        color: var(--text);
+        box-shadow: 0 26px 70px rgba(0, 0, 0, 0.62), 0 0 0 2px rgba(7, 54, 66, 0.16);
+      }
+      .p-head {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+      }
+      .p-title {
+        display: inline-flex;
+        align-items: center;
+        gap: 14px;
+        font-weight: 700;
+        font-size: 26px;
+        letter-spacing: 2px;
+      }
+      .p-title img {
+        width: 34px;
+        height: 34px;
+        image-rendering: pixelated;
+      }
+      .p-status {
+        display: inline-flex;
+        align-items: center;
+        gap: 10px;
+        font-weight: 700;
+        font-size: 24px;
+        letter-spacing: 0.5px;
+        font-variant-numeric: tabular-nums;
+        color: var(--primary-deep);
+      }
+      .lock {
+        width: 20px;
+        height: 22px;
+        flex: none;
+      }
+      .p-wallet {
+        display: flex;
+        align-items: baseline;
+        justify-content: space-between;
+        padding: 14px 20px;
+        border-radius: 10px;
+        background: rgba(211, 54, 130, 0.08);
+        border: 2px solid rgba(211, 54, 130, 0.25);
+      }
+      .p-wallet-label {
+        font-weight: 700;
+        font-size: 20px;
+        letter-spacing: 2px;
+        opacity: 0.7;
+      }
+      .p-wallet-value {
+        font-weight: 700;
+        font-size: 42px;
+        color: var(--primary-deep);
+        font-variant-numeric: tabular-nums;
+      }
+      .p-q {
+        font-weight: 700;
+        font-size: 20px;
+        letter-spacing: 2px;
+        opacity: 0.7;
+      }
+      .p-rows {
+        display: flex;
+        flex-direction: column;
+        gap: 10px;
+      }
+      .p-row {
+        display: flex;
+        flex-direction: column;
+        gap: 6px;
+        padding: 12px 16px;
+        border-radius: 10px;
+        background: rgba(7, 54, 66, 0.05);
+        border: 2px solid rgba(7, 54, 66, 0.12);
+      }
+      .p-row-top {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 16px;
+      }
+      .p-name {
+        display: inline-flex;
+        align-items: center;
+        gap: 14px;
+        font-weight: 700;
+        font-size: 26px;
+        letter-spacing: 1px;
+      }
+      .p-name img {
+        width: 48px;
+        height: 48px;
+        object-fit: contain;
+        image-rendering: pixelated;
+      }
+      .p-mult {
+        font-weight: 700;
+        font-size: 30px;
+        font-variant-numeric: tabular-nums;
+        color: var(--primary-deep);
+      }
+      .p-meta {
+        font-size: 20px;
+        /* TEXT_MUTED darkened for video: the app value drops under AA once the
+           locked rows dim, and these numbers are the point of the scene. */
+        color: #46595f;
+        font-variant-numeric: tabular-nums;
+        padding-left: 62px;
+      }
+      #s3-cursor {
+        position: absolute;
+        left: 0;
+        top: 0;
+        width: 40px;
+        height: 46px;
+      }
+      #s3-cursor svg {
+        display: block;
+        width: 100%;
+        height: 100%;
+        filter: drop-shadow(0 3px 5px rgba(0, 0, 0, 0.6));
+      }
+
+      /* ================= scene 4 — the brawl ================= */
+      #s4-flash {
+        position: absolute;
+        inset: 0;
+        background: #fff;
+        opacity: 0;
+      }
+      #s4-left {
+        position: absolute;
+        left: 82px;
+        top: 76px;
+      }
+      .counter {
+        display: inline-flex;
+        align-items: center;
+        gap: 18px;
+        padding: 12px 24px;
+        border-radius: 10px;
+        background: rgba(7, 54, 66, 0.6);
+        border: 2px solid rgba(253, 246, 227, 0.24);
+      }
+      .counter-label {
+        font-weight: 700;
+        font-size: 22px;
+        letter-spacing: 0.12em;
+        color: rgba(253, 246, 227, 0.86);
+      }
+      .counter-value {
+        font-family: var(--display);
+        font-size: 34px;
+        color: var(--bg);
+        font-variant-numeric: tabular-nums;
+      }
+      .hpwrap {
+        position: absolute;
+        left: 50%;
+        bottom: 100%;
+        width: 150px;
+        height: 16px;
+        margin-left: -75px;
+        margin-bottom: 14px;
+        border-radius: 4px;
+        background: rgba(7, 54, 66, 0.72);
+        border: 2px solid rgba(253, 246, 227, 0.55);
+        overflow: hidden;
+      }
+      .hpfill {
+        display: block;
+        width: 100%;
+        height: 100%;
+        background: var(--success);
+        transform-origin: 0% 50%;
+      }
+      .kochip {
+        position: absolute;
+        left: 50%;
+        top: 30px;
+        width: 120px;
+        margin-left: -60px;
+        text-align: center;
+        font-family: var(--display);
+        font-size: 30px;
+        color: var(--destructive);
+        text-shadow: 3px 3px 0 rgba(0, 0, 0, 0.8);
+        opacity: 0;
+      }
+
+      /* ================= scene 5 — the payoff ================= */
+      #s5-banner {
+        position: absolute;
+        left: 0;
+        right: 0;
+        top: 22%;
+        text-align: center;
+      }
+      #s5-banner .banner {
+        box-shadow: 0 6px 26px rgba(0, 0, 0, 0.55), 0 0 calc(12px + var(--glow) * 40px) rgba(211, 54, 130, 0.75);
+      }
+      #s5-pay {
+        position: absolute;
+        left: 0;
+        right: 0;
+        bottom: 96px;
+        text-align: center;
+      }
+      #s5-plus {
+        font-family: var(--display);
+        font-size: 78px;
+        color: #b7cf00;
+        text-shadow: 6px 6px 0 rgba(0, 0, 0, 0.72);
+      }
+      #s5-bal {
+        margin-top: 24px;
+        font-family: var(--mono);
+        font-weight: 700;
+        font-size: 34px;
+        letter-spacing: 0.1em;
+        color: var(--bg);
+        text-shadow: 3px 3px 0 rgba(0, 0, 0, 0.8);
+      }
+      #s5-watch {
+        margin-top: 14px;
+        font-family: var(--mono);
+        font-weight: 700;
+        font-size: 25px;
+        color: rgba(253, 246, 227, 0.82);
+        text-shadow: 2px 2px 0 rgba(0, 0, 0, 0.8);
+      }
+
+      /* ================= scene 6 — the channel card ================= */
+      #s6-bg {
+        position: absolute;
+        inset: 0;
+        background: var(--bg);
+      }
+      #s6-card {
+        position: absolute;
+        left: 50%;
+        top: 128px;
+        width: 1220px;
+        margin-left: -610px;
+        padding: 56px 60px 50px;
+        text-align: center;
+        border-radius: 18px;
+        background: var(--bg);
+        border: 5px solid var(--text);
+        box-shadow: 14px 14px 0 rgba(7, 54, 66, 0.14);
+      }
+      #s6-ball {
+        width: 92px;
+        height: 92px;
+        image-rendering: pixelated;
+        margin: 0 auto 26px;
+        display: block;
+      }
+      #s6-mark {
+        font-family: var(--display);
+        font-size: 58px;
+        line-height: 1.2;
+        color: var(--text);
+      }
+      #s6-tag {
+        margin-top: 34px;
+        font-family: var(--mono);
+        font-weight: 700;
+        font-size: 32px;
+        color: var(--text);
+      }
+      #s6-chips {
+        margin-top: 36px;
+        display: flex;
+        justify-content: center;
+        gap: 18px;
+      }
+      .s6-chip {
+        display: inline-flex;
+        align-items: center;
+        gap: 12px;
+        padding: 14px 26px;
+        border-radius: 999px;
+        border: 3px solid rgba(7, 54, 66, 0.3);
+        font-family: var(--mono);
+        font-weight: 700;
+        font-size: 22px;
+        letter-spacing: 0.08em;
+        color: var(--text);
+      }
+      .s6-chip.is-live {
+        background: var(--primary);
+        border-color: var(--primary);
+        color: #fff;
+      }
+      .s6-chip .dot {
+        width: 11px;
+        height: 11px;
+        box-shadow: none;
+      }
+      #s6-url {
+        margin-top: 38px;
+        font-family: var(--mono);
+        font-weight: 700;
+        font-size: 30px;
+        letter-spacing: 0.06em;
+        color: var(--primary-deep);
+      }
+      #s6-cast {
+        position: absolute;
+        left: 0;
+        right: 0;
+        bottom: 74px;
+        display: flex;
+        align-items: flex-end;
+        justify-content: center;
+        gap: 58px;
+        height: 200px;
+      }
+      #s6-cast .cast {
+        display: flex;
+        align-items: flex-end;
+        height: 200px;
+      }
+      #s6-cast img {
+        display: block;
+        image-rendering: pixelated;
+      }
+    </style>
+  </head>
+  <body>
+    <div
+      id="root"
+      data-composition-id="main"
+      data-start="0"
+      data-width="1920"
+      data-height="1080"
+      data-duration="22.5"
+      data-fps="30"
+    >
+      <!-- persistent arena camera, scenes 1-5 -->
+      <div id="bg-layer">
+        <div id="bg-cam" data-layout-allow-overflow="true"><img src="assets/img/arena.jpg" alt="" /></div>
+        <div id="ar-warm"></div>
+        <div id="bg-tint"></div>
+        <div id="bg-vig"></div>
+      </div>
+
+      <!-- ===================== SCENE 1 — cold open ===================== -->
+      <section id="s1" class="clip" data-start="0" data-duration="3" data-track-index="0">
+        <div class="scene">
+          <div id="s1-pill" class="pill">
+            <span class="badge"><span class="dot"></span>LIVE</span>
+            <span class="pill-text">3 live battles · 12 rooms open</span>
+          </div>
+          <div id="s1-hook">
+            <div id="s1-l1">RIGHT NOW,</div>
+            <div id="s1-rule"></div>
+            <div id="s1-l2">8 POKÉMON ARE FIGHTING.</div>
+          </div>
+        </div>
+      </section>
+
+      <!-- ===================== SCENE 2 — the arena fills ===================== -->
+      <section id="s2" class="clip" data-start="3" data-duration="4" data-track-index="1">
+        <div class="scene">
+          <div id="s2-label" class="pill">
+            <span class="badge"><span class="dot"></span>LIVE</span>
+            <span class="pill-text">Featured Showcase · free-for-all</span>
+          </div>
+
+          <div class="poke" id="pk-charizard" style="left: 960px; top: 310px">
+            <div class="shade"></div>
+            <div class="dust"></div>
+            <div class="lift"><img class="sprite" src="assets/sprites/charizard.png" width="108" height="100" alt="" /></div>
+            <div class="name">CHARIZARD</div>
+          </div>
+          <div class="poke" id="pk-snorlax" style="left: 960px; top: 740px">
+            <div class="shade"></div>
+            <div class="dust"></div>
+            <div class="lift"><img class="sprite" src="assets/sprites/snorlax.png" width="104" height="108" alt="" /></div>
+            <div class="name">SNORLAX</div>
+          </div>
+          <div class="poke" id="pk-gengar" style="left: 1350px; top: 525px">
+            <div class="shade"></div>
+            <div class="dust"></div>
+            <div class="lift"><img class="sprite" src="assets/sprites/gengar.png" width="100" height="84" alt="" /></div>
+            <div class="name">GENGAR</div>
+          </div>
+          <div class="poke" id="pk-blastoise" style="left: 570px; top: 525px">
+            <div class="shade"></div>
+            <div class="dust"></div>
+            <div class="lift"><img class="sprite" src="assets/sprites/blastoise.png" width="104" height="96" alt="" /></div>
+            <div class="name">BLASTOISE</div>
+          </div>
+          <div class="poke" id="pk-lucario" style="left: 1236px; top: 373px">
+            <div class="shade"></div>
+            <div class="dust"></div>
+            <div class="lift"><img class="sprite" src="assets/sprites/lucario.png" width="100" height="104" alt="" /></div>
+            <div class="name">LUCARIO</div>
+          </div>
+          <div class="poke" id="pk-venusaur" style="left: 684px; top: 677px">
+            <div class="shade"></div>
+            <div class="dust"></div>
+            <div class="lift"><img class="sprite" src="assets/sprites/venusaur.png" width="100" height="100" alt="" /></div>
+            <div class="name">VENUSAUR</div>
+          </div>
+          <div class="poke" id="pk-dragonite" style="left: 1236px; top: 677px">
+            <div class="shade"></div>
+            <div class="dust"></div>
+            <div class="lift"><img class="sprite" src="assets/sprites/dragonite.png" width="100" height="124" alt="" /></div>
+            <div class="name">DRAGONITE</div>
+          </div>
+          <div class="poke" id="pk-pikachu" style="left: 684px; top: 373px">
+            <div class="shade"></div>
+            <div class="dust"></div>
+            <div class="lift"><img class="sprite" src="assets/sprites/pikachu.png" width="72" height="96" alt="" /></div>
+            <div class="name">PIKACHU</div>
+          </div>
+
+          <div id="s2-banner"><span class="banner">PLACE YOUR BETS!</span></div>
+        </div>
+      </section>
+
+      <!-- ===================== SCENE 3 — the bet ===================== -->
+      <section id="s3" class="clip" data-start="7" data-duration="5" data-track-index="2">
+        <div class="scene">
+          <div id="s3-panel">
+            <div class="p-head">
+              <span class="p-title"><img src="assets/img/pokeball.png" alt="" />PREDICTIONS</span>
+              <span class="p-status" id="s3-status">
+                <svg class="lock" viewBox="0 0 10 11" aria-hidden="true">
+                  <path fill="currentColor" d="M2 4V3a3 3 0 0 1 6 0v1h1v7H1V4h1Zm1 0h4V3a2 2 0 0 0-4 0v1Z" />
+                </svg>
+                <span id="s3-status-text">Closes in 0:12</span>
+              </span>
+            </div>
+
+            <div class="p-wallet">
+              <span class="p-wallet-label">YOUR BALANCE</span>
+              <span class="p-wallet-value" id="s3-balance">$100</span>
+            </div>
+
+            <div class="p-q">WHO WILL WIN?</div>
+
+            <div class="p-rows">
+              <div class="p-row" id="s3-row-gengar">
+                <div class="p-row-top">
+                  <span class="p-name"><img src="assets/sprites/gengar.png" alt="" />GENGAR</span>
+                  <span class="p-mult">2.1×</span>
+                </div>
+                <div class="p-meta">$300 · 8 bets</div>
+              </div>
+              <div class="p-row" id="s3-row-lucario">
+                <div class="p-row-top">
+                  <span class="p-name"><img src="assets/sprites/lucario.png" alt="" />LUCARIO</span>
+                  <span class="p-mult">4.5×</span>
+                </div>
+                <div class="p-meta">$140 · 4 bets</div>
+              </div>
+              <div class="p-row" id="s3-row-charizard">
+                <div class="p-row-top">
+                  <span class="p-name"><img src="assets/sprites/charizard.png" alt="" />CHARIZARD</span>
+                  <span class="p-mult" id="s3-cz-mult">5.2×</span>
+                </div>
+                <div class="p-meta" id="s3-cz-meta">$120 · 3 bets</div>
+              </div>
+              <div class="p-row" id="s3-row-pikachu">
+                <div class="p-row-top">
+                  <span class="p-name"><img src="assets/sprites/pikachu.png" alt="" />PIKACHU</span>
+                  <span class="p-mult">9.6×</span>
+                </div>
+                <div class="p-meta">$65 · 2 bets</div>
+              </div>
+            </div>
+          </div>
+
+          <div id="s3-cursor">
+            <svg viewBox="0 0 20 23" aria-hidden="true">
+              <path fill="#fdf6e3" stroke="#073642" stroke-width="1.4" d="M2 1.4 17 12l-6.4.9L14 20l-3 1.3-3.2-7L2 18.6Z" />
+            </svg>
+          </div>
+        </div>
+      </section>
+
+      <!-- ===================== SCENE 4 — the brawl ===================== -->
+      <section id="s4" class="clip" data-start="12" data-duration="3.5" data-track-index="3">
+        <div class="scene">
+          <div class="poke is-big" id="s4-gengar" style="left: 1264px; top: 700px">
+            <div class="shade"></div>
+            <div class="lift">
+              <img class="sprite" src="assets/sprites/gengar.png" width="290" height="244" alt="" />
+              <div class="hpwrap"><span class="hpfill" id="s4-hp"></span></div>
+              <div class="kochip" id="s4-ko-gengar">KO</div>
+            </div>
+          </div>
+
+          <div class="poke is-big" id="s4-charizard" style="left: 716px; top: 700px">
+            <div class="shade"></div>
+            <div class="lift"><img class="sprite" src="assets/sprites/charizard-attack.png" width="336" height="313" alt="" /></div>
+          </div>
+
+          <div id="s4-left">
+            <span class="counter">
+              <span class="counter-label">FIGHTERS LEFT</span>
+              <span class="counter-value" id="s4-count">08</span>
+            </span>
+          </div>
+
+          <div id="s4-flash"></div>
+        </div>
+      </section>
+
+      <!-- ===================== SCENE 5 — the payoff ===================== -->
+      <section id="s5" class="clip" data-start="15.5" data-duration="4.3" data-track-index="4">
+        <div class="scene">
+          <div class="poke" id="s5-winner" style="left: 960px; top: 700px">
+            <div class="shade"></div>
+            <div class="lift"><img class="sprite" src="assets/sprites/charizard.png" width="216" height="200" alt="" /></div>
+          </div>
+
+          <div id="s5-banner"><span class="banner">CHARIZARD WINS!</span></div>
+
+          <div id="s5-pay">
+            <div id="s5-plus">+$166</div>
+            <div id="s5-bal">YOUR BALANCE&nbsp;&nbsp;$226</div>
+            <div id="s5-watch">+$10 for watching</div>
+          </div>
+        </div>
+      </section>
+
+      <!-- ===================== SCENE 6 — the channel card ===================== -->
+      <section id="s6" class="clip" data-start="19.5" data-duration="3" data-track-index="5">
+        <div class="scene">
+          <div id="s6-bg"></div>
+          <div id="s6-card">
+            <img id="s6-ball" src="assets/img/pokeball.png" alt="" />
+            <div id="s6-mark">POKÉMON BRAWL</div>
+            <div id="s6-tag">Watch Pokémon brawl. Bet on the winner.</div>
+            <div id="s6-chips">
+              <span class="s6-chip is-live"><span class="dot"></span>LIVE 24/7</span>
+              <span class="s6-chip">PLAY MONEY ONLY</span>
+              <span class="s6-chip">NO SIGN-UP</span>
+            </div>
+            <div id="s6-url">pokemonbrawl.com</div>
+          </div>
+          <div id="s6-cast">
+            <span class="cast"><img src="assets/sprites/venusaur.png" width="135" height="135" alt="" /></span>
+            <span class="cast"><img src="assets/sprites/blastoise.png" width="140" height="130" alt="" /></span>
+            <span class="cast"><img src="assets/sprites/pikachu.png" width="97" height="130" alt="" /></span>
+            <span class="cast"><img src="assets/sprites/charizard.png" width="146" height="135" alt="" /></span>
+            <span class="cast"><img src="assets/sprites/gengar.png" width="135" height="113" alt="" /></span>
+            <span class="cast"><img src="assets/sprites/lucario.png" width="135" height="140" alt="" /></span>
+            <span class="cast"><img src="assets/sprites/snorlax.png" width="140" height="146" alt="" /></span>
+            <span class="cast"><img src="assets/sprites/dragonite.png" width="135" height="167" alt="" /></span>
+          </div>
+        </div>
+      </section>
+
+      <!-- ===================== audio ===================== -->
+      <audio
+        id="bgm"
+        src="assets/music/happy-beats-business-moves-vol-11-by-ende-dot-app.mp3"
+        data-start="0"
+        data-duration="22.5"
+        data-track-index="20"
+        data-volume="1"
+      ></audio>
+
+      <!-- scene 1 — hook line slams -->
+      <audio id="sfx-slam1" src="assets/sfx/impactWood_heavy_002.ogg" data-start="0.3" data-duration="0.31" data-track-index="21" data-volume="0.55"></audio>
+      <audio id="sfx-slam2" src="assets/sfx/impactWood_heavy_003.ogg" data-start="1.6" data-duration="0.31" data-track-index="22" data-volume="0.7"></audio>
+
+      <!-- scene 2 — sprite landings (one per arriving pair) -->
+      <audio id="sfx-land1" src="assets/sfx/impactSoft_heavy_000.ogg" data-start="3.18" data-duration="0.5" data-track-index="23" data-volume="0.5"></audio>
+      <audio id="sfx-land2" src="assets/sfx/impactSoft_heavy_001.ogg" data-start="3.7" data-duration="0.57" data-track-index="24" data-volume="0.55"></audio>
+      <audio id="sfx-land3" src="assets/sfx/impactSoft_heavy_002.ogg" data-start="4.23" data-duration="0.57" data-track-index="25" data-volume="0.6"></audio>
+      <audio id="sfx-land4" src="assets/sfx/impactSoft_heavy_004.ogg" data-start="4.75" data-duration="0.5" data-track-index="26" data-volume="0.65"></audio>
+      <!-- scene 2 — PLACE YOUR BETS! -->
+      <audio id="sfx-bets" src="assets/sfx/card-fan-1.ogg" data-start="5.28" data-duration="0.72" data-track-index="27" data-volume="0.8"></audio>
+
+      <!-- scene 3 — prediction rows, the bet click, the lock -->
+      <audio id="sfx-row1" src="assets/sfx/card-slide-1.ogg" data-start="7.38" data-duration="0.6" data-track-index="28" data-volume="0.4"></audio>
+      <audio id="sfx-row2" src="assets/sfx/card-slide-3.ogg" data-start="7.65" data-duration="0.6" data-track-index="29" data-volume="0.4"></audio>
+      <audio id="sfx-row3" src="assets/sfx/card-slide-5.ogg" data-start="7.91" data-duration="0.6" data-track-index="30" data-volume="0.4"></audio>
+      <audio id="sfx-row4" src="assets/sfx/card-slide-7.ogg" data-start="8.18" data-duration="0.64" data-track-index="31" data-volume="0.4"></audio>
+      <audio id="sfx-click" src="assets/sfx/mouseclick1.ogg" data-start="8.44" data-duration="0.06" data-track-index="32" data-volume="0.85"></audio>
+      <audio id="sfx-chip" src="assets/sfx/chip-lay-2.ogg" data-start="8.5" data-duration="0.23" data-track-index="33" data-volume="0.75"></audio>
+      <audio id="sfx-lock" src="assets/sfx/switch_004.ogg" data-start="11.06" data-duration="0.5" data-track-index="34" data-volume="0.55"></audio>
+
+      <!-- scene 4 — the brawl -->
+      <audio id="sfx-ko1" src="assets/sfx/impactSoft_heavy_003.ogg" data-start="12.65" data-duration="0.54" data-track-index="35" data-volume="0.5"></audio>
+      <audio id="sfx-ko2" src="assets/sfx/impactPlate_heavy_003.ogg" data-start="13.7" data-duration="0.35" data-track-index="36" data-volume="0.5"></audio>
+      <audio id="sfx-punch" src="assets/sfx/impactPunch_heavy_002.ogg" data-start="14.22" data-duration="0.46" data-track-index="37" data-volume="0.9"></audio>
+
+      <!-- scene 5 — the payoff -->
+      <audio id="sfx-win" src="assets/sfx/impactBell_heavy_000.ogg" data-start="16.86" data-duration="1.48" data-track-index="38" data-volume="0.85"></audio>
+      <audio id="sfx-pay" src="assets/sfx/chips-stack-3.ogg" data-start="17.39" data-duration="0.37" data-track-index="39" data-volume="0.6"></audio>
+
+      <!-- scene 6 — the card lands -->
+      <audio id="sfx-card" src="assets/sfx/impactWood_heavy_004.ogg" data-start="19.49" data-duration="0.31" data-track-index="40" data-volume="0.5"></audio>
+    </div>
+
+    <script src="assets/audio-data.js"></script>
+    <script>
+      (function () {
+        var tl = gsap.timeline({ paused: true });
+        var root = document.getElementById("root");
+
+        /* =====================================================================
+           CAMERA — one arena carried across scenes 1-5. Scale/position cuts sit
+           exactly on the scene boundaries; the drifts run inside each scene.
+           ===================================================================== */
+        gsap.set("#bg-cam", { transformOrigin: "50% 48%" });
+
+        // S1: dark, pushed in, drifting closer.
+        tl.set("#bg-cam", { scale: 1.16, x: 0, y: 0 }, 0)
+          .set("#bg-tint", { opacity: 0.68 }, 0)
+          .to("#bg-cam", { scale: 1.1, duration: 3, ease: "none" }, 0);
+
+        // S2: cut wide and bright, slow drift in.
+        tl.set("#bg-cam", { scale: 1, x: 0, y: 0 }, 3)
+          .set("#bg-tint", { opacity: 0.12 }, 3)
+          .to("#bg-cam", { scale: 1.03, duration: 4, ease: "none" }, 3);
+
+        // S3: the arena falls back behind the panel.
+        tl.set("#bg-cam", { scale: 1.12, x: 0, y: 0 }, 7)
+          .set("#bg-tint", { opacity: 0.82 }, 7)
+          .to("#bg-cam", { scale: 1.16, duration: 5, ease: "none" }, 7);
+
+        // S4: hard punch into the fight.
+        tl.set("#bg-cam", { scale: 1.5, x: -110, y: -90 }, 12)
+          .set("#bg-tint", { opacity: 0.16 }, 12)
+          .to("#bg-cam", { scale: 1.58, duration: 3.5, ease: "none" }, 12);
+
+        // S5: settle back for the payoff.
+        tl.set("#bg-cam", { scale: 1.34, x: 0, y: -40 }, 15.5)
+          .set("#bg-tint", { opacity: 0.4 }, 15.5)
+          .to("#bg-cam", { scale: 1.3, duration: 4.3, ease: "none" }, 15.5);
+
+        /* =====================================================================
+           SCENE 1 — cold open (0.0 - 3.0)
+           ===================================================================== */
+        tl.fromTo("#s1-pill", { opacity: 0, x: -50 }, { opacity: 1, x: 0, duration: 0.45, ease: "power3.out" }, 0.1)
+          // line 1 slams and then HOLDS for 2.7s
+          .fromTo(
+            "#s1-l1",
+            { opacity: 0, scale: 1.35, y: -18 },
+            { opacity: 1, scale: 1, y: 0, duration: 0.34, ease: "power4.out" },
+            0.3
+          )
+          .fromTo("#s1-rule", { scaleX: 0 }, { scaleX: 1, duration: 0.4, ease: "power3.out" }, 0.62)
+          // beat-locked: 1.60s (strongCue) — line 2 holds 1.4s against a 1.2s floor
+          .fromTo(
+            "#s1-l2",
+            { opacity: 0, scale: 1.22, y: 14 },
+            { opacity: 1, scale: 1, y: 0, duration: 0.32, ease: "power4.out" },
+            1.6
+          )
+          .to("#s1 .scene", { opacity: 0, duration: 0.18, ease: "power2.in" }, 2.82);
+        gsap.set("#s1-rule", { transformOrigin: "50% 50%" });
+
+        /* =====================================================================
+           SCENE 2 — the arena fills (3.0 - 7.0)
+           Eight real PMD sprites land two at a time.
+           beat-grid: 3.18, 3.70, 4.23, 4.75
+           ===================================================================== */
+        var ARRIVALS = [
+          { at: 3.18, ids: ["#pk-charizard", "#pk-snorlax"] },
+          { at: 3.7, ids: ["#pk-gengar", "#pk-blastoise"] },
+          { at: 4.23, ids: ["#pk-lucario", "#pk-venusaur"] },
+          { at: 4.75, ids: ["#pk-dragonite", "#pk-pikachu"] }
+        ];
+
+        tl.fromTo("#s2-label", { opacity: 0, x: -40 }, { opacity: 1, x: 0, duration: 0.4, ease: "power3.out" }, 3.05);
+
+        ARRIVALS.forEach(function (wave) {
+          wave.ids.forEach(function (id, n) {
+            var t = wave.at + n * 0.05;
+            gsap.set(id + " .lift", { transformOrigin: "50% 100%" });
+            // drop
+            tl.fromTo(
+              id + " .lift",
+              { y: -340, opacity: 0, scaleX: 0.86, scaleY: 1.18 },
+              { y: 0, opacity: 1, scaleX: 1, scaleY: 1, duration: 0.3, ease: "power3.in" },
+              t
+            )
+              // squash on contact, then recover
+              .to(id + " .lift", { scaleX: 1.22, scaleY: 0.76, duration: 0.07, ease: "power2.out" }, t + 0.3)
+              .to(id + " .lift", { scaleX: 1, scaleY: 1, duration: 0.34, ease: "elastic.out(1, 0.5)" }, t + 0.37)
+              // shadow arrives with the landing
+              .fromTo(id + " .shade", { opacity: 0, scaleX: 0.3 }, { opacity: 1, scaleX: 1, duration: 0.22, ease: "power2.out" }, t + 0.26)
+              // dust ring
+              .fromTo(
+                id + " .dust",
+                { opacity: 0.9, scaleX: 0.3, scaleY: 0.3 },
+                { opacity: 0, scaleX: 1.5, scaleY: 1.5, duration: 0.42, ease: "power2.out" },
+                t + 0.3
+              );
+            gsap.set(id + " .shade", { transformOrigin: "50% 50%" });
+            gsap.set(id + " .dust", { transformOrigin: "50% 50%" });
+            // name chip — revealed after the whole cast has landed, then held
+            tl.fromTo(id + " .name", { opacity: 0, y: -10 }, { opacity: 1, y: 0, duration: 0.3, ease: "power2.out" }, 4.95);
+          });
+        });
+
+        // beat-locked: 5.28s (strongCue) — the game's own PLACE YOUR BETS! banner
+        gsap.set("#s2-banner", { transformOrigin: "50% 50%" });
+        tl.fromTo(
+          "#s2-banner",
+          { opacity: 0, scale: 1.5, rotation: -1.5 },
+          { opacity: 1, scale: 1, rotation: 0, duration: 0.3, ease: "power4.out" },
+          5.28
+        )
+          .to("#s2-banner", { scale: 1.03, duration: 0.5, ease: "sine.inOut", yoyo: true, repeat: 1 }, 5.62)
+          .to("#s2 .scene", { opacity: 0, duration: 0.16, ease: "power2.in" }, 6.84);
+
+        /* =====================================================================
+           SCENE 3 — the bet (7.0 - 12.0)
+           The predictions panel, rebuilt from the real component.
+           beat-grid: rows at 7.38, 7.65, 7.91, 8.18 · beat-locked click at 8.44
+           ===================================================================== */
+        gsap.set("#s3-panel", { transformOrigin: "50% 50%" });
+        tl.fromTo("#s3-panel", { opacity: 0, scale: 0.94, y: 24 }, { opacity: 1, scale: 1, y: 0, duration: 0.34, ease: "power3.out" }, 7.02);
+
+        var ROWS = ["#s3-row-gengar", "#s3-row-lucario", "#s3-row-charizard", "#s3-row-pikachu"];
+        // beat-grid: row 1 at 7.38s, row 2 at 7.65s, row 3 at 7.91s, row 4 at 8.18s
+        var ROW_TIMES = [7.38, 7.65, 7.91, 8.18];
+        ROWS.forEach(function (sel, i) {
+          tl.fromTo(sel, { opacity: 0, x: 46 }, { opacity: 1, x: 0, duration: 0.3, ease: "power3.out" }, ROW_TIMES[i]);
+        });
+
+        // the cursor travels to CHARIZARD and presses on the strong cue
+        tl.fromTo(
+          "#s3-cursor",
+          { opacity: 0, x: 1420, y: 1000 },
+          { opacity: 1, x: 1150, y: 830, duration: 0.3, ease: "power2.out" },
+          7.85
+        )
+          .to("#s3-cursor", { x: 1000, y: 726, duration: 0.29, ease: "power2.inOut" }, 8.15)
+          // beat-locked: 8.44s (strongCue)
+          .to("#s3-cursor", { scale: 0.8, duration: 0.08, ease: "power2.in" }, 8.44)
+          .to("#s3-cursor", { scale: 1, duration: 0.16, ease: "back.out(3)" }, 8.52)
+          .to("#s3-cursor", { opacity: 0, x: 1150, y: 880, duration: 0.4, ease: "power2.in" }, 9.4);
+
+        // the row takes the real magenta selection ring
+        tl.to(
+          "#s3-row-charizard",
+          {
+            backgroundColor: "rgba(211,54,130,0.12)",
+            borderColor: "#d33682",
+            duration: 0.18,
+            ease: "power2.out"
+          },
+          8.44
+        ).fromTo("#s3-row-charizard", { scale: 1 }, { scale: 1.035, duration: 0.14, yoyo: true, repeat: 1, ease: "power2.out" }, 8.44);
+        gsap.set("#s3-row-charizard", { transformOrigin: "50% 50%" });
+
+        // balance $100 -> $60, pot $120 -> $160, multiplier 5.2x -> 4.2x
+        var balance = { v: 100 };
+        tl.to(
+          balance,
+          {
+            v: 60,
+            duration: 0.42,
+            ease: "power2.out",
+            onUpdate: function () {
+              document.getElementById("s3-balance").textContent = "$" + Math.round(balance.v);
+            }
+          },
+          8.5
+        );
+        var pot = { v: 120 };
+        tl.to(
+          pot,
+          {
+            v: 160,
+            duration: 0.42,
+            ease: "power2.out",
+            onUpdate: function () {
+              document.getElementById("s3-cz-meta").textContent = "$" + Math.round(pot.v) + " · 4 bets";
+            }
+          },
+          8.5
+        );
+        var mult = { v: 5.2 };
+        tl.to(
+          mult,
+          {
+            v: 4.2,
+            duration: 0.42,
+            ease: "power2.out",
+            onUpdate: function () {
+              document.getElementById("s3-cz-mult").textContent = mult.v.toFixed(1) + "×";
+            }
+          },
+          8.5
+        );
+
+        // the window counts down, then locks
+        var countdown = { v: 12 };
+        tl.to(
+          countdown,
+          {
+            v: 8,
+            duration: 3.4,
+            ease: "none",
+            onUpdate: function () {
+              document.getElementById("s3-status-text").textContent = "Closes in 0:" + ("0" + Math.ceil(countdown.v)).slice(-2);
+            }
+          },
+          7.4
+        );
+        tl.call(
+          function () {
+            document.getElementById("s3-status-text").textContent = "CLOSED";
+            document.getElementById("s3-status").style.color = "#586e75";
+          },
+          [],
+          11.06
+        )
+          .fromTo("#s3-status", { scale: 1.2 }, { scale: 1, duration: 0.22, ease: "power3.out" }, 11.06)
+          .to(".p-rows", { opacity: 0.72, duration: 0.3, ease: "power2.out" }, 11.06)
+          .to("#s3 .scene", { opacity: 0, duration: 0.16, ease: "power2.in" }, 11.84);
+        gsap.set("#s3-status", { transformOrigin: "100% 50%" });
+
+        // seeking backwards must restore the pre-bet copy
+        tl.call(
+          function () {
+            document.getElementById("s3-status-text").textContent = "Closes in 0:12";
+            document.getElementById("s3-status").style.color = "";
+            document.getElementById("s3-balance").textContent = "$100";
+            document.getElementById("s3-cz-meta").textContent = "$120 · 3 bets";
+            document.getElementById("s3-cz-mult").textContent = "5.2×";
+          },
+          [],
+          7.0
+        );
+
+        /* =====================================================================
+           SCENE 4 — the brawl (12.0 - 15.5)
+           beat-grid KOs at 12.65 / 13.70 · beat-locked swing at 14.22
+           ===================================================================== */
+        gsap.set("#s4-charizard .lift", { transformOrigin: "50% 100%" });
+        tl.set("#s4 .scene", { x: 0, y: 0 }, 0);
+        gsap.set("#s4-gengar .lift", { transformOrigin: "50% 100%" });
+        gsap.set("#s4-hp", { transformOrigin: "0% 50%" });
+
+        tl.fromTo("#s4-left", { opacity: 0, x: -30 }, { opacity: 1, x: 0, duration: 0.3, ease: "power3.out" }, 12.05)
+          .fromTo("#s4-charizard .lift", { opacity: 0, x: -70 }, { opacity: 1, x: 0, duration: 0.28, ease: "power3.out" }, 12.05)
+          .fromTo("#s4-gengar .lift", { opacity: 0, x: 70 }, { opacity: 1, x: 0, duration: 0.28, ease: "power3.out" }, 12.05);
+
+        // two fighters go down off-frame; the counter is the readable signal
+        var fighters = ["08", "05", "03", "02", "01"];
+        [
+          { t: 12.65, i: 1 },
+          { t: 13.7, i: 2 },
+          { t: 14.35, i: 3 },
+          { t: 14.6, i: 4 }
+        ].forEach(function (step) {
+          tl.call(
+            function () {
+              document.getElementById("s4-count").textContent = fighters[step.i];
+            },
+            [],
+            step.t
+          ).fromTo("#s4-count", { scale: 1.5, color: "#dc322f" }, { scale: 1, color: "#fdf6e3", duration: 0.3, ease: "power3.out" }, step.t);
+        });
+        gsap.set("#s4-count", { transformOrigin: "50% 50%", display: "inline-block" });
+        tl.call(
+          function () {
+            document.getElementById("s4-count").textContent = "08";
+          },
+          [],
+          12.0
+        );
+
+        // HP drains as the hits land
+        tl.to("#s4-hp", { scaleX: 0.58, duration: 0.25, ease: "power2.out" }, 12.65)
+          .to("#s4-hp", { scaleX: 0.31, duration: 0.25, ease: "power2.out" }, 13.7)
+          .to("#s4-hp", { backgroundColor: "#dc322f", duration: 0.2 }, 13.7);
+
+        // camera shake through the exchange
+        tl.fromTo("#s4 .scene", { x: 0, y: 0 }, { x: 5, y: -4, duration: 0.07, yoyo: true, repeat: 5, ease: "none", immediateRender: false }, 12.6)
+          .fromTo("#s4 .scene", { x: 0, y: 0 }, { x: -6, y: 5, duration: 0.07, yoyo: true, repeat: 5, ease: "none", immediateRender: false }, 13.65);
+
+        // beat-locked: 14.22s (strongCue) — the swing, the flash, the last KO
+        tl.to("#s4-charizard .lift", { x: 210, scaleX: 1.12, duration: 0.14, ease: "power4.in" }, 14.08)
+          .to("#s4-charizard .lift", { x: 0, scaleX: 1, duration: 0.5, ease: "power2.out" }, 14.28)
+          .to("#s4-flash", { opacity: 0.88, duration: 0.05, ease: "none" }, 14.22)
+          .to("#s4-flash", { opacity: 0, duration: 0.26, ease: "power2.out" }, 14.28)
+          .to("#s4-hp", { scaleX: 0, duration: 0.14, ease: "power3.out" }, 14.24)
+          .to("#s4-gengar .lift", { x: 260, rotation: 74, opacity: 0, duration: 0.5, ease: "power2.in" }, 14.28)
+          .to("#s4-gengar .shade", { opacity: 0, duration: 0.4 }, 14.3)
+          .fromTo("#s4-ko-gengar", { opacity: 0, y: 20, scale: 1.6 }, { opacity: 1, y: -46, scale: 1, duration: 0.34, ease: "power3.out" }, 14.26)
+          .to("#s4-ko-gengar", { opacity: 0, y: -84, duration: 0.4, ease: "power2.in" }, 14.7)
+          .fromTo("#s4 .scene", { x: 0, y: 0 }, { x: 10, y: -8, duration: 0.05, yoyo: true, repeat: 7, ease: "none", immediateRender: false }, 14.22)
+          .to("#s4 .scene", { opacity: 0, duration: 0.16, ease: "power2.in" }, 15.34);
+
+        /* =====================================================================
+           SCENE 5 — the payoff (15.5 - 19.8)
+           beat-locked: 16.86s (strongCue)
+           ===================================================================== */
+        gsap.set("#s5-winner .lift", { transformOrigin: "50% 100%" });
+        gsap.set("#s5-banner", { transformOrigin: "50% 50%" });
+
+        tl.fromTo("#s5-winner .lift", { opacity: 0, scale: 0.9 }, { opacity: 1, scale: 1, duration: 0.3, ease: "power3.out" }, 15.55)
+          // the winner's victory bob
+          .to("#s5-winner .lift", { y: -22, duration: 0.5, ease: "sine.inOut", yoyo: true, repeat: 6 }, 15.9)
+          // beat-locked: 16.86s — the game's own {NAME} WINS! banner
+          .fromTo(
+            "#s5-banner",
+            { opacity: 0, scale: 1.65, rotation: 2 },
+            { opacity: 1, scale: 1, rotation: 0, duration: 0.32, ease: "power4.out" },
+            16.86
+          )
+          .to("#s5-banner", { scale: 1.04, duration: 0.42, ease: "sine.inOut", yoyo: true, repeat: 1 }, 17.2);
+
+        // the pot settles into the wallet
+        var pay = { v: 0 };
+        tl.call(
+          function () {
+            document.getElementById("s5-plus").textContent = "+$0";
+          },
+          [],
+          15.5
+        )
+          .fromTo("#s5-plus", { opacity: 0, scale: 0.7 }, { opacity: 1, scale: 1, duration: 0.26, ease: "back.out(2.2)" }, 17.39)
+          .to(
+            pay,
+            {
+              v: 166,
+              duration: 0.72,
+              ease: "power2.out",
+              onUpdate: function () {
+                document.getElementById("s5-plus").textContent = "+$" + Math.round(pay.v);
+              }
+            },
+            17.42
+          )
+          .fromTo("#s5-bal", { opacity: 0, y: 18 }, { opacity: 1, y: 0, duration: 0.3, ease: "power3.out" }, 18.2)
+          .fromTo("#s5-watch", { opacity: 0, y: 14 }, { opacity: 1, y: 0, duration: 0.3, ease: "power3.out" }, 18.6)
+          .to("#s5 .scene", { opacity: 0, duration: 0.3, ease: "power2.in" }, 19.5);
+        gsap.set("#s5-plus", { transformOrigin: "50% 50%" });
+
+        /* =====================================================================
+           SCENE 6 — the channel card (19.5 - 22.5)
+           beat-locked: 19.49s (strongCue)
+           ===================================================================== */
+        gsap.set("#s6-card", { transformOrigin: "50% 40%" });
+        tl.fromTo("#s6-bg", { opacity: 0 }, { opacity: 1, duration: 0.16, ease: "power2.out" }, 19.5)
+          .fromTo("#s6-card", { opacity: 0, scale: 0.9, y: 30 }, { opacity: 1, scale: 1, y: 0, duration: 0.36, ease: "back.out(1.6)" }, 19.5)
+          .fromTo("#s6-ball", { scale: 0, rotation: -140 }, { scale: 1, rotation: 0, duration: 0.5, ease: "back.out(2)" }, 19.58)
+          .fromTo("#s6-mark", { opacity: 0, y: 16 }, { opacity: 1, y: 0, duration: 0.3, ease: "power3.out" }, 19.66)
+          // tagline holds 2.48s against a 1.8s floor for six words
+          .fromTo("#s6-tag", { opacity: 0, y: 14 }, { opacity: 1, y: 0, duration: 0.3, ease: "power3.out" }, 20.02)
+          .fromTo(
+            "#s6-chips .s6-chip",
+            { opacity: 0, y: 18, scale: 0.9 },
+            { opacity: 1, y: 0, scale: 1, duration: 0.3, stagger: 0.09, ease: "back.out(2)" },
+            20.54
+          )
+          .fromTo(
+            "#s6-cast .cast",
+            { opacity: 0, y: 40 },
+            { opacity: 1, y: 0, duration: 0.34, stagger: 0.05, ease: "power3.out" },
+            20.72
+          )
+          .fromTo("#s6-url", { opacity: 0 }, { opacity: 1, duration: 0.3, ease: "power2.out" }, 21.06);
+        gsap.set("#s6-ball", { transformOrigin: "50% 50%" });
+
+        /* =====================================================================
+           AUDIO — fade in, duck under the win hit, fade out under the card.
+           Tween targets stay at or below the 0.5 baseline gain on #bgm.
+           ===================================================================== */
+        tl.fromTo("#bgm", { volume: 0 }, { volume: 0.5, duration: 0.4, ease: "none" }, 0)
+          .to("#bgm", { volume: 0.26, duration: 0.14, ease: "none" }, 16.82)
+          .to("#bgm", { volume: 0.5, duration: 0.7, ease: "none" }, 17.5)
+          .to("#bgm", { volume: 0, duration: 1.2, ease: "none" }, 21.3);
+
+        /* =====================================================================
+           AUDIO-REACTIVE — bass swells the arena's warmth, treble sharpens the
+           magenta glow on the live pill, the hook rule and the winner banner.
+           Pre-extracted data, sampled once per frame. Deliberately subtle, and
+           on properties no tween above touches.
+           ===================================================================== */
+        if (typeof AUDIO_DATA !== "undefined" && AUDIO_DATA.frames && AUDIO_DATA.frames.length) {
+          var warm = document.getElementById("ar-warm");
+          var frames = AUDIO_DATA.frames;
+          var afps = AUDIO_DATA.fps || 30;
+          var total = Math.min(frames.length, Math.ceil(22.5 * afps));
+          for (var f = 0; f < total; f++) {
+            tl.call(
+              (function (frame) {
+                return function () {
+                  var b = frame.bands;
+                  var bass = (b[0] + b[1] + b[2]) / 3;
+                  var treble = (b[11] + b[12] + b[13] + b[14]) / 4;
+                  warm.style.opacity = (bass * 0.16).toFixed(3);
+                  root.style.setProperty("--glow", treble.toFixed(3));
+                };
+              })(frames[f]),
+              [],
+              f / afps
+            );
+          }
+        }
+
+        window.__timelines["main"] = tl;
+        tl.seek(0);
+      })();
+    </script>
+  </body>
+</html>
