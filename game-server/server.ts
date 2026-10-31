@@ -14,6 +14,9 @@ import {
   toRoomSummary,
 } from './roomManager';
 import { broadcast, subscribe } from './sse';
+import { WebSocketServer } from 'ws';
+import { closePlayConnection, handlePlayMessage, openPlayConnection } from './playRooms';
+import { PLAY_WS_PATH } from '../src/net/play/playProtocol';
 import { walletStreamClosed, walletStreamOpened } from './wallets';
 import { BadRequestError, readJsonBody, readRawBody, sendJson } from './httpUtil';
 import type {
@@ -387,6 +390,37 @@ const server = createServer((req, res) => {
     console.error('[game-server] error serving', req.method, req.url, error);
     sendJson(res, 500, { error: 'internal_error' } satisfies ApiErrorBody);
   });
+});
+
+// Online Play Mode (see playRooms.ts). A player's messages are tiny (input,
+// a fire, a ping), so anything big is a misbehaving client.
+const playSockets = new WebSocketServer({ noServer: true, maxPayload: 4096 });
+playSockets.on('connection', (socket) => {
+  const conn = openPlayConnection((message) => {
+    if (socket.readyState === socket.OPEN) socket.send(JSON.stringify(message));
+  });
+  socket.on('message', (data) => {
+    let message: unknown;
+    try {
+      message = JSON.parse(String(data));
+    } catch {
+      return;
+    }
+    try {
+      handlePlayMessage(conn, message);
+    } catch (error) {
+      console.error('[game-server] play message failed', error);
+    }
+  });
+  socket.on('close', () => closePlayConnection(conn));
+  socket.on('error', () => socket.terminate());
+});
+server.on('upgrade', (req, socket, head) => {
+  if (new URL(req.url ?? '/', 'http://localhost').pathname !== PLAY_WS_PATH) {
+    socket.destroy();
+    return;
+  }
+  playSockets.handleUpgrade(req, socket, head, (ws) => playSockets.emit('connection', ws, req));
 });
 
 server.listen(PORT, () => {

@@ -27,7 +27,8 @@ export default defineConfig({
     proxy: {
       '/pmd-sprites': `http://localhost:${PMD_SPRITE_SERVER_PORT}`,
       '/soundtracks': `http://localhost:${PMD_SPRITE_SERVER_PORT}`,
-      '/api': `http://localhost:${GAME_SERVER_PORT}`,
+      // ws: online Play Mode's WebSocket (/api/play/ws) rides the same proxy.
+      '/api': { target: `http://localhost:${GAME_SERVER_PORT}`, ws: true },
     },
   },
   test: {

@@ -18,9 +18,10 @@ interface SetupScreenProps {
   onOpenCustomBattle: () => void;
   onOpenBossMode: () => void;
   onOpenTeamMode: () => void;
+  onOpenPlayMode: () => void;
 }
 
-export function SetupScreen({ onStart, onOpenCustomBattle, onOpenBossMode, onOpenTeamMode }: SetupScreenProps) {
+export function SetupScreen({ onStart, onOpenCustomBattle, onOpenBossMode, onOpenTeamMode, onOpenPlayMode }: SetupScreenProps) {
   const [level, setLevel] = useState<SelectableLevel>(50);
   const [speciesIds, setSpeciesIds] = useState<number[]>(() => pickRandomSpeciesIds(DEFAULT_ROSTER_SIZE));
   const [activePreset, setActivePreset] = useState<string | null>(null);
@@ -63,6 +64,10 @@ export function SetupScreen({ onStart, onOpenCustomBattle, onOpenBossMode, onOpe
       <p style={{ margin: 0, opacity: 0.7, fontSize: 12, textAlign: 'center' }}>
         Up to {MAX_ROSTER_SIZE} Pokémon enter. One leaves.
       </p>
+
+      <button onClick={onOpenPlayMode} style={playModeButton}>
+        🎮 PLAY — control your own Pokémon
+      </button>
 
       <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', justifyContent: 'center' }}>
         <button onClick={onOpenCustomBattle} style={customBattleLink}>
@@ -178,6 +183,19 @@ const chip: CSSProperties = {
   border: `1px solid ${textAlpha(0.15)}`,
   borderRadius: 3,
   padding: '3px 7px',
+};
+
+const playModeButton: CSSProperties = {
+  padding: '12px 24px',
+  fontSize: 14,
+  fontFamily: 'monospace',
+  fontWeight: 'bold',
+  letterSpacing: 1,
+  color: PRIMARY_TEXT,
+  background: PRIMARY,
+  border: 'none',
+  borderRadius: 6,
+  cursor: 'pointer',
 };
 
 const customBattleLink: CSSProperties = {

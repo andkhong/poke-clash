@@ -6,7 +6,7 @@ import type { EngineLike } from './engineLike';
  * a multiplayer spectator receives them in order). A binary search rather
  * than a full filter: renderers ask every frame and the log only ever grows
  * over a match. */
-export function eventsAfter(events: readonly SimEvent[], seq: number): SimEvent[] {
+export function eventsAfter<E extends { seq: number }>(events: readonly E[], seq: number): E[] {
   let lo = 0;
   let hi = events.length;
   while (lo < hi) {

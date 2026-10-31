@@ -1,0 +1,243 @@
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { closePlayConnection, handlePlayMessage, openPlayConnection, resetPlayRoomsForTests, type PlayConn } from './playRooms';
+import type { PlayRoomView, ServerMessage } from '../src/net/play/playProtocol';
+import { KANTO_IDS } from '../src/app/playMode';
+import type { ActionSnapshot } from '../src/sim/action/ActionEngine';
+import { resetWalletsForTests } from './wallets';
+
+interface FakeConn {
+  conn: PlayConn;
+  inbox: ServerMessage[];
+  say(message: object): void;
+  room(): PlayRoomView;
+  last<T extends ServerMessage['t']>(t: T): Extract<ServerMessage, { t: T }> | undefined;
+}
+
+function connect(name: string): FakeConn {
+  const inbox: ServerMessage[] = [];
+  const conn = openPlayConnection((m) => inbox.push(m));
+  const fake: FakeConn = {
+    conn,
+    inbox,
+    say: (message) => handlePlayMessage(conn, message),
+    last: (t) => inbox.filter((m) => m.t === t).at(-1) as never,
+    room: () => fake.last('room')!.room,
+  };
+  fake.say({ t: 'hello', sessionId: `s-${name}`, name });
+  return fake;
+}
+
+beforeEach(() => vi.useFakeTimers());
+afterEach(() => {
+  resetPlayRoomsForTests();
+  resetWalletsForTests();
+  vi.useRealTimers();
+});
+
+function lobbyOf(mode: number | 'ffa', players: string[]): FakeConn[] {
+  const [host, ...rest] = players.map(connect);
+  host.say({ t: 'create', mode, arena: { width: 900, height: 1950 } });
+  const roomId = host.room().id;
+  for (const p of rest) p.say({ t: 'join', roomId });
+  return [host, ...rest];
+}
+
+describe('online Play Mode rooms', () => {
+  it('seats the creator as host and later joiners in the next free seats', () => {
+    const [host, guest] = lobbyOf(2, ['Ash', 'Misty']);
+    const view = guest.room();
+    expect(view.seats.map((s) => s.name)).toEqual(['Ash', 'Misty', null, null]);
+    expect(view.seats.map((s) => s.team)).toEqual(['teamA', 'teamA', 'teamB', 'teamB']);
+    expect(view.seats[0].host).toBe(true);
+    expect(view.you).toBe(1);
+    expect(host.room().you).toBe(0);
+  });
+
+  it('refuses a Pokémon someone else already picked, and anything outside the 151', () => {
+    const [host, guest] = lobbyOf(1, ['Ash', 'Gary']);
+    host.say({ t: 'pick', speciesId: 25 });
+    guest.say({ t: 'pick', speciesId: 25 });
+    expect(guest.last('error')).toBeDefined();
+    guest.say({ t: 'pick', speciesId: 152 });
+    expect(guest.room().seats[1].speciesId).toBeNull();
+    expect(host.room().seats[0].moves.length).toBeGreaterThan(0);
+  });
+
+  it('only starts once every seated player is ready, filling empty seats with bots', () => {
+    const [host, guest] = lobbyOf(2, ['Ash', 'Brock']);
+    host.say({ t: 'pick', speciesId: KANTO_IDS[0] });
+    host.say({ t: 'ready', ready: true });
+    guest.say({ t: 'pick', speciesId: KANTO_IDS[1] });
+    host.say({ t: 'start' });
+    expect(host.last('start')).toBeUndefined();
+    guest.say({ t: 'ready', ready: true });
+    host.say({ t: 'start' });
+    const start = guest.last('start')!;
+    expect(start.config.speciesIds).toHaveLength(4);
+    expect(new Set(start.config.speciesIds).size).toBe(4);
+    expect(start.you).toBe(`p1-${KANTO_IDS[1]}`);
+    expect(Object.keys(start.names)).toHaveLength(2);
+    expect(host.room().phase).toBe('battle');
+  });
+
+  it('streams 30 Hz snapshots and faints a player who disconnects, for good', () => {
+    const [host, guest] = lobbyOf(1, ['Ash', 'Gary']);
+    for (const [p, id] of [
+      [host, KANTO_IDS[3]],
+      [guest, KANTO_IDS[4]],
+    ] as const) {
+      p.say({ t: 'pick', speciesId: id });
+      p.say({ t: 'ready', ready: true });
+    }
+    host.say({ t: 'start' });
+    const guestId = guest.last('start')!.you!;
+    vi.advanceTimersByTime(5000); // past the Pokéball intro
+    const before = host.inbox.filter((m) => m.t === 'snap').length;
+    vi.advanceTimersByTime(1000);
+    const perSecond = host.inbox.filter((m) => m.t === 'snap').length - before;
+    expect(perSecond).toBeGreaterThanOrEqual(28);
+    expect(perSecond).toBeLessThanOrEqual(32);
+
+    closePlayConnection(guest.conn);
+    vi.advanceTimersByTime(200);
+    const snap = (host.last('snap') as { s: ActionSnapshot }).s;
+    expect(snap.fighters[guestId].lives).toBe(0);
+    expect(snap.phase).toBe('complete');
+    expect(host.room().phase).toBe('lobby');
+    expect(host.room().seats[1].name).toBeNull();
+  });
+
+  it('applies a reported move only as far as the fighter could really have gone', () => {
+    const [host] = lobbyOf(1, ['Ash']);
+    host.say({ t: 'pick', speciesId: KANTO_IDS[5] });
+    host.say({ t: 'ready', ready: true });
+    host.say({ t: 'start' });
+    const me = host.last('start')!.you!;
+    vi.advanceTimersByTime(5000);
+    const at = (host.last('snap') as { s: ActionSnapshot }).s.fighters[me];
+    host.say({ t: 'move', x: at.x + 5000, y: at.y, vx: 0, vy: 0, facing: 'E' });
+    vi.advanceTimersByTime(100);
+    const after = (host.last('snap') as { s: ActionSnapshot }).s.fighters[me];
+    expect(after.x - at.x).toBeGreaterThan(0);
+    expect(after.x - at.x).toBeLessThan(500);
+  });
+
+  it('keeps players in order when the host changes the mode', () => {
+    const [host, guest] = lobbyOf('ffa', ['Ash', 'Misty']);
+    guest.say({ t: 'mode', mode: 1 }); // not the host: ignored
+    expect(guest.room().mode).toBe('ffa');
+    host.say({ t: 'mode', mode: 1 });
+    expect(guest.room().seats.map((s) => s.name)).toEqual(['Ash', 'Misty']);
+  });
+
+  it('ignores malformed messages', () => {
+    const [host] = lobbyOf(1, ['Ash']);
+    for (const junk of [null, 42, 'x', { t: 'pick', speciesId: 'pikachu' }, { t: 'move', x: NaN }, { t: 'seat', index: 99 }]) {
+      expect(() => handlePlayMessage(host.conn, junk)).not.toThrow();
+    }
+  });
+
+  describe('the crowd: chat, bets and potions', () => {
+    function matchWithWatcher(): { host: FakeConn; watcher: FakeConn; ask: (who: FakeConn, message: object) => string | null } {
+      const [host] = lobbyOf(1, ['Ash']);
+      const watcher = connect('Brock');
+      watcher.say({ t: 'join', roomId: host.room().id, watch: true });
+      let req = 0;
+      const ask = (who: FakeConn, message: object): string | null => {
+        req += 1;
+        who.say({ ...message, req });
+        const ack = who.inbox.find((m): m is Extract<ServerMessage, { t: 'ack' }> => m.t === 'ack' && m.req === req);
+        if (!ack) throw new Error('no ack');
+        return ack.error;
+      };
+      return { host, watcher, ask };
+    }
+
+    function start(host: FakeConn): void {
+      host.say({ t: 'pick', speciesId: 25 });
+      host.say({ t: 'ready', ready: true });
+      host.say({ t: 'start' });
+    }
+
+    it('lets a watcher chat once signed up, and fighters chat without signing up', () => {
+      const { host, watcher, ask } = matchWithWatcher();
+      expect(watcher.room().you).toBeNull();
+      expect(ask(watcher, { t: 'chat', text: 'hi' })).toBe('not_signed_up');
+      watcher.say({ t: 'signup', name: 'Brock' });
+      expect(watcher.last('me')!.name).toBe('Brock');
+      expect(ask(watcher, { t: 'chat', text: 'go Pikachu' })).toBeNull();
+      expect(ask(host, { t: 'chat', text: 'thanks' })).toBeNull();
+      const lines = host.inbox.flatMap((m) => (m.t === 'chat' ? m.messages : []));
+      expect(lines.map((m) => [m.spectatorName, m.text])).toEqual([
+        ['Brock', 'go Pikachu'],
+        ['Ash', 'thanks'],
+      ]);
+    });
+
+    it('confirms a sign-up made from the room list, before joining any room', () => {
+      const fan = connect('fan');
+      fan.say({ t: 'signup', name: 'Misty' });
+      expect(fan.last('me')!.name).toBe('Misty');
+    });
+
+    it('refuses a name someone in the room already has', () => {
+      const { watcher } = matchWithWatcher();
+      const other = connect('x');
+      other.say({ t: 'join', roomId: watcher.room().id, watch: true });
+      watcher.say({ t: 'signup', name: 'Brock' });
+      other.say({ t: 'signup', name: 'brock' });
+      expect(other.last('error')).toBeDefined();
+      expect(other.last('me')!.name).toBeNull();
+    });
+
+    it('takes bets from watchers only and pays the winners when the match ends', () => {
+      const { host, watcher, ask } = matchWithWatcher();
+      watcher.say({ t: 'signup', name: 'Brock' });
+      start(host);
+      expect(watcher.last('market')!.prediction!.options.map((o) => o.id)).toEqual(['teamA', 'teamB']);
+      expect(ask(host, { t: 'bet', optionId: 'teamA', amount: 25 })).toBe('fighters_cant');
+      expect(ask(watcher, { t: 'bet', optionId: 'teamB', amount: 25 })).toBeNull();
+      expect(watcher.last('me')!.balance).toBe(75);
+      expect(watcher.last('market')!.prediction!.pool).toBe(25);
+
+      // The host walks out: the bot's side wins and the whole pool comes back, plus the watch reward.
+      vi.advanceTimersByTime(4000); // past the intro
+      closePlayConnection(host.conn);
+      vi.advanceTimersByTime(100);
+      const me = watcher.last('me')!;
+      expect(me.settled).toMatchObject({ staked: 25, returned: 25, watched: 10 });
+      expect(me.balance).toBe(110);
+      expect(watcher.last('market')!.prediction!.status).toBe('settled');
+    });
+
+    it('sells a potion that heals a hurt fighter, once per watcher per match', () => {
+      const { host, watcher, ask } = matchWithWatcher();
+      watcher.say({ t: 'signup', name: 'Brock' });
+      start(host);
+      const startMsg = watcher.last('start')!;
+      const hostId = `p0-${startMsg.config.speciesIds[0]}`;
+      const botId = `p1-${startMsg.config.speciesIds[1]}`;
+      vi.advanceTimersByTime(4000);
+      expect(ask(watcher, { t: 'buy', itemId: 'potion', targetId: botId })).toBe('target_full_hp');
+      expect(ask(host, { t: 'buy', itemId: 'potion', targetId: hostId })).toBe('fighters_cant');
+
+      // Let the bot land a few hits on the host, who stands still.
+      const fullHp = watcher.inbox.flatMap((m) => (m.t === 'snap' ? [m.s.fighters[hostId].hp] : []))[0];
+      for (let i = 0; i < 60 && watcher.last('snap')!.s.fighters[hostId].hp >= fullHp; i++) {
+        vi.advanceTimersByTime(500);
+      }
+      expect(watcher.last('snap')!.s.fighters[hostId].hp).toBeLessThan(fullHp);
+
+      expect(ask(watcher, { t: 'buy', itemId: 'potion', targetId: hostId })).toBeNull();
+      expect(watcher.last('me')!.balance).toBe(60);
+      expect(watcher.last('me')!.myItemUses).toBe(1);
+      const line = watcher.inbox.flatMap((m) => (m.t === 'chat' ? m.messages : [])).at(-1)!;
+      expect(line.kind).toBe('system');
+      expect(line.text).toMatch(/^Brock used Potion on .+ \(\+\d+ HP\)$/);
+      vi.advanceTimersByTime(100);
+      const healed = watcher.inbox.flatMap((m) => (m.t === 'snap' ? m.s.events : [])).find((e) => e.type === 'item');
+      expect(healed).toMatchObject({ instanceId: hostId, effect: 'heal', buyerName: 'Brock' });
+      expect(ask(watcher, { t: 'buy', itemId: 'potion', targetId: hostId })).toBe('session_limit');
+    });
+  });
+});

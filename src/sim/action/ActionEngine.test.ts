@@ -1,0 +1,254 @@
+import { describe, expect, it } from 'vitest';
+import { ActionEngine, type ActionEvent } from './ActionEngine';
+import type { MatchConfig, PokemonInstance } from '../types';
+import { MOVESET, SPECIES, lookup } from './testFixtures';
+import * as R from './rules';
+import { PlayerController } from './playerController';
+
+function makeEngine(speciesIds: number[], extra: Partial<MatchConfig> = {}, bots = false): ActionEngine {
+  const config: MatchConfig = { level: 50, speciesIds, arena: { width: 900, height: 1950 }, shiny: false, ...MOVESET, ...extra };
+  const engine = new ActionEngine(config, SPECIES, lookup, 7, { bots });
+  while (engine.getState().phase === 'intro') engine.tick(R.ACTION_TICK_MS);
+  return engine;
+}
+
+function mon(engine: ActionEngine, index: number): PokemonInstance {
+  const state = engine.getState();
+  return state.pokemon[state.allInstanceIds[index]];
+}
+
+function place(p: PokemonInstance, x: number, y: number): void {
+  p.position.x = x;
+  p.position.y = y;
+}
+
+function run(engine: ActionEngine, ms: number): ActionEvent[] {
+  const from = engine.getState().elapsedMs;
+  const seqBefore = engine.getActionEventsSince(0).length;
+  while (engine.getState().elapsedMs - from < ms && !engine.finished) engine.tick(R.ACTION_TICK_MS);
+  return engine.getActionEventsSince(0).slice(seqBefore);
+}
+
+const SLOT = { ember: 0, tackle: 1, quake: 2, swords: 3 };
+
+describe('Play Mode rules', () => {
+  it('derives cooldown and energy cost from PP: more PP is faster and cheaper', () => {
+    expect(R.moveCooldownMs(15)).toBe(1600);
+    expect(R.moveEnergyCost(15)).toBe(13);
+    expect(R.moveCooldownMs(35)).toBeLessThan(R.moveCooldownMs(5));
+    expect(R.moveEnergyCost(35)).toBeLessThan(R.moveEnergyCost(5));
+    expect(R.moveCooldownMs(1)).toBe(5000);
+    expect(R.moveCooldownMs(64)).toBe(600);
+  });
+});
+
+describe('ActionEngine', () => {
+  it('starts everyone with boosted HP, 3 lives, full energy and 2 dash charges', () => {
+    const engine = makeEngine([1, 2]);
+    const p = mon(engine, 0);
+    const f = engine.getFighter(p.instanceId);
+    expect(p.maxHp % R.HP_MULTIPLIER).toBe(0);
+    expect(p.currentHp).toBe(p.maxHp);
+    expect(f.lives).toBe(R.LIVES);
+    expect(f.energy).toBe(R.ENERGY_MAX);
+    expect(f.dashCharges).toBe(R.DASH_CHARGES);
+  });
+
+  it('accelerates up to the max speed, never past it, and glides to a stop', () => {
+    const engine = makeEngine([1, 2]);
+    const p = mon(engine, 0);
+    place(p, 300, 900);
+    engine.setMoveInput(p.instanceId, 1, 0);
+    run(engine, 50);
+    const early = Math.hypot(p.velocity.x, p.velocity.y);
+    expect(early).toBeGreaterThan(0);
+    expect(early).toBeLessThan(R.MAX_SPEED);
+    run(engine, 1000);
+    expect(Math.hypot(p.velocity.x, p.velocity.y)).toBeCloseTo(R.MAX_SPEED, 0);
+    engine.setMoveInput(p.instanceId, 0, 0);
+    run(engine, 50);
+    expect(Math.hypot(p.velocity.x, p.velocity.y)).toBeGreaterThan(R.WALK_THRESHOLD);
+    run(engine, 1000);
+    expect(Math.hypot(p.velocity.x, p.velocity.y)).toBeLessThan(R.WALK_THRESHOLD);
+  });
+
+  it('has two dash charges that refill one at a time', () => {
+    const engine = makeEngine([1, 2]);
+    const id = mon(engine, 0).instanceId;
+    expect(engine.dash(id)).toBe(true);
+    run(engine, R.DASH_MS + 20);
+    expect(engine.dash(id)).toBe(true);
+    run(engine, R.DASH_MS + 20);
+    expect(engine.dash(id)).toBe(false);
+    run(engine, R.DASH_RECHARGE_MS);
+    expect(engine.getFighter(id).dashCharges).toBe(1);
+  });
+
+  it('fires a shot that always lands on an enemy in its path, paying energy and starting that slot’s cooldown', () => {
+    const engine = makeEngine([1, 2]);
+    const me = mon(engine, 0);
+    const foe = mon(engine, 1);
+    place(me, 450, 700);
+    place(foe, 450, 1000);
+    const before = foe.currentHp;
+    // Fixture Ember is only 50% accurate in the data; aim is the accuracy check here.
+    expect(engine.fire(me.instanceId, SLOT.ember, foe.position)).toBe(true);
+    expect(engine.getFighter(me.instanceId).energy).toBe(R.ENERGY_MAX - R.moveEnergyCost(25));
+    expect(engine.fire(me.instanceId, SLOT.ember, foe.position)).toBe(false);
+    const events = run(engine, 1000);
+    expect(events.some((e) => e.type === 'hit' && e.targetId === foe.instanceId)).toBe(true);
+    expect(foe.currentHp).toBeLessThan(before);
+    run(engine, R.moveCooldownMs(25));
+    expect(engine.canFire(me.instanceId, SLOT.ember)).toBe(true);
+  });
+
+  it('misses an enemy that is not in the line of fire', () => {
+    const engine = makeEngine([1, 2]);
+    const me = mon(engine, 0);
+    const foe = mon(engine, 1);
+    place(me, 300, 700);
+    place(foe, 600, 1000);
+    engine.fire(me.instanceId, SLOT.ember, { x: 300, y: 1200 });
+    expect(run(engine, 1200).some((e) => e.type === 'hit')).toBe(false);
+  });
+
+  it('lets a well-timed dash slip through a shot', () => {
+    const engine = makeEngine([1, 2]);
+    const me = mon(engine, 0);
+    const foe = mon(engine, 1);
+    place(me, 450, 700);
+    place(foe, 450, 1050);
+    engine.fire(me.instanceId, SLOT.ember, foe.position);
+    while (engine.getProjectiles()[0] && foe.position.y - engine.getProjectiles()[0].position.y > 110) engine.tick(R.ACTION_TICK_MS);
+    engine.setMoveInput(foe.instanceId, 1, 0);
+    expect(engine.dash(foe.instanceId)).toBe(true);
+    expect(run(engine, 1000).some((e) => e.type === 'hit')).toBe(false);
+  });
+
+  it('never hits a teammate, even one standing in the way', () => {
+    const engine = makeEngine([1, 2, 3, 4], { teams: { size: 2 } });
+    const me = mon(engine, 0);
+    const mate = mon(engine, 1);
+    const foe = mon(engine, 2);
+    place(mon(engine, 3), 800, 1700);
+    place(me, 450, 600);
+    place(mate, 450, 800);
+    place(foe, 450, 1000);
+    engine.fire(me.instanceId, SLOT.ember, foe.position);
+    const hits = run(engine, 1200).filter((e) => e.type === 'hit');
+    expect(hits.map((e) => e.type === 'hit' && e.targetId)).toEqual([foe.instanceId]);
+    expect(mate.currentHp).toBe(mate.maxHp);
+  });
+
+  it('bursts radius moves around the user', () => {
+    const engine = makeEngine([1, 2, 3]);
+    const me = mon(engine, 0);
+    place(me, 450, 900);
+    place(mon(engine, 1), 450, 1050);
+    place(mon(engine, 2), 450, 1500);
+    const before = engine.getActionEventsSince(0).length;
+    engine.fire(me.instanceId, SLOT.quake, me.position);
+    // A burst resolves inside fire() itself, not on a later tick.
+    const hits = engine.getActionEventsSince(0).slice(before).filter((e) => e.type === 'hit');
+    expect(hits.map((e) => e.type === 'hit' && e.targetId)).toEqual([mon(engine, 1).instanceId]);
+  });
+
+  it('respawns a KO’d fighter with full HP and a shield until its lives run out, then ends the match', () => {
+    const engine = makeEngine([1, 2]);
+    const me = mon(engine, 0);
+    const foe = mon(engine, 1);
+    foe.currentHp = 0;
+    const ko = run(engine, 50).find((e) => e.type === 'ko');
+    expect(ko).toMatchObject({ instanceId: foe.instanceId, livesLeft: R.LIVES - 1 });
+    expect(engine.isAlive(foe.instanceId)).toBe(false);
+    run(engine, R.RESPAWN_DELAY_MS);
+    expect(engine.isAlive(foe.instanceId)).toBe(true);
+    expect(foe.currentHp).toBe(foe.maxHp);
+    expect(engine.getFighter(foe.instanceId).invulnMs).toBeGreaterThan(0);
+
+    for (let life = 2; life >= 1; life--) {
+      run(engine, R.RESPAWN_DELAY_MS);
+      foe.currentHp = 0;
+      run(engine, 50);
+    }
+    expect(engine.getFighter(foe.instanceId).lives).toBe(0);
+    expect(engine.finished).toBe(true);
+    expect(engine.getState().winnerInstanceIds).toEqual([me.instanceId]);
+  });
+
+  it('heals a hurt fighter with a shop item, and revives one waiting to respawn at the item’s share of HP', () => {
+    const engine = makeEngine([1, 2]);
+    const foe = mon(engine, 1);
+    expect(engine.useItem(foe.instanceId, 'heal', 0.25, 'Brock')).toBeNull(); // already full
+    foe.currentHp = foe.maxHp - 10;
+    expect(engine.useItem(foe.instanceId, 'heal', 0.25, 'Brock')).toBe(10); // never past max
+    expect(foe.currentHp).toBe(foe.maxHp);
+
+    expect(engine.useItem(foe.instanceId, 'revive', 0.3, 'Brock')).toBeNull(); // not down
+    foe.currentHp = 0;
+    run(engine, 50);
+    expect(engine.useItem(foe.instanceId, 'heal', 0.25, 'Brock')).toBeNull(); // can't heal the fainted
+    expect(engine.useItem(foe.instanceId, 'revive', 0.3, 'Brock')).toBe(Math.round(foe.maxHp * 0.3));
+    expect(engine.isAlive(foe.instanceId)).toBe(true);
+    expect(foe.currentHp).toBe(Math.round(foe.maxHp * 0.3));
+    expect(engine.getActionEventsSince(0).filter((e) => e.type === 'item')).toHaveLength(2);
+  });
+
+  it('runs bot-filled matches to a clean finish', () => {
+    for (const [ids, extra] of [
+      [[1, 2], {}],
+      [[1, 2, 3, 4, 5, 6, 7, 8], { teams: { size: 4 } }],
+      [[1, 2, 3, 4, 5, 6, 7, 8], {}],
+    ] as const) {
+      const engine = makeEngine([...ids], extra, true);
+      run(engine, R.ACTION_MATCH_LIMIT_MS + 1000);
+      const state = engine.getState();
+      expect(state.phase).toBe('complete');
+      expect(state.winnerInstanceIds.length).toBeGreaterThan(0);
+      for (const p of Object.values(state.pokemon)) {
+        expect(Number.isFinite(p.position.x) && Number.isFinite(p.position.y)).toBe(true);
+        expect(p.currentHp).toBeGreaterThanOrEqual(0);
+      }
+    }
+  });
+});
+
+describe('PlayerController', () => {
+  it('aims a drag first, then the lock-on target, then the mouse, then straight ahead', () => {
+    const engine = makeEngine([1, 2, 3]);
+    const me = mon(engine, 0);
+    const near = mon(engine, 1);
+    const far = mon(engine, 2);
+    place(me, 450, 900);
+    place(near, 450, 1100);
+    place(far, 450, 400);
+    const controller = new PlayerController(engine, true);
+    controller.update();
+    expect(controller.lockTargetId).toBe(near.instanceId);
+    controller.mouseAim = { x: 100, y: 900 };
+    expect(controller.aimPoint({ x: 1, y: 0 }).x).toBeGreaterThan(me.position.x);
+    expect(controller.aimPoint()).toEqual(near.position);
+    controller.toggleLock();
+    expect(controller.aimPoint()).toEqual({ x: 100, y: 900 });
+    controller.mouseAim = null;
+    const ahead = controller.aimPoint();
+    expect(Math.hypot(ahead.x - me.position.x, ahead.y - me.position.y)).toBeGreaterThan(0);
+  });
+
+  it('cycles the lock through enemies by distance and drops a target that leaves the field', () => {
+    const engine = makeEngine([1, 2, 3]);
+    place(mon(engine, 0), 450, 900);
+    place(mon(engine, 1), 450, 1100);
+    place(mon(engine, 2), 450, 400);
+    const controller = new PlayerController(engine, false);
+    controller.cycleTarget();
+    expect(controller.lockOn).toBe(true);
+    expect(controller.lockTargetId).toBe(mon(engine, 1).instanceId);
+    controller.cycleTarget();
+    expect(controller.lockTargetId).toBe(mon(engine, 2).instanceId);
+    mon(engine, 2).currentHp = 0;
+    run(engine, 50);
+    controller.update();
+    expect(controller.lockTargetId).toBe(mon(engine, 1).instanceId);
+  });
+});

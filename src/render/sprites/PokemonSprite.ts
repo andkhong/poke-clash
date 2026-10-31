@@ -246,6 +246,66 @@ function shadeColor(hex: number, amount: number): number {
   return (r << 16) | (g << 8) | b;
 }
 
+/** Room around a baked pill for its border stroke, which straddles the edge. */
+const BAKE_PAD = MOVE_LABEL_BORDER_WIDTH * 2;
+
+/**
+ * A rounded, vertically-graded, bordered pill with `label` on it — the move
+ * callout and the status box — drawn once into a cached texture and shown as
+ * a plain Image. A live Graphics re-tessellates its gradient rounded rect
+ * every frame (~0.3 ms each), and in Play Mode several callouts are up at
+ * once all match long. Returns the texture key and the pill's own size
+ * (without the bake padding).
+ */
+function bakePill(
+  scene: Phaser.Scene,
+  label: string,
+  color: number,
+  fontSize: number,
+  strokeThickness: number,
+  padX: number,
+  padY: number,
+  radius: number
+): { key: string; width: number; height: number } {
+  // A label baked before the web font arrives would keep the fallback font
+  // forever, so the font's readiness is part of the key.
+  const fontReady = typeof document === 'undefined' || document.fonts.check(`${fontSize}px ${MOVE_LABEL_FONT_FAMILY}`);
+  const key = `pill:${label}:${color}:${fontSize}:${fontReady ? 1 : 0}`;
+  const cached = scene.textures.exists(key) ? scene.textures.get(key).getSourceImage() : null;
+  if (cached) return { key, width: cached.width - BAKE_PAD * 2, height: cached.height - BAKE_PAD * 2 };
+
+  const text = scene.make
+    .text(
+      {
+        text: label,
+        style: { fontSize: `${fontSize}px`, fontFamily: MOVE_LABEL_FONT_FAMILY, color: '#ffffff', stroke: '#1a1a1a', strokeThickness },
+      },
+      false
+    )
+    .setOrigin(0.5, 0.5)
+    .setPadding(padX, padY, padX, padY);
+  const width = text.width;
+  const height = text.height;
+  // A flat-fill rectangle (the old look) reads as a cheap tooltip; a
+  // vertically-graded, bordered, rounded pill matches the glossy "button"
+  // callout style of the reference battle UI this is modeled on.
+  const bg = scene.make.graphics({}, false);
+  const topColor = shadeColor(color, MOVE_LABEL_SHADE_AMOUNT);
+  const bottomColor = shadeColor(color, -MOVE_LABEL_SHADE_AMOUNT);
+  bg.fillGradientStyle(topColor, topColor, bottomColor, bottomColor, 1);
+  bg.fillRoundedRect(-width / 2, -height / 2, width, height, radius);
+  bg.lineStyle(MOVE_LABEL_BORDER_WIDTH, MOVE_LABEL_BORDER_COLOR, 1);
+  bg.strokeRoundedRect(-width / 2, -height / 2, width, height, radius);
+
+  const rt = scene.make.renderTexture({ width: Math.ceil(width) + BAKE_PAD * 2, height: Math.ceil(height) + BAKE_PAD * 2 }, false);
+  rt.draw([bg, text], rt.width / 2, rt.height / 2);
+  // The render texture stays alive (off the display list) to back the saved texture.
+  rt.saveTexture(key);
+  bg.destroy();
+  text.destroy();
+  return { key, width, height };
+}
+
 /** One on-field Pokémon's complete visual presentation: body sprite, HP bar,
  * status icon, and transient move-name callout. Reads from a PokemonInstance
  * snapshot each frame; owns no simulation state itself. */
@@ -334,6 +394,9 @@ export class PokemonSprite {
    * visibly drifts away mid-pose. Purely cosmetic, like animOffset — never
    * fed back into the sim. */
   private positionLockToken: symbol | null = null;
+  /** Play Mode: draw exactly where the sim says every frame (see setFollowExact). */
+  private followExact = false;
+  private squashTween: Phaser.Tweens.Tween | null = null;
 
   /** Repeating spawner for the current status's ambient VFX — see
    * updateStatusVfx(). Null whenever the Pokémon is healthy. */
@@ -718,7 +781,10 @@ export class PokemonSprite {
   ): void {
     if (!this.hasRevealed) return; // entrance tween owns position/visibility until it lands
 
-    if (this.positionLockToken === null) {
+    if (this.followExact) {
+      this.renderPos.x = screenX;
+      this.renderPos.y = screenY;
+    } else if (this.positionLockToken === null) {
       let stepX = (screenX - this.renderPos.x) * POSITION_SMOOTHING;
       let stepY = (screenY - this.renderPos.y) * POSITION_SMOOTHING;
       const stepDist = Math.hypot(stepX, stepY);
@@ -920,6 +986,29 @@ export class PokemonSprite {
     return () => {
       if (this.positionLockToken === token) this.positionLockToken = null;
     };
+  }
+
+  /** Play Mode: a player-driven fighter can't afford the spectator view's
+   * capped glide (MAX_POSITION_STEP_PER_FRAME) — input would feel laggy and a
+   * dash would smear across several frames — and the sim already runs at 60 Hz. */
+  setFollowExact(follow: boolean): void {
+    this.followExact = follow;
+  }
+
+  /** Play Mode hit reaction: a quick squash-and-spring on the whole sprite. */
+  playSquash(strength: number): void {
+    if (this.isDestroyed() || this.hasFainted) return;
+    this.squashTween?.stop();
+    this.container.setScale(1);
+    this.squashTween = this.scene.tweens.add({
+      targets: this.container,
+      scaleX: 1 + 0.25 * strength,
+      scaleY: 1 - 0.2 * strength,
+      duration: 70,
+      yoyo: true,
+      ease: 'Quad.easeOut',
+      onComplete: () => this.container.setScale(1),
+    });
   }
 
   /** Jumps the smoothed render position straight to the sim's — for a frame
@@ -1139,28 +1228,21 @@ export class PokemonSprite {
    * color, styled like the move-name label above the sprite (same pixel
    * font, gradient fill, dark border) so the two read as one HUD family. */
   private buildStatusBox(status: StatusCondition): Phaser.GameObjects.Container {
-    const color = STATUS_COLORS[status];
-    const text = this.scene.add
-      .text(0, 0, STATUS_LABELS[status], {
-        fontSize: `${STATUS_BOX_FONT_SIZE}px`,
-        fontFamily: MOVE_LABEL_FONT_FAMILY,
-        color: '#ffffff',
-        stroke: '#1a1a1a',
-        strokeThickness: 2,
-      })
-      .setOrigin(0.5, 0.5)
-      .setPadding(STATUS_BOX_PAD_X, STATUS_BOX_PAD_Y, STATUS_BOX_PAD_X, STATUS_BOX_PAD_Y);
-    const boxWidth = text.width;
-    const boxHeight = text.height;
-    const bg = this.scene.add.graphics();
-    const topColor = shadeColor(color, MOVE_LABEL_SHADE_AMOUNT);
-    const bottomColor = shadeColor(color, -MOVE_LABEL_SHADE_AMOUNT);
-    bg.fillGradientStyle(topColor, topColor, bottomColor, bottomColor, 1);
-    bg.fillRoundedRect(-boxWidth / 2, -boxHeight / 2, boxWidth, boxHeight, STATUS_BOX_CORNER_RADIUS);
-    bg.lineStyle(MOVE_LABEL_BORDER_WIDTH, MOVE_LABEL_BORDER_COLOR, 1);
-    bg.strokeRoundedRect(-boxWidth / 2, -boxHeight / 2, boxWidth, boxHeight, STATUS_BOX_CORNER_RADIUS);
+    const pill = bakePill(
+      this.scene,
+      STATUS_LABELS[status],
+      STATUS_COLORS[status],
+      STATUS_BOX_FONT_SIZE,
+      2,
+      STATUS_BOX_PAD_X,
+      STATUS_BOX_PAD_Y,
+      STATUS_BOX_CORNER_RADIUS
+    );
+    const boxWidth = pill.width;
+    const boxHeight = pill.height;
+    const image = this.scene.add.image(0, 0, pill.key);
 
-    const box = this.scene.add.container(0, 0, [bg, text]).setSize(boxWidth, boxHeight);
+    const box = this.scene.add.container(0, 0, [image]).setSize(boxWidth, boxHeight);
     this.container.add(box);
     // Pops in rather than blinking on, so the moment a status lands is
     // itself a visible beat.
@@ -1431,30 +1513,17 @@ export class PokemonSprite {
    * clears the exact label instance this call created. */
   showMoveLabel(move: MoveDefinition): () => void {
     this.moveLabel?.destroy();
-    const color = getMoveTypeColor(move.type);
-    const text = this.scene.add
-      .text(0, 0, move.name.toUpperCase(), {
-        fontSize: `${MOVE_LABEL_FONT_SIZE}px`,
-        fontFamily: MOVE_LABEL_FONT_FAMILY,
-        color: '#ffffff',
-        stroke: '#1a1a1a',
-        strokeThickness: 3,
-      })
-      .setOrigin(0.5, 0.5)
-      .setPadding(MOVE_LABEL_PAD_X, MOVE_LABEL_PAD_Y, MOVE_LABEL_PAD_X, MOVE_LABEL_PAD_Y);
-
-    // A flat-fill rectangle (the old look) reads as a cheap tooltip; a
-    // vertically-graded, bordered, rounded pill matches the glossy "button"
-    // callout style of the reference battle UI this is modeled on.
-    const boxWidth = text.width;
-    const boxHeight = text.height;
-    const bg = this.scene.add.graphics();
-    const topColor = shadeColor(color, MOVE_LABEL_SHADE_AMOUNT);
-    const bottomColor = shadeColor(color, -MOVE_LABEL_SHADE_AMOUNT);
-    bg.fillGradientStyle(topColor, topColor, bottomColor, bottomColor, 1);
-    bg.fillRoundedRect(-boxWidth / 2, -boxHeight / 2, boxWidth, boxHeight, MOVE_LABEL_CORNER_RADIUS);
-    bg.lineStyle(MOVE_LABEL_BORDER_WIDTH, MOVE_LABEL_BORDER_COLOR, 1);
-    bg.strokeRoundedRect(-boxWidth / 2, -boxHeight / 2, boxWidth, boxHeight, MOVE_LABEL_CORNER_RADIUS);
+    const pill = bakePill(
+      this.scene,
+      move.name.toUpperCase(),
+      getMoveTypeColor(move.type),
+      MOVE_LABEL_FONT_SIZE,
+      3,
+      MOVE_LABEL_PAD_X,
+      MOVE_LABEL_PAD_Y,
+      MOVE_LABEL_CORNER_RADIUS
+    );
+    const boxHeight = pill.height;
 
     // Anchor by the box's bottom edge (not its center) so MOVE_LABEL_GAP stays
     // an accurate clearance above the sprite regardless of how tall the box is.
@@ -1468,7 +1537,7 @@ export class PokemonSprite {
     const desiredContainerY = this.topOfBodyY() - MOVE_LABEL_GAP - boxHeight / 2;
     const minContainerY = ARENA_TOP_PADDING - this.container.y;
     const containerY = Math.max(desiredContainerY, minContainerY);
-    const label = this.scene.add.container(0, containerY, [bg, text]);
+    const label = this.scene.add.container(0, containerY, [this.scene.add.image(0, 0, pill.key)]);
     this.moveLabel = label;
     this.container.add(label);
 
@@ -1484,6 +1553,7 @@ export class PokemonSprite {
     if (this.hasFainted) return;
     this.hasFainted = true;
     this.idleTween?.stop();
+    this.squashTween?.stop();
     this.triggerPmdOneShot('Faint');
     // 500 = today's baseline fade duration, kept as a floor; stretched only
     // when a real Faint animation is playing, so it isn't cut off early.

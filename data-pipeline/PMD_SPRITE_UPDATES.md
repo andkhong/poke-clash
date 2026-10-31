@@ -5,6 +5,11 @@ data-pipeline/check-pmd-sprite-updates.ts), newest first. Upstream is
 PMDCollab/SpriteCollab; "added" species were missing from the mirror (and so
 from the roster) until upstream drew them.
 
+## 2026-10-25 — 0 added, 6 updated, 0 shiny (upstream tracker 437d1ae)
+
+- Updated: 104 cubone, 494 victini, 643 reshiram, 800 necrozma, 908 meowscarada, 933 naclstack
+- Still missing upstream: 57
+- Volume upload: `deploy-assets/pmd-sprite-update-2026-10-25-15-10-33.tar.gz`
 ## 2026-09-13 — 0 added, 1 updated, 0 shiny (upstream tracker 64606f1)
 
 - Updated: 530 excadrill

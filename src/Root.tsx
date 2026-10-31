@@ -7,6 +7,7 @@ import { LandingScreen } from './ui/screens/LandingScreen';
 // species/move dataset) and the room page load on demand, which lets the
 // landing page paint without first downloading and running all of that.
 const App = lazy(() => import('./App').then((m) => ({ default: m.App })));
+const PlayOnlineScreen = lazy(() => import('./ui/screens/PlayOnlineScreen').then((m) => ({ default: m.PlayOnlineScreen })));
 const RoomScreen = lazy(() => import('./ui/screens/RoomScreen').then((m) => ({ default: m.RoomScreen })));
 
 export function Root() {
@@ -25,6 +26,9 @@ export function Root() {
       break;
     case 'room':
       screen = <RoomScreen roomId={route.roomId} />;
+      break;
+    case 'play':
+      screen = <PlayOnlineScreen roomId={route.roomId} />;
       break;
     case 'landing':
     default:

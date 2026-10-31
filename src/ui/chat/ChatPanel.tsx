@@ -25,6 +25,8 @@ export interface ChatPanelProps {
   /** Stream-chat style `HH:MM` per line — on in the roomy web sidebar, off in
    * the narrow mobile drawer. */
   showTimestamps?: boolean;
+  /** The input's placeholder while canSend is false. */
+  disabledPlaceholder?: string;
 }
 
 const STATUS_NOTICE_MS = 2000;
@@ -45,6 +47,7 @@ export function ChatPanel({
   onSend,
   listHeight = 'flex',
   showTimestamps = false,
+  disabledPlaceholder = 'Join the room to chat',
 }: ChatPanelProps) {
   const [draft, setDraft] = useState('');
   const [sending, setSending] = useState(false);
@@ -112,9 +115,11 @@ export function ChatPanel({
         ? 'Slow down'
         : error === 'not_in_room'
           ? 'Join the room to chat'
-          : error === 'blocked_language'
-            ? BLOCKED_NOTICE
-            : 'Couldn’t send'
+          : error === 'not_signed_up'
+            ? 'Sign up to chat'
+            : error === 'blocked_language'
+              ? BLOCKED_NOTICE
+              : 'Couldn’t send'
     );
   };
 
@@ -136,7 +141,9 @@ export function ChatPanel({
             ) : (
               <div key={message.id} style={rowStyle}>
                 {showTimestamps && <span style={timeStyle}>{formatChatTime(message.sentAtMs)}</span>}
-                <span style={{ color: chatSenderColor(message), fontWeight: 'bold', textTransform: 'capitalize' }}>{chatSenderLabel(message, mySlotIndex, room, mySpectatorName)}</span>
+                <span style={{ color: chatSenderColor(message), fontWeight: 'bold', textTransform: 'capitalize' }}>
+                  {chatSenderLabel(message, mySlotIndex, room, mySpectatorName)}
+                </span>
                 <span style={{ opacity: 0.6 }}>: </span>
                 <span>{message.text}</span>
               </div>
@@ -180,7 +187,7 @@ export function ChatPanel({
           // always pan back — nothing on these screens ever scrolls the
           // window, so 0 is always the right place to return to.
           onBlur={() => window.scrollTo(0, 0)}
-          placeholder={canSend ? 'Send a message' : 'Join the room to chat'}
+          placeholder={canSend ? 'Send a message' : disabledPlaceholder}
           disabled={!canSend}
           maxLength={CHAT_MAX_LENGTH}
           enterKeyHint="send"

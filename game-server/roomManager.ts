@@ -77,7 +77,7 @@ export const ITEM_REFILL_MS = 3000;
 
 /** A lazy token bucket — nothing ticks; it's refilled from the clock whenever
  * it's next consulted (see takeToken). */
-interface RateBucket {
+export interface RateBucket {
   tokens: number;
   lastRefillMs: number;
 }
@@ -384,7 +384,7 @@ export function pickSpecies(room: RoomState, playerId: string, speciesId: number
 
 /** Consumes one token from `key`'s bucket in `buckets`, refilling it from the
  * clock first. `key` is just a bucket identity, opaque here. */
-function takeToken(buckets: Map<string, RateBucket>, key: string, burst: number, refillMs: number, nowMs: number): boolean {
+export function takeToken(buckets: Map<string, RateBucket>, key: string, burst: number, refillMs: number, nowMs: number): boolean {
   let bucket = buckets.get(key);
   if (!bucket) {
     bucket = { tokens: burst, lastRefillMs: nowMs };

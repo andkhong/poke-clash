@@ -179,6 +179,10 @@ export function itemErrorNotice(error: string): string {
       return 'Slow down a moment';
     case 'no_shop':
       return 'No match to shop in';
+    case 'not_signed_up':
+      return 'Sign up to buy';
+    case 'fighters_cant':
+      return 'Fighters can’t buy items';
     default:
       return 'Couldn’t buy that';
   }

@@ -4,12 +4,16 @@ export type Route =
   | { kind: 'landing' }
   | { kind: 'local' }
   | { kind: 'roomList' }
-  | { kind: 'room'; roomId: string };
+  | { kind: 'room'; roomId: string }
+  | { kind: 'play'; roomId: string | null };
 
 function parseHash(hash: string): Route {
   const path = hash.replace(/^#\/?/, '');
   if (path === 'local') return { kind: 'local' };
   if (path === 'rooms') return { kind: 'roomList' };
+  if (path === 'play') return { kind: 'play', roomId: null };
+  const playMatch = /^play\/([a-z0-9]+)$/.exec(path);
+  if (playMatch) return { kind: 'play', roomId: playMatch[1] };
   const roomMatch = /^room\/([^/]+)$/.exec(path);
   if (roomMatch) return { kind: 'room', roomId: roomMatch[1] };
   return { kind: 'landing' };

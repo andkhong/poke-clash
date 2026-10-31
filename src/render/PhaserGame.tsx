@@ -2,6 +2,9 @@ import { useEffect, useRef } from 'react';
 import Phaser from 'phaser';
 import type { EngineLike } from '../sim/engineLike';
 import { ArenaScene } from './scenes/ArenaScene';
+import { ActionScene } from './scenes/ActionScene';
+import type { PlayerController } from '../sim/action/playerController';
+import type { ActionEngine } from '../sim/action/ActionEngine';
 
 export interface StageRect {
   left: number;
@@ -31,9 +34,13 @@ interface PhaserGameProps {
    * the always-on showcase room (never captured) shouldn't pay. Read once
    * at mount, like the arena size. */
   captureFrames?: boolean;
+  /** Play Mode: run the ActionScene instead of the spectator arena, driven by
+   * `controller` (null when watching an online match). `engine` must then be
+   * an ActionEngine. */
+  action?: { controller: PlayerController | null };
 }
 
-export function PhaserGame({ engine, highlightInstanceId = null, onStageRectChange, onCanvasReady, captureFrames = false }: PhaserGameProps) {
+export function PhaserGame({ engine, highlightInstanceId = null, onStageRectChange, onCanvasReady, captureFrames = false, action }: PhaserGameProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const gameRef = useRef<Phaser.Game | null>(null);
   const onStageRectChangeRef = useRef(onStageRectChange);
@@ -71,7 +78,16 @@ export function PhaserGame({ engine, highlightInstanceId = null, onStageRectChan
       // presenting) reads back an already-cleared buffer and produces a
       // solid black capture. Standard Phaser screenshot-capture setting,
       // opted into per mount (see captureFrames) since it isn't free.
-      render: { preserveDrawingBuffer: captureFrames },
+      render: {
+        preserveDrawingBuffer: captureFrames,
+        // Multisampling only smooths polygon edges. Play Mode draws textures
+        // (its shapes are baked, see stadiumBackground/bakePill), so it turns
+        // it off and spares a phone GPU a full-canvas resolve every frame;
+        // the watch arena still draws live circles and keeps it.
+        antialiasGL: !action,
+        // Laptops with two GPUs: ask for the fast one.
+        powerPreference: 'high-performance',
+      },
       scale: {
         mode: Phaser.Scale.FIT,
         // The container below centres the canvas with flexbox; Phaser must
@@ -103,8 +119,13 @@ export function PhaserGame({ engine, highlightInstanceId = null, onStageRectChan
     gameInternals.onHidden = () => {};
     gameInternals.onBlur = () => {};
 
-    game.scene.add('Arena', ArenaScene, false);
-    game.scene.start('Arena', { engine, highlightInstanceId });
+    if (action) {
+      game.scene.add('Action', ActionScene, false);
+      game.scene.start('Action', { engine: engine as ActionEngine, controller: action.controller });
+    } else {
+      game.scene.add('Arena', ArenaScene, false);
+      game.scene.start('Arena', { engine, highlightInstanceId });
+    }
 
     const container = containerRef.current;
     const reportStageRect = (): void => {

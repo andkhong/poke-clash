@@ -117,6 +117,10 @@ export function betErrorNotice(error: string): string {
       return 'You already backed another';
     case 'no_prediction':
       return 'No match to bet on';
+    case 'not_signed_up':
+      return 'Sign up to bet';
+    case 'fighters_cant':
+      return 'Fighters can’t bet';
     default:
       return 'Couldn’t place bet';
   }
