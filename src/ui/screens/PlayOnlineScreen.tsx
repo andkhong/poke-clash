@@ -258,7 +258,8 @@ export function PlayOnlineScreen({
   if (match) {
     const fighterTeam = match.controller ? match.engine.getState().pokemon[match.engine.playerId]?.team : null;
     const side = match.controller ? (isCrowdSide(fighterTeam) ? fighterTeam : null) : (me?.side ?? null);
-    const signUp = spectator && !me?.name && (
+    // Signed up already, it's the "Signed up as … · Change name" row, so a viewer can see (and change) who they are.
+    const signUp = spectator && (
       <SignUpForm me={me} conn={conn} error={error} prompt="Join the crowd to vote, chat and bet" variant="crowd" />
     );
     const vote: CrowdCallPanelProps = {
@@ -292,7 +293,7 @@ export function PlayOnlineScreen({
           />
           {/* On a phone the drawer would sit on a fighter's joystick, so only spectators get it there. */}
           {!wide && !match.controller && <ChatOverlay {...chatProps} vote={vote} predictions={predictions} shop={shop} />}
-          {!wide && signUp && <div style={signUpFloat}>{signUp}</div>}
+          {!wide && signUp && !me?.name && <div style={signUpFloat}>{signUp}</div>}
         </div>
         {wide && <ChatSidebar {...chatProps} vote={vote} predictions={predictions} shop={shop} width={MATCH_SIDEBAR_WIDTH} />}
       </div>

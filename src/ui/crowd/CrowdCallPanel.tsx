@@ -107,7 +107,7 @@ export const CrowdCallPanel = memo(function CrowdCallPanel({
 
   return (
     <div style={wrapStyle}>
-      {!signedUp && !fighter && signUp}
+      {!fighter && signUp}
       {fighter ? (
         <p style={noteStyle}>Fighters can’t vote — {side ? `the ${SIDE_NAME[side]} crowd` : 'your crowd'} votes for you.</p>
       ) : side ? (
