@@ -172,7 +172,7 @@ export function PlayOnlineScreen({
             return;
           }
           case 'snap':
-            matchRef.current?.engine.applySnapshot(m.s);
+            matchRef.current?.engine.applySnapshot(m.s, m.me);
             return;
           case 'calls':
             calls.set({ current: m.current, history: m.history });

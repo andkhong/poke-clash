@@ -1,5 +1,5 @@
 import type { PlayModeKind } from '../../app/playMode';
-import type { ActionSnapshot } from '../../sim/action/ActionEngine';
+import type { ActionSnapshot, PrivateFighterSnapshot } from '../../sim/action/ActionEngine';
 import type { ArenaBounds, MatchConfig, PokemonInstance } from '../../sim/types';
 import type { ChatMessage, MyBet, PredictionSummary, ShopSummary, WalletEventPayload } from '../protocol';
 
@@ -132,7 +132,8 @@ export type ServerMessage =
       you: string | null;
       names: Record<string, string>;
     }
-  | { t: 'snap'; s: ActionSnapshot }
+  /** `me`: the receiving player's own HUD numbers — present only for a fighter. */
+  | { t: 'snap'; s: ActionSnapshot; me?: PrivateFighterSnapshot }
   | { t: 'pong'; c: number }
   | { t: 'error'; message: string }
   /** The answer to a chat/bet/buy: null on success, else an error code the

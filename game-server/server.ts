@@ -60,7 +60,13 @@ const server = createServer((req, res) => {
 
 // Online Play Mode (see playRooms.ts). A player's messages are tiny (input,
 // a fire, a ping), so anything big is a misbehaving client.
-const playSockets = new WebSocketServer({ noServer: true, maxPayload: 4096 });
+// permessage-deflate: snapshots repeat the same keys and ids 30 times a
+// second, so they compress several-fold. Small control messages skip it.
+const playSockets = new WebSocketServer({
+  noServer: true,
+  maxPayload: 4096,
+  perMessageDeflate: { threshold: 256, zlibDeflateOptions: { level: 3 } },
+});
 /** Sockets one address may hold — a few tabs, not a botnet's worth of rooms. */
 const MAX_SOCKETS_PER_IP = 8;
 /** A client sends ~35 messages/s in a fight (30 move reports, fires, pings): this is plenty of headroom. */
@@ -92,12 +98,23 @@ playSockets.on('connection', (socket: WebSocket, req: IncomingMessage) => {
   socketsByIp.set(ip, held + 1);
   alive.add(socket);
   socket.on('pong', () => alive.add(socket));
-  const conn = openPlayConnection((message) => {
-    if (socket.readyState !== socket.OPEN) return;
-    if (socket.bufferedAmount > TERMINATE_BUFFERED) return socket.terminate();
-    if (message.t === 'snap' && socket.bufferedAmount > SKIP_SNAPSHOTS_BUFFERED) return;
-    socket.send(JSON.stringify(message));
-  });
+  const writable = (): boolean => {
+    if (socket.readyState !== socket.OPEN) return false;
+    if (socket.bufferedAmount > TERMINATE_BUFFERED) {
+      socket.terminate();
+      return false;
+    }
+    return true;
+  };
+  const conn = openPlayConnection(
+    (message) => {
+      if (writable()) socket.send(JSON.stringify(message));
+    },
+    // Snapshots: skipped while a slow client still has a backlog.
+    (text) => {
+      if (writable() && socket.bufferedAmount <= SKIP_SNAPSHOTS_BUFFERED) socket.send(text);
+    }
+  );
   const buckets = new Map<string, RateBucket>();
   socket.on('message', (data) => {
     const now = Date.now();

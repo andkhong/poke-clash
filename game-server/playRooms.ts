@@ -77,6 +77,8 @@ export interface PlayConn {
   /** Picked a name with `signup` — required to chat (unseated), bet or buy. */
   signedUp: boolean;
   send(message: ServerMessage): void;
+  /** Sends an already-serialized message — snapshots are built once per broadcast, not once per connection. */
+  sendText(text: string): void;
 }
 
 interface Seat {
@@ -140,7 +142,10 @@ interface PlayRoom {
 const rooms = new Map<string, PlayRoom>();
 let nextConnId = 1;
 
-export function openPlayConnection(send: (message: ServerMessage) => void): PlayConn {
+export function openPlayConnection(
+  send: (message: ServerMessage) => void,
+  sendText: (text: string) => void = (text) => send(JSON.parse(text) as ServerMessage)
+): PlayConn {
   return {
     id: nextConnId++,
     sessionId: null,
@@ -148,6 +153,7 @@ export function openPlayConnection(send: (message: ServerMessage) => void): Play
     roomId: null,
     signedUp: false,
     send,
+    sendText,
   };
 }
 
@@ -525,7 +531,12 @@ function stepBattle(room: PlayRoom): void {
   battle.flushNext = false;
   const snapshot = battle.engine.snapshot(battle.sentSeq);
   battle.sentSeq = battle.engine.lastActionSeq();
-  for (const conn of room.conns) conn.send({ t: 'snap', s: snapshot });
+  // Serialized once for the whole room; a fighter's own HUD numbers are appended for them alone.
+  const shared = `{"t":"snap","s":${JSON.stringify(snapshot)}`;
+  for (const conn of room.conns) {
+    const fighterId = battle.humans.get(conn);
+    conn.sendText(fighterId ? `${shared},"me":${JSON.stringify(battle.engine.privateSnapshot(fighterId))}}` : `${shared}}`);
+  }
   if (finished) return endBattle(room);
   // Betting closes at the same mark as a watch room's; a KO changes which sides can still be backed.
   const state = battle.engine.getState();

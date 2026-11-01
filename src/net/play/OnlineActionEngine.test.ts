@@ -25,7 +25,7 @@ function pair() {
   while (server.getState().phase === 'intro') server.tick(ACTION_TICK_MS);
   let seq = 0;
   const sync = () => {
-    client.applySnapshot(server.snapshot(seq));
+    client.applySnapshot(server.snapshot(seq), server.privateSnapshot(client.playerId));
     seq = server.lastActionSeq();
   };
   let tick = 0;

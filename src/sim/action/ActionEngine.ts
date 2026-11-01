@@ -102,26 +102,34 @@ export type ActionEvent =
   | { seq: number; atMs: number; type: 'pickupTaken'; pickupId: number; instanceId: string; amount: number };
 
 /** What an online client needs of one fighter, 20 times a second. */
+/** One fighter as every viewer sees it, 30 times a second. Kept small:
+ * optional fields are left out at their default (0, null) and times are
+ * whole ms. The fighter's own HUD numbers travel separately, only to that
+ * player (PrivateFighterSnapshot). */
 export interface FighterSnapshot {
   x: number;
   y: number;
-  vx: number;
-  vy: number;
+  vx?: number;
+  vy?: number;
   facing: PokemonInstance['facing'];
   aiState: PokemonInstance['aiState'];
   hp: number;
-  status: PokemonInstance['status'];
-  lastHitAtMs: number | null;
+  status?: NonNullable<PokemonInstance['status']>;
+  lastHitAtMs?: number;
+  invulnMs?: number;
+  kos?: number;
+  damageDealt?: number;
+  speedMs?: number;
+  shieldMs?: number;
+}
+
+/** What only the fighter's own player needs: their HUD's energy, cooldowns and dashes. */
+export interface PrivateFighterSnapshot {
   energy: number;
   cooldowns: number[];
   globalCooldownMs: number;
   dashCharges: number;
   dashRechargeMs: number;
-  invulnMs: number;
-  kos: number;
-  damageDealt: number;
-  speedMs: number;
-  shieldMs: number;
 }
 
 /** The server's whole-match broadcast (see snapshot()). `events` are the
@@ -548,36 +556,35 @@ export class ActionEngine implements EngineLike {
     this.checkWin();
   }
 
-  /** The state an online client renders, plus the action events after `sinceSeq`. */
+  /** The state every online viewer renders, plus the action events after `sinceSeq`. */
   snapshot(sinceSeq: number): ActionSnapshot {
     const fighters: Record<string, FighterSnapshot> = {};
     for (const id of this.state.allInstanceIds) {
       const p = this.state.pokemon[id];
       const f = this.fighters[id];
-      fighters[id] = {
+      const fs: FighterSnapshot = {
         x: round1(p.position.x),
         y: round1(p.position.y),
-        vx: round1(p.velocity.x),
-        vy: round1(p.velocity.y),
         facing: p.facing,
         aiState: p.aiState,
         hp: p.currentHp,
-        status: p.status,
-        lastHitAtMs: p.lastHitAtMs ?? null,
-        energy: round1(f.energy),
-        cooldowns: f.cooldowns.map(Math.round),
-        globalCooldownMs: Math.round(f.globalCooldownMs),
-        dashCharges: f.dashCharges,
-        dashRechargeMs: Math.round(f.dashRechargeMs),
-        invulnMs: Math.round(f.invulnMs),
-        kos: f.kos,
-        damageDealt: f.damageDealt,
-        speedMs: Math.round(f.speedMs),
-        shieldMs: Math.round(f.shieldMs),
       };
+      // Defaults stay off the wire — most of these are 0 or null most of the time.
+      const vx = round1(p.velocity.x);
+      const vy = round1(p.velocity.y);
+      if (vx) fs.vx = vx;
+      if (vy) fs.vy = vy;
+      if (p.status) fs.status = p.status;
+      if (p.lastHitAtMs !== undefined) fs.lastHitAtMs = Math.round(p.lastHitAtMs);
+      if (f.invulnMs > 0) fs.invulnMs = Math.round(f.invulnMs);
+      if (f.kos) fs.kos = f.kos;
+      if (f.damageDealt) fs.damageDealt = f.damageDealt;
+      if (f.speedMs > 0) fs.speedMs = Math.round(f.speedMs);
+      if (f.shieldMs > 0) fs.shieldMs = Math.round(f.shieldMs);
+      fighters[id] = fs;
     }
     return {
-      elapsedMs: this.state.elapsedMs,
+      elapsedMs: Math.round(this.state.elapsedMs),
       phase: this.state.phase,
       livingOrder: [...this.state.livingOrder],
       eliminationOrder: [...this.state.eliminationOrder],
@@ -587,9 +594,22 @@ export class ActionEngine implements EngineLike {
         ...p,
         position: { x: round1(p.position.x), y: round1(p.position.y) },
         velocity: { x: round1(p.velocity.x), y: round1(p.velocity.y) },
+        travelled: round1(p.travelled),
       })),
       pickups: this.pickups.map((p) => ({ ...p, position: { ...p.position } })),
       events: this.getActionEventsSince(sinceSeq),
+    };
+  }
+
+  /** The HUD numbers only fighter `id`'s own player needs (see PrivateFighterSnapshot). */
+  privateSnapshot(id: string): PrivateFighterSnapshot {
+    const f = this.fighters[id];
+    return {
+      energy: round1(f.energy),
+      cooldowns: f.cooldowns.map(Math.round),
+      globalCooldownMs: Math.round(f.globalCooldownMs),
+      dashCharges: f.dashCharges,
+      dashRechargeMs: Math.round(f.dashRechargeMs),
     };
   }
 

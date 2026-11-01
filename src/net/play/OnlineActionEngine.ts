@@ -1,4 +1,10 @@
-import { ActionEngine, facingVector, type ActionSnapshot, type Projectile } from '../../sim/action/ActionEngine';
+import {
+  ActionEngine,
+  facingVector,
+  type ActionSnapshot,
+  type PrivateFighterSnapshot,
+  type Projectile,
+} from '../../sim/action/ActionEngine';
 import type { MoveLookup, SpeciesData } from '../../sim/matchSetup';
 import { isIncapacitatingStatus } from '../../sim/statusEffects';
 import type { MatchConfig, PokemonInstance, Vec2 } from '../../sim/types';
@@ -52,7 +58,8 @@ export class OnlineActionEngine extends ActionEngine {
     super(config, species, moves, seed, { bots: false, playerId });
   }
 
-  applySnapshot(s: ActionSnapshot): void {
+  /** `me`: this player's own HUD numbers (energy, cooldowns, dashes), sent only to them. */
+  applySnapshot(s: ActionSnapshot, me?: PrivateFighterSnapshot): void {
     const now = performance.now();
     const state = this.state;
     state.phase = s.phase;
@@ -63,33 +70,32 @@ export class OnlineActionEngine extends ActionEngine {
     this.snapReceivedAtMs = now;
     state.elapsedMs = s.elapsedMs;
 
-    const me = this.playerId;
-    const respawnedMe = s.events.some((e) => e.type === 'respawned' && e.instanceId === me);
+    const myId = this.playerId;
+    const respawnedMe = s.events.some((e) => e.type === 'respawned' && e.instanceId === myId);
     const holding = now < this.localHoldUntilMs;
     const positions: Record<string, Vec2> = {};
     for (const [id, fs] of Object.entries(s.fighters)) {
       const p = state.pokemon[id];
       const f = this.fighters[id];
       if (!p || !f) continue;
+      // Absent fields are at their default (see FighterSnapshot).
       p.currentHp = fs.hp;
-      p.status = fs.status;
-      p.lastHitAtMs = fs.lastHitAtMs ?? undefined;
-      Object.assign(f, {
-        invulnMs: fs.invulnMs,
-        kos: fs.kos,
-        damageDealt: fs.damageDealt,
-        dashRechargeMs: fs.dashRechargeMs,
-        // speedMs also lifts the cap in stepMovement for the fighter this screen moves.
-        speedMs: fs.speedMs,
-        shieldMs: fs.shieldMs,
-      });
-      if (id === me) {
-        if (!holding)
+      p.status = fs.status ?? null;
+      p.lastHitAtMs = fs.lastHitAtMs;
+      f.invulnMs = fs.invulnMs ?? 0;
+      f.kos = fs.kos ?? 0;
+      f.damageDealt = fs.damageDealt ?? 0;
+      // speedMs also lifts the cap in stepMovement for the fighter this screen moves.
+      f.speedMs = fs.speedMs ?? 0;
+      f.shieldMs = fs.shieldMs ?? 0;
+      if (id === myId) {
+        if (me) f.dashRechargeMs = me.dashRechargeMs;
+        if (me && !holding)
           Object.assign(f, {
-            energy: fs.energy,
-            cooldowns: fs.cooldowns,
-            globalCooldownMs: fs.globalCooldownMs,
-            dashCharges: fs.dashCharges,
+            energy: me.energy,
+            cooldowns: me.cooldowns,
+            globalCooldownMs: me.globalCooldownMs,
+            dashCharges: me.dashCharges,
           });
         if (respawnedMe || Math.hypot(fs.x - p.position.x, fs.y - p.position.y) > RESYNC_DISTANCE) {
           p.position = { x: fs.x, y: fs.y };
@@ -98,14 +104,9 @@ export class OnlineActionEngine extends ActionEngine {
         }
         continue;
       }
-      Object.assign(f, {
-        energy: fs.energy,
-        cooldowns: fs.cooldowns,
-        dashCharges: fs.dashCharges,
-      });
       p.facing = fs.facing;
       p.aiState = fs.aiState;
-      p.velocity = { x: fs.vx, y: fs.vy };
+      p.velocity = { x: fs.vx ?? 0, y: fs.vy ?? 0 };
       positions[id] = { x: fs.x, y: fs.y };
     }
     this.samples.push({ atMs: now, positions });
@@ -117,9 +118,9 @@ export class OnlineActionEngine extends ActionEngine {
 
     for (const event of s.events) {
       this.actionEvents.push(event);
-      if (event.type === 'hit' && event.targetId === me) {
-        this.fighters[me].knockback.x += event.knockback.x;
-        this.fighters[me].knockback.y += event.knockback.y;
+      if (event.type === 'hit' && event.targetId === myId) {
+        this.fighters[myId].knockback.x += event.knockback.x;
+        this.fighters[myId].knockback.y += event.knockback.y;
       }
     }
   }
