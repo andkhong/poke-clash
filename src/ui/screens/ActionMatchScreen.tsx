@@ -89,6 +89,8 @@ export function ActionMatchScreen({
 }: ActionMatchScreenProps) {
   const state = useSimSnapshot(store);
   const [stageRect, setStageRect] = useState<StageRect | null>(null);
+  /** The desktop bar's last height: once the match ends and the bar goes, a spacer this tall keeps the arena where it was. */
+  const barHeightRef = useRef(0);
   const touch = useMemo(() => IS_MOBILE_DEVICE || window.matchMedia('(pointer: coarse)').matches, []);
   const playerId = engine.playerId;
   const moves = controller
@@ -116,7 +118,12 @@ export function ActionMatchScreen({
   const desktop = !isMobileArena(state.arena);
   const bottomRow =
     !stacked && playing && (controller || banner) ? (
-      <div style={desktop ? { ...bottomBarStyle, width: stageRect?.width } : bottomRowStyle}>
+      <div
+        ref={(el) => {
+          if (el && desktop) barHeightRef.current = el.offsetHeight;
+        }}
+        style={desktop ? { ...bottomBarStyle, width: stageRect?.width } : bottomRowStyle}
+      >
         {controller && <InfoBox state={state} controller={controller} />}
         {banner || <div style={{ flex: '1 1 0' }} />}
         {controller && !touch && <FightMenu controller={controller} moves={moves} onToggleLock={toggleLock} />}
@@ -196,7 +203,8 @@ export function ActionMatchScreen({
             </div>
           )}
         </div>
-        {desktop && bottomRow}
+        {desktop &&
+          (bottomRow ?? (barHeightRef.current > 0 && <div aria-hidden="true" style={{ flex: 'none', height: barHeightRef.current }} />))}
       </div>
     </div>
   );
