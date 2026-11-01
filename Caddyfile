@@ -1,6 +1,16 @@
 :8080 {
 	encode zstd gzip
 
+	# Baseline hardening. The CSP only sets frame-ancestors (no clickjacking
+	# embeds); a full script/style policy needs testing against the inline
+	# styles, Google Fonts and the Cloudflare beacon before it can ship.
+	header {
+		X-Content-Type-Options "nosniff"
+		Referrer-Policy "strict-origin-when-cross-origin"
+		Content-Security-Policy "frame-ancestors 'self'"
+		Permissions-Policy "camera=(), microphone=(), geolocation=()"
+	}
+
 	@api path /api/*
 	handle @api {
 		reverse_proxy localhost:4311 {
