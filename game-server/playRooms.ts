@@ -532,15 +532,15 @@ function stepCalls(room: PlayRoom, battle: Battle): void {
     changed = true;
   }
   if (call?.phase === 'landing' && nowMs >= call.landsAtMs) {
+    // One chat line per call, both sides together, so the log isn't all house picks.
+    const results: string[] = [];
     for (const side of CROWD_SIDES) {
       const { winner, housePick } = call.sides[side];
       if (!winner) continue;
       battle.engine.applyCrowdCard(side, winner, housePick);
-      postSystemChat(
-        room,
-        housePick ? `House pick for ${SIDE_LABELS[side]}: ${CARD_LABELS[winner]}` : `${SIDE_LABELS[side]} crowd: ${CARD_LABELS[winner]}!`
-      );
+      results.push(`${SIDE_LABELS[side].replace('Team ', '')}: ${CARD_LABELS[winner]}${housePick ? ' (house pick)' : '!'}`);
     }
+    if (results.length > 0) postSystemChat(room, `Crowd Call ${call.index} — ${results.join(' · ')}`);
     call.phase = 'landed';
     battle.flushNext = true;
     changed = true;

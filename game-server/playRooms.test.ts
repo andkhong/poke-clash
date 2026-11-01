@@ -304,8 +304,7 @@ describe('online Play Mode rooms', () => {
       vi.advanceTimersByTime(2_000);
       expect(call()!.phase).toBe('landed');
       expect(systemLines(fan).map((m) => m.text)).toEqual([
-        expect.stringMatching(/^House pick for Team Ruby: /),
-        expect.stringMatching(/^House pick for Team Sapphire: /),
+        expect.stringMatching(/^Crowd Call 1 — Ruby: .+ \(house pick\) · Sapphire: .+ \(house pick\)$/),
       ]);
       const landed = fan.inbox.flatMap((m) => (m.t === 'snap' ? m.s.events : [])).filter((e) => e.type === 'crowdCall');
       expect(landed.map((e) => e.type === 'crowdCall' && e.team)).toEqual(['teamA', 'teamB']);
@@ -341,7 +340,7 @@ describe('online Play Mode rooms', () => {
       expect(call()!.sides.teamA).toMatchObject({ winner: second, housePick: false });
       expect(call()!.sides.teamB.housePick).toBe(true);
       vi.advanceTimersByTime(2_000);
-      expect(systemLines(fan)[0].text).toMatch(/^Team Ruby crowd: .+!$/);
+      expect(systemLines(fan)[0].text).toMatch(/^Crowd Call \d+ — Ruby: [^(]+! · Sapphire: .+ \(house pick\)$/);
     });
 
     it('locks the side with a first bet, and then refuses votes and potions for the other side', () => {
