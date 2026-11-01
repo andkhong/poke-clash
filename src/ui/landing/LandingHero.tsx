@@ -1,5 +1,5 @@
 import { CrowdIcon, PlayIcon } from './icons';
-import { HERO_FIGHTERS } from './heroFighters';
+import { HERO_FIGHTERS, idleSpriteClass } from './courtSprites';
 
 interface LandingHeroProps {
   /** Players seated in online rooms right now, or null until the room list
@@ -63,7 +63,7 @@ function HeroCourt() {
           <span key={f.id} className={`lp-fighter ${f.slot}${f.hideOnMobile ? ' lp-hide-mobile' : ''}`}>
             {f.shielded && <span className="lp-fighter-shield" />}
             <span className={`lp-fighter-mark lp-fighter-mark-${f.team}`} />
-            <span className={`lp-sprite lp-sprite-${f.id}`} />
+            <span className={idleSpriteClass(f.id, f.row)} />
           </span>
         ))}
       </div>

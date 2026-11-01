@@ -1,6 +1,7 @@
 import type { PlayModeKind } from '../../app/playMode';
 import type { PlayRoomSummary } from '../../net/play/playProtocol';
 import { PlusIcon } from './icons';
+import { FACE_DOWN, FACE_LEFT, FACE_RIGHT, hasIdleSprite, idleSpriteClass, idleSpritesCss } from './courtSprites';
 import type { PlayRoomsStatus } from './usePlayRooms';
 
 interface OpenRoomsProps {
@@ -21,6 +22,7 @@ function modeLabel(mode: PlayModeKind): string {
 export function OpenRooms({ rooms, status }: OpenRoomsProps) {
   return (
     <section id="rooms" className="lp-section lp-container" aria-labelledby="lp-rooms-title">
+      <style>{roomSpritesCss(rooms)}</style>
       <div className="lp-section-head">
         <div className="lp-section-titles">
           <h2 id="lp-rooms-title" className="lp-h2">
@@ -124,29 +126,57 @@ function RoomCard({ room }: { room: PlayRoomSummary }) {
   );
 }
 
-/** One marker per seat, laid out by CSS: Ruby's column on the left and
- * Sapphire's on the right; FFA is a wrapped row of four colors. */
+/** Each seat's Pokémon (an empty marker for a seat nobody's in yet), laid
+ * out by CSS: Ruby's column on the left facing right, Sapphire's on the
+ * right facing left; FFA is a wrapped grid facing the viewer. */
 function SeatTokens({ room }: { room: PlayRoomSummary }) {
   if (room.mode === 'ffa') {
     return (
       <span className="lp-seats lp-seats-ffa">
         {Array.from({ length: room.seats }, (_, i) => (
-          <span key={i} className={`lp-seat lp-seat-ffa${i % 4}`} />
+          <CourtFighter key={i} speciesId={room.fighters[i]?.speciesId} row={FACE_DOWN} marker={`lp-seat-ffa${i % 4}`} />
         ))}
       </span>
     );
   }
-  const column = (side: 'ruby' | 'sapphire') => (
-    <span className="lp-seat-col">
-      {Array.from({ length: room.seats / 2 }, (_, i) => (
-        <span key={i} className={`lp-seat lp-seat-${side}`} />
-      ))}
-    </span>
-  );
+  const column = (team: 'teamA' | 'teamB') => {
+    const picks = room.fighters.filter((f) => f.team === team);
+    return (
+      <span className="lp-seat-col">
+        {Array.from({ length: room.seats / 2 }, (_, i) => (
+          <CourtFighter
+            key={i}
+            speciesId={picks[i]?.speciesId}
+            row={team === 'teamA' ? FACE_RIGHT : FACE_LEFT}
+            marker={team === 'teamA' ? 'lp-seat-ruby' : 'lp-seat-sapphire'}
+          />
+        ))}
+      </span>
+    );
+  };
   return (
     <span className="lp-seats">
-      {column('ruby')}
-      {column('sapphire')}
+      {column('teamA')}
+      {column('teamB')}
     </span>
+  );
+}
+
+function CourtFighter({ speciesId, row, marker }: { speciesId: number | undefined; row: number; marker: string }) {
+  if (speciesId === undefined || !hasIdleSprite(speciesId)) return <span className={`lp-seat ${marker}`} />;
+  return (
+    <span className="lp-mini">
+      <span className={`lp-mini-mark ${marker}`} />
+      <span className={idleSpriteClass(speciesId, row)} />
+    </span>
+  );
+}
+
+/** Sprite rules for every fighter on the cards, matching CourtFighter's facings. */
+function roomSpritesCss(rooms: readonly PlayRoomSummary[]): string {
+  return idleSpritesCss(
+    rooms.flatMap((room) =>
+      room.fighters.map((f) => ({ id: f.speciesId, row: room.mode === 'ffa' ? FACE_DOWN : f.team === 'teamA' ? FACE_RIGHT : FACE_LEFT }))
+    )
   );
 }

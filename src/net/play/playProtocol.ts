@@ -78,6 +78,8 @@ export interface PlayRoomSummary {
   seats: number;
   phase: 'lobby' | 'battle';
   live: boolean;
+  /** Who's on the court: every fighter (bots too) during a match, the picks so far in the lobby. */
+  fighters: { speciesId: number; team: 'teamA' | 'teamB' | null }[];
 }
 
 export type ClientMessage =

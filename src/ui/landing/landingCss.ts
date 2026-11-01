@@ -24,7 +24,7 @@ import {
   SUNK,
   textAlpha,
 } from '../theme';
-import { HERO_FIGHTER_CSS } from './heroFighters';
+import { HERO_FIGHTER_CSS } from './courtSprites';
 
 /** The arena floor in the CSS-drawn courts (hero art, room thumbnails).
  * Illustration only, matched to the design canvas; not a theme token
@@ -178,12 +178,16 @@ ${HERO_FIGHTER_CSS}
 .lp-room{flex:1;display:flex;flex-direction:column;overflow:hidden;border-radius:8px;background:${PANEL};border:${OUTLINE}}
 .lp-room-thumb{position:relative;aspect-ratio:16/9;background:${COURT};border-bottom:${OUTLINE}}
 .lp-court-inset{position:absolute;inset:10px;border:2px solid ${PANEL};border-radius:3px}
-.lp-seats{position:absolute;inset:14px;display:flex;align-items:center;justify-content:space-around}
-.lp-seats-ffa{flex-wrap:wrap;align-content:center;gap:12px 16%;padding-inline:12%}
+.lp-seats{position:absolute;inset:30px 14px 8px;display:flex;align-items:center;justify-content:space-around}
+.lp-seats-ffa{flex-wrap:wrap;align-content:center;justify-content:space-evenly;gap:4px 2%;padding-inline:2%}
 .lp-seat-col{display:flex;flex-direction:column;gap:10px}
 .lp-seat{display:block;width:20px;height:20px;box-sizing:border-box;border-radius:50%;border:${OUTLINE}}
 .lp-seat-ruby{background:${RUBY}}
 .lp-seat-sapphire{border-radius:3px;transform:rotate(45deg);background:${SAPPHIRE};width:18px;height:18px}
+.lp-seat-col:has(.lp-mini){gap:0}
+.lp-mini{position:relative;display:flex;align-items:flex-end;justify-content:center;width:44px;height:36px}
+.lp-mini .lp-sprite{position:relative;z-index:1;margin-bottom:-6px}
+.lp-mini-mark{position:absolute;bottom:2px;left:50%;width:26px;height:8px;box-sizing:border-box;border-radius:50%;border:2px solid ${INK};transform:translateX(-50%)}
 .lp-seat-ffa0{background:${RUBY}}.lp-seat-ffa1{background:${SAPPHIRE}}.lp-seat-ffa2{background:${HP_GREEN}}.lp-seat-ffa3{background:${ACTION}}
 .lp-room-badge{position:absolute;left:10px;top:10px;display:inline-flex;align-items:center;gap:6px;min-height:28px;box-sizing:border-box;
   padding:0 10px;border-radius:4px;background:${PANEL};border:2px solid ${INK};font:400 15px/1 ${FONT_UI};color:${INK}}
@@ -204,6 +208,7 @@ ${HERO_FIGHTER_CSS}
   .lp-room-thumb{flex:none;width:90px;height:60px;aspect-ratio:auto;border:2px solid ${INK};border-radius:4px;overflow:hidden}
   .lp-court-inset{inset:5px}.lp-seats{inset:6px}.lp-seat-col{gap:4px}.lp-seats-ffa{gap:4px 10%;padding-inline:6%}
   .lp-seat{width:12px;height:12px;border-width:2px}.lp-seat-sapphire{width:10px;height:10px}
+  .lp-mini{width:30px;height:26px}.lp-mini .lp-sprite{transform:scale(.65);transform-origin:50% 100%;margin-bottom:-4px}.lp-mini-mark{width:18px;height:6px;border-width:1px}
   .lp-room-body{display:grid;grid-template-columns:minmax(0,1fr) auto;column-gap:12px;row-gap:3px;padding:0}
   .lp-room-title{justify-content:flex-start;gap:6px;min-width:0}
   .lp-room-name{font-size:16px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}

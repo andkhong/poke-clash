@@ -204,6 +204,9 @@ export function listPlayRooms(): PlayRoomSummary[] {
       seats: room.seats.length,
       phase: room.battle ? ('battle' as const) : ('lobby' as const),
       live: room.live,
+      fighters: room.battle
+        ? room.battle.config.speciesIds.map((speciesId, i) => ({ speciesId, team: seatTeam(room.mode, i) }))
+        : room.seats.flatMap((seat, i) => (seat.speciesId !== null ? [{ speciesId: seat.speciesId, team: seatTeam(room.mode, i) }] : [])),
     }))
     .sort((a, b) => Number(b.live) - Number(a.live));
 }
