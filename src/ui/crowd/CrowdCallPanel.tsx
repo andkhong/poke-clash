@@ -30,7 +30,7 @@ import {
   voteErrorText,
   type CrowdCallsStore,
 } from './crowdModel';
-import { barFill, barTrack, chip } from './hoenn';
+import { barFill, barTrack, chip, tapHeight } from './hoenn';
 import { CrowdCardIcon } from './CrowdCardIcon';
 
 const ERROR_SHOW_MS = 2500;
@@ -53,6 +53,8 @@ export interface CrowdCallPanelProps {
   onVote: (side: CrowdSide, card: CrowdCardId) => Promise<string | null>;
   /** Shown above the cards until signedUp. */
   signUp?: ReactNode;
+  /** Desktop sidebar density: 36 px controls instead of 44 px touch targets. */
+  dense?: boolean;
 }
 
 /** The crowd's Vote tab: side picker, the open call's cards with live %, and
@@ -68,6 +70,7 @@ export const CrowdCallPanel = memo(function CrowdCallPanel({
   fighter,
   onVote,
   signUp,
+  dense = false,
 }: CrowdCallPanelProps) {
   const { current } = useCrowdCalls(calls);
   const [picked, setPicked] = useState<CrowdSide>('teamA');
@@ -107,36 +110,13 @@ export const CrowdCallPanel = memo(function CrowdCallPanel({
 
   return (
     <div style={wrapStyle}>
-      {!fighter && signUp}
-      {fighter ? (
-        <p style={noteStyle}>Fighters can’t vote — {side ? `the ${SIDE_NAME[side]} crowd` : 'your crowd'} votes for you.</p>
-      ) : side ? (
-        <div style={lockedRowStyle}>
-          <span style={dot(side)} />
-          <span>
-            Cheering <strong style={{ color: side === 'teamA' ? TEAM_A_COLOR_CSS : TEAM_B_COLOR_CSS }}>{SIDE_NAME[side]}</strong> · locked
-            for this match
-          </span>
-        </div>
-      ) : (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-          <span style={labelStyle}>Cheer for</span>
-          <div role="group" aria-label="Cheer for" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
-            {(['teamA', 'teamB'] as const).map((s) => (
-              <button key={s} type="button" aria-pressed={picked === s} onClick={() => setPicked(s)} style={sideButton(s, picked === s)}>
-                {SIDE_NAME[s]}
-              </button>
-            ))}
-          </div>
-          <span style={noteStyle}>Your side locks once you vote or bet this match.</span>
-        </div>
-      )}
-
+      {/* Until signed up the form comes first; after, the slim "signed up as" row and Join next match sink below the call. */}
+      {!fighter && !signedUp && signUp}
       <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
-        <span style={chip(CROWD, PANEL)}>
+        <span style={chip(CROWD_TEXT, PANEL)}>
           {current ? `CROWD CALL ${current.index}/${Math.max(CALLS_PER_MATCH, current.index)}` : 'CROWD CALL'}
         </span>
-        <span style={{ fontSize: 14, color: INK_MUTED }}>
+        <span style={{ fontSize: 13, color: INK_MUTED }}>
           {SIDE_NAME[viewSide]} crowd{tally ? ` · ${tally.total} vote${tally.total === 1 ? '' : 's'}` : ''}
         </span>
         <span style={clockStyle}>
@@ -150,8 +130,44 @@ export const CrowdCallPanel = memo(function CrowdCallPanel({
         </span>
       </div>
       {voting && (
-        <div style={barTrack(8)}>
+        <div style={barTrack(6)}>
           <div style={barFill(CROWD, status.left)} />
+        </div>
+      )}
+
+      {fighter ? (
+        <p style={noteStyle}>Fighters can’t vote — {side ? `the ${SIDE_NAME[side]} crowd` : 'your crowd'} votes for you.</p>
+      ) : side ? (
+        <div style={lockedRowStyle}>
+          <span style={dot(side)} />
+          <span>
+            Cheering <strong style={{ color: side === 'teamA' ? TEAM_A_COLOR_CSS : TEAM_B_COLOR_CSS }}>{SIDE_NAME[side]}</strong> · locked
+            for this match
+          </span>
+        </div>
+      ) : (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+          <div
+            role="group"
+            aria-label="Cheer for"
+            style={{ display: 'grid', gridTemplateColumns: 'auto 1fr 1fr', alignItems: 'center', gap: 6 }}
+          >
+            <span style={labelStyle} aria-hidden>
+              Cheer for
+            </span>
+            {(['teamA', 'teamB'] as const).map((s) => (
+              <button
+                key={s}
+                type="button"
+                aria-pressed={picked === s}
+                onClick={() => setPicked(s)}
+                style={sideButton(s, picked === s, dense)}
+              >
+                {SIDE_NAME[s]}
+              </button>
+            ))}
+          </div>
+          <span style={noteStyle}>Your side locks once you vote or bet this match.</span>
         </div>
       )}
 
@@ -164,29 +180,21 @@ export const CrowdCallPanel = memo(function CrowdCallPanel({
       ) : (
         <>
           {!voting && callSide.winner && (
-            <p style={{ margin: 0, fontFamily: FONT_UI, fontSize: 19 }}>
+            <p style={{ margin: 0, fontFamily: FONT_UI, fontSize: 15 }}>
               {callSide.housePick ? 'House pick: ' : `${SIDE_NAME[viewSide]}'s crowd called `}
               <strong style={{ color: CROWD_TEXT }}>{CROWD_CARDS[callSide.winner].label}</strong>
               {status.kind === 'landing' ? ` — lands in ${status.landsInS}` : ' — landed'}
             </p>
           )}
+          {voting && !fighter && (
+            <span style={noteStyle}>{!signedUp ? 'Sign up to vote.' : myVote ? 'Tap another card to switch.' : 'Tap a card to vote.'}</span>
+          )}
           {tally.cards.map((card) => {
             const mine = myVote === card.id; // stays set through landing
             const won = !voting && callSide.winner === card.id;
             const canVote = voting && signedUp && !fighter && !pending;
-            const note = !voting
-              ? [won ? (callSide.housePick ? 'House pick' : 'Winner') : '', mine ? 'Your vote' : ''].filter(Boolean).join(' · ')
-              : fighter
-                ? ''
-                : !signedUp
-                  ? 'Sign up to vote'
-                  : pending === card.id
-                    ? 'Sending…'
-                    : mine
-                      ? 'Your vote'
-                      : myVote
-                        ? 'Tap to switch your vote'
-                        : 'Tap to vote';
+            const tag = pending === card.id ? 'SENDING' : won ? (callSide.housePick ? 'HOUSE' : 'WIN') : mine ? 'YOUR VOTE' : '';
+            const { label, desc } = CROWD_CARDS[card.id];
             return (
               <button
                 key={card.id}
@@ -194,25 +202,25 @@ export const CrowdCallPanel = memo(function CrowdCallPanel({
                 aria-pressed={mine}
                 disabled={!canVote}
                 onClick={() => vote(card.id)}
-                style={cardStyle(mine || won, canVote)}
+                aria-label={`${label}: ${desc}. ${card.pct}%${tag ? `, ${tag.toLowerCase()}` : ''}`}
+                title={desc}
+                style={cardStyle(mine || won, canVote, dense)}
               >
-                <span style={{ display: 'flex', alignItems: 'center', gap: 10, width: '100%' }}>
-                  <span aria-hidden style={{ width: 14, flex: 'none', fontSize: 14 }}>
-                    {mine || won ? '▶' : ''}
-                  </span>
-                  <span style={iconTile}>
-                    <CrowdCardIcon card={card.id} />
-                  </span>
-                  <span style={{ display: 'flex', flexDirection: 'column', flex: 1, minWidth: 0 }}>
-                    <strong style={{ fontFamily: FONT_UI, fontSize: 19 }}>{CROWD_CARDS[card.id].label}</strong>
-                    <span style={{ fontSize: 13, color: INK_MUTED }}>{CROWD_CARDS[card.id].desc}</span>
-                  </span>
-                  <span style={{ fontFamily: FONT_UI, fontWeight: 700, fontSize: 19 }}>{card.pct}%</span>
+                <span style={iconTile}>
+                  <CrowdCardIcon card={card.id} />
                 </span>
-                <span style={barTrack(8)}>
+                <span style={{ display: 'flex', flexDirection: 'column', flex: 1, minWidth: 0 }}>
+                  <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                    <strong style={{ fontFamily: FONT_UI, fontSize: 15, whiteSpace: 'nowrap' }}>{label}</strong>
+                    {tag && <span style={tagStyle}>{tag}</span>}
+                  </span>
+                  <span style={descStyle}>{desc}</span>
+                </span>
+                <span style={{ fontFamily: FONT_UI, fontWeight: 700, fontSize: 16, fontVariantNumeric: 'tabular-nums' }}>{card.pct}%</span>
+                {/* Vote share as a thin strip along the row's bottom edge, like the shop's stock bar. */}
+                <span style={shareTrack} aria-hidden>
                   <span style={barFill(card.leading ? CROWD : COOLDOWN, card.pct / 100)} />
                 </span>
-                {note && <span style={{ fontSize: 13, fontWeight: 700, color: mine || won ? CROWD : INK_MUTED }}>{note}</span>}
               </button>
             );
           })}
@@ -223,38 +231,48 @@ export const CrowdCallPanel = memo(function CrowdCallPanel({
           {error}
         </p>
       )}
-      <span style={noteStyle}>
-        The winner lands on every {SIDE_NAME[viewSide]} fighter 2 s after voting closes. Both teams see it coming. Nobody votes → house
-        pick.
-      </span>
+      <span style={noteStyle}>Winner hits every {SIDE_NAME[viewSide]} fighter 2 s after voting. No votes → house pick.</span>
+      {!fighter && signedUp && signUp}
     </div>
   );
 });
 
 const wrapStyle: CSSProperties = {
-  padding: '12px 14px 16px',
+  padding: '8px 10px 10px',
   display: 'flex',
   flexDirection: 'column',
-  gap: 10,
+  gap: 6,
   fontFamily: FONT_BODY,
   color: INK,
 };
-const noteStyle: CSSProperties = { margin: 0, fontSize: 13, lineHeight: 1.4, color: INK_MUTED };
-const labelStyle: CSSProperties = { fontSize: 14, fontWeight: 700 };
+const noteStyle: CSSProperties = { margin: 0, fontSize: 12, lineHeight: 1.35, color: INK_MUTED };
+const descStyle: CSSProperties = { fontSize: 12, color: INK_MUTED, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' };
+// PANEL on CROWD_TEXT (8.8:1) — CROWD_TEXT straight on the CROWD_TINT row would fall short of 4.5:1.
+const tagStyle: CSSProperties = {
+  padding: '0 4px',
+  borderRadius: 3,
+  fontSize: 10,
+  fontWeight: 700,
+  color: PANEL,
+  background: CROWD_TEXT,
+  whiteSpace: 'nowrap',
+};
+const shareTrack: CSSProperties = { position: 'absolute', left: 0, right: 0, bottom: 0, height: 4, background: SUNK };
+const labelStyle: CSSProperties = { fontSize: 13, fontWeight: 700 };
 const clockStyle: CSSProperties = { marginLeft: 'auto', fontFamily: FONT_PIXEL, fontSize: 12, color: CROWD_TEXT, whiteSpace: 'nowrap' };
 const lockedRowStyle: CSSProperties = {
   display: 'flex',
   alignItems: 'center',
   gap: 8,
-  padding: '8px 10px',
+  padding: '6px 8px',
   borderRadius: 8,
   border: `2px solid ${INK}`,
   background: INFO_BOX,
-  fontSize: 14,
+  fontSize: 13,
 };
 const iconTile: CSSProperties = {
-  width: 36,
-  height: 36,
+  width: 28,
+  height: 28,
   flex: 'none',
   borderRadius: 6,
   border: `2px solid ${INK}`,
@@ -274,36 +292,37 @@ function dot(side: CrowdSide): CSSProperties {
   };
 }
 
-function sideButton(side: CrowdSide, on: boolean): CSSProperties {
+function sideButton(side: CrowdSide, on: boolean, dense: boolean): CSSProperties {
   return {
-    minHeight: 48,
+    minHeight: tapHeight(dense),
     borderRadius: 8,
-    border: `3px solid ${INK}`,
+    border: `${dense ? 2 : 3}px solid ${INK}`,
     fontFamily: FONT_UI,
     fontWeight: 700,
-    fontSize: 19,
+    fontSize: 16,
     cursor: 'pointer',
     background: on ? (side === 'teamA' ? RUBY : SAPPHIRE) : PANEL,
     color: on && side === 'teamA' ? PANEL : INK,
   };
 }
 
-function cardStyle(marked: boolean, enabled: boolean): CSSProperties {
+function cardStyle(marked: boolean, enabled: boolean, dense: boolean): CSSProperties {
   return {
+    position: 'relative',
     display: 'flex',
-    flexDirection: 'column',
-    alignItems: 'stretch',
+    alignItems: 'center',
     gap: 8,
     width: '100%',
-    minHeight: 64,
-    padding: '10px 12px',
+    minHeight: dense ? 44 : 52,
+    padding: '4px 10px 8px 6px',
     borderRadius: 8,
-    border: `3px solid ${INK}`,
+    border: `2px solid ${INK}`,
     textAlign: 'left',
     fontFamily: FONT_BODY,
     color: INK,
     background: marked ? CROWD_TINT : PANEL,
-    boxShadow: marked ? `inset 0 0 0 3px ${CROWD}` : `inset 0 -4px 0 ${SUNK}`,
+    boxShadow: marked ? `inset 0 0 0 2px ${CROWD}` : 'none',
     cursor: enabled ? 'pointer' : 'default',
+    overflow: 'hidden',
   };
 }

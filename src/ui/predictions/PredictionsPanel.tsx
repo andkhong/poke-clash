@@ -11,7 +11,6 @@ import {
   INFO_BOX,
   INK,
   INK_MUTED,
-  OUTLINE,
   PANEL,
   SAPPHIRE_DEEP,
   SUCCESS,
@@ -33,6 +32,7 @@ import {
   watchedText,
   type StakeChip,
 } from './predictionModel';
+import { tapHeight } from '../crowd/hoenn';
 
 export interface PredictionsPanelProps {
   /** The room's current pool, or null between rounds / before the first. */
@@ -47,6 +47,8 @@ export interface PredictionsPanelProps {
   /** Resolves to null on success, or a machine error code the panel turns
    * into a short notice (see betErrorNotice). */
   onBet: (optionId: string, amount: number) => Promise<string | null>;
+  /** Desktop sidebar density: 36 px controls instead of 44 px touch targets. */
+  dense?: boolean;
 }
 
 const NOTICE_MS = 2000;
@@ -56,7 +58,7 @@ const CHIPS: readonly StakeChip[] = [...STAKE_CHIPS, 'all'];
  * rooms) with its live win odds and its share of the pool, a stake picker,
  * and the window's countdown. Layout-agnostic — the web sidebar stacks it
  * above chat, the mobile drawer shows it on its own tab. */
-export function PredictionsPanel({ prediction, balance, myBet, settled, canBet, onBet }: PredictionsPanelProps) {
+export function PredictionsPanel({ prediction, balance, myBet, settled, canBet, onBet, dense = false }: PredictionsPanelProps) {
   const [chip, setChip] = useState<StakeChip>(STAKE_CHIPS[0]);
   const [placing, setPlacing] = useState(false);
   const [notice, setNotice] = useState<string | null>(null);
@@ -134,6 +136,7 @@ export function PredictionsPanel({ prediction, balance, myBet, settled, canBet, 
                     disabled={!affordable}
                     style={{
                       ...chipStyle,
+                      minHeight: tapHeight(dense),
                       ...(selected ? chipSelectedStyle : {}),
                       opacity: affordable ? 1 : 0.4,
                     }}
@@ -222,8 +225,8 @@ export function PredictionsPanel({ prediction, balance, myBet, settled, canBet, 
 const panelStyle: CSSProperties = {
   display: 'flex',
   flexDirection: 'column',
-  gap: 8,
-  padding: 10,
+  gap: 6,
+  padding: '8px 10px 10px',
   boxSizing: 'border-box',
   fontFamily: FONT_BODY,
   color: INK,
@@ -238,7 +241,7 @@ const headerStyle: CSSProperties = {
 
 const titleStyle: CSSProperties = {
   fontFamily: FONT_UI,
-  fontSize: 20,
+  fontSize: 16,
   fontWeight: 700,
 };
 
@@ -253,21 +256,21 @@ const walletRowStyle: CSSProperties = {
   display: 'flex',
   alignItems: 'baseline',
   justifyContent: 'space-between',
-  padding: '6px 10px',
-  borderRadius: 8,
+  padding: '3px 8px',
+  borderRadius: 6,
   background: INFO_BOX,
-  border: OUTLINE,
+  border: `2px solid ${INK}`,
 };
 
 const walletLabelStyle: CSSProperties = {
-  fontSize: 13,
+  fontSize: 12,
   fontWeight: 'bold',
   color: INK_MUTED,
 };
 
 const walletValueStyle: CSSProperties = {
   fontFamily: FONT_UI,
-  fontSize: 20,
+  fontSize: 16,
   fontWeight: 700,
   fontVariantNumeric: 'tabular-nums',
 };
@@ -281,26 +284,27 @@ const emptyStyle: CSSProperties = {
 const questionStyle: CSSProperties = {
   margin: 0,
   fontFamily: FONT_UI,
-  fontSize: 18,
+  fontSize: 14,
   fontWeight: 600,
 };
 
 const chipRowStyle: CSSProperties = {
   display: 'flex',
-  gap: 6,
+  gap: 4,
 };
 
 const chipStyle: CSSProperties = {
-  flex: '1 0 auto',
-  minHeight: 44,
-  padding: '0 8px',
-  fontSize: 17,
+  flex: '1 1 0',
+  minWidth: 0,
+  padding: '0 4px',
+  fontSize: 15,
+  whiteSpace: 'nowrap',
   fontFamily: FONT_UI,
   fontWeight: 600,
   color: INK,
   background: PANEL,
   border: `2px solid ${INK}`,
-  borderRadius: 8,
+  borderRadius: 6,
   boxShadow: `inset 0 -3px 0 ${SUNK}`,
   cursor: 'pointer',
 };
@@ -313,15 +317,15 @@ const chipSelectedStyle: CSSProperties = {
 const optionListStyle: CSSProperties = {
   display: 'flex',
   flexDirection: 'column',
-  gap: 8,
+  gap: 6,
 };
 
 const optionStyle: CSSProperties = {
   display: 'flex',
   flexDirection: 'column',
-  gap: 4,
+  gap: 3,
   width: '100%',
-  padding: '6px 10px',
+  padding: '4px 8px',
   boxSizing: 'border-box',
   textAlign: 'left',
   fontFamily: FONT_BODY,
@@ -329,7 +333,7 @@ const optionStyle: CSSProperties = {
   background: INFO_BOX,
   // Longhands, not the `border` shorthand: the row sets borderColor per
   // render and React warns when a shorthand and a longhand disagree.
-  borderWidth: 3,
+  borderWidth: 2,
   borderStyle: 'solid',
   borderRadius: 8,
   outlineOffset: 1,
@@ -347,7 +351,7 @@ const optionNameStyle: CSSProperties = {
   alignItems: 'center',
   gap: 6,
   fontFamily: FONT_UI,
-  fontSize: 18,
+  fontSize: 15,
   fontWeight: 700,
   textTransform: 'uppercase',
   minWidth: 0,
@@ -357,7 +361,7 @@ const optionNameStyle: CSSProperties = {
 };
 
 const favTagStyle: CSSProperties = {
-  fontSize: 12,
+  fontSize: 10,
   padding: '0 4px',
   border: '2px solid currentColor',
   borderRadius: 4,
@@ -365,7 +369,7 @@ const favTagStyle: CSSProperties = {
 
 const oddsStyle: CSSProperties = {
   fontFamily: FONT_UI,
-  fontSize: 18,
+  fontSize: 15,
   fontWeight: 700,
   fontVariantNumeric: 'tabular-nums',
   flex: 'none',
@@ -373,7 +377,7 @@ const oddsStyle: CSSProperties = {
 
 const barTrackStyle: CSSProperties = {
   width: '100%',
-  height: 8,
+  height: 6,
   boxSizing: 'border-box',
   background: SUNK,
   border: `2px solid ${INK}`,
@@ -385,7 +389,7 @@ const optionBottomStyle: CSSProperties = {
   display: 'flex',
   justifyContent: 'space-between',
   gap: 8,
-  fontSize: 13,
+  fontSize: 12,
   color: INK_MUTED,
   fontVariantNumeric: 'tabular-nums',
 };
@@ -406,7 +410,7 @@ const footerStyle: CSSProperties = {
   display: 'flex',
   justifyContent: 'space-between',
   gap: 8,
-  fontSize: 14,
+  fontSize: 13,
   flexWrap: 'wrap',
 };
 
@@ -416,7 +420,7 @@ const resultStyle: CSSProperties = {
   flexDirection: 'column',
   gap: 2,
   fontFamily: FONT_UI,
-  fontSize: 18,
+  fontSize: 15,
   fontWeight: 700,
   color: SAPPHIRE_DEEP,
 };

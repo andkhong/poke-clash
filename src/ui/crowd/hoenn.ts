@@ -105,3 +105,21 @@ export function teamMarker(team: string | undefined, size = 12): CSSProperties {
     boxSizing: 'border-box',
   };
 }
+
+/** Minimum control height: 36 px in the dense desktop sidebar (mouse), 44 px on touch surfaces. */
+export function tapHeight(dense: boolean): number {
+  return dense ? 36 : 44;
+}
+
+/** hoennButton's look at sidebar density: thinner border/bevel, smaller type. */
+export function hoennButtonSm(kind: ButtonKind, enabled = true, dense = true): CSSProperties {
+  return {
+    ...hoennButton(kind, enabled),
+    minHeight: tapHeight(dense),
+    padding: '0 10px',
+    gap: 6,
+    borderWidth: 2,
+    boxShadow: enabled ? `inset 0 -3px 0 ${kind === 'primary' ? ACTION_BEVEL : kind === 'crowd' ? CROWD_BEVEL : SUNK}` : 'none',
+    fontSize: 15,
+  };
+}

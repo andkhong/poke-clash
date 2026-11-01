@@ -3,7 +3,8 @@ import type { ChatMessage } from '../../net/protocol';
 import { CHAT_MAX_LENGTH, normalizeChatText, QUICK_REACTIONS } from '../../net/chat';
 import { containsBlockedLanguage } from '../../net/chatFilter';
 import { chatSenderColor, chatSenderLabel, formatChatTime, isSystemMessage } from './chatModel';
-import { ACTION, ACTION_BEVEL, DESTRUCTIVE, FONT_BODY, FONT_UI, INK, INK_MUTED, OUTLINE, PANEL, SUNK, CROWD_TEXT } from '../theme';
+import { ACTION, ACTION_BEVEL, DESTRUCTIVE, FONT_BODY, FONT_UI, INK, INK_MUTED, OUTLINE, PANEL, SUNK } from '../theme';
+import { tapHeight } from '../crowd/hoenn';
 
 export interface ChatPanelProps {
   messages: ChatMessage[];
@@ -23,6 +24,9 @@ export interface ChatPanelProps {
   showTimestamps?: boolean;
   /** The input's placeholder while canSend is false. */
   disabledPlaceholder?: string;
+  /** Desktop sidebar density (mouse): 36 px controls and a one-line reaction
+   * row instead of the 44 px touch tiles the phone drawer and lobby keep. */
+  dense?: boolean;
 }
 
 const STATUS_NOTICE_MS = 2000;
@@ -42,7 +46,9 @@ export function ChatPanel({
   listHeight = 'flex',
   showTimestamps = false,
   disabledPlaceholder = 'Join the room to chat',
+  dense = false,
 }: ChatPanelProps) {
+  const control = tapHeight(dense);
   const [draft, setDraft] = useState('');
   const [sending, setSending] = useState(false);
   const [notice, setNotice] = useState<string | null>(null);
@@ -133,7 +139,7 @@ export function ChatPanel({
                 <span>{message.text}</span>
               </div>
             ) : (
-              <div key={message.id} style={rowStyle}>
+              <div key={message.id} style={dense ? denseRowStyle : rowStyle}>
                 {showTimestamps && <span style={timeStyle}>{formatChatTime(message.sentAtMs)}</span>}
                 <span style={{ color: chatSenderColor(message), fontWeight: 'bold', textTransform: 'capitalize' }}>
                   {chatSenderLabel(message, mySpectatorName)}
@@ -153,14 +159,15 @@ export function ChatPanel({
 
       {notice && <p style={noticeStyle}>{notice}</p>}
 
-      <div style={chipsRowStyle}>
+      <div style={dense ? denseChipsRowStyle : chipsRowStyle}>
         {QUICK_REACTIONS.map((reaction) => (
           <button
             key={reaction}
             type="button"
             onClick={() => void send(reaction)}
             disabled={!canSend || sending}
-            style={{ ...chipStyle, opacity: canSend ? 1 : 0.4 }}
+            aria-label={`Send ${reaction}`}
+            style={{ ...chipStyle, ...(dense ? denseChipStyle : null), opacity: canSend ? 1 : 0.4 }}
           >
             {reaction}
           </button>
@@ -188,9 +195,13 @@ export function ChatPanel({
           autoComplete="off"
           autoCapitalize="sentences"
           aria-label="Chat message"
-          style={inputStyle}
+          style={{ ...inputStyle, minHeight: control }}
         />
-        <button type="submit" disabled={!canSend || sending || normalizeChatText(draft) === null} style={sendButtonStyle}>
+        <button
+          type="submit"
+          disabled={!canSend || sending || normalizeChatText(draft) === null}
+          style={{ ...sendButtonStyle, minHeight: control, ...(dense ? denseSendStyle : null) }}
+        >
           SEND
         </button>
       </form>
@@ -235,10 +246,17 @@ const rowStyle: CSSProperties = {
   overflowWrap: 'anywhere',
 };
 
+const denseRowStyle: CSSProperties = { ...rowStyle, fontSize: 14, lineHeight: 1.4, padding: '1px 0' };
+
+// Server-written lines (house picks, purchases) stay quiet so viewers' own
+// messages stand out: smaller, muted, italic, never bold.
 const systemRowStyle: CSSProperties = {
-  ...rowStyle,
-  color: CROWD_TEXT,
-  fontWeight: 'bold',
+  fontSize: 12,
+  lineHeight: 1.35,
+  padding: '1px 0',
+  color: INK_MUTED,
+  fontStyle: 'italic',
+  overflowWrap: 'anywhere',
 };
 
 const timeStyle: CSSProperties = {
@@ -252,9 +270,9 @@ const newBelowStyle: CSSProperties = {
   left: '50%',
   bottom: 8,
   transform: 'translateX(-50%)',
-  minHeight: 36,
-  padding: '0 12px',
-  fontSize: 16,
+  minHeight: 32,
+  padding: '0 10px',
+  fontSize: 14,
   fontFamily: FONT_UI,
   fontWeight: 700,
   color: INK,
@@ -291,6 +309,21 @@ const chipStyle: CSSProperties = {
   boxShadow: `inset 0 -3px 0 ${SUNK}`,
   cursor: 'pointer',
 };
+
+// One tight row on desktop: chips size to their label instead of stretching into tiles.
+const denseChipsRowStyle: CSSProperties = { display: 'flex', gap: 4 };
+
+const denseChipStyle: CSSProperties = {
+  flex: '1 1 0',
+  minWidth: 0,
+  minHeight: 32,
+  padding: '0 4px',
+  fontSize: 14,
+  borderRadius: 6,
+  boxShadow: `inset 0 -2px 0 ${SUNK}`,
+};
+
+const denseSendStyle: CSSProperties = { padding: '0 12px', fontSize: 15, borderWidth: 2, boxShadow: `inset 0 -3px 0 ${ACTION_BEVEL}` };
 
 const composerStyle: CSSProperties = {
   display: 'flex',

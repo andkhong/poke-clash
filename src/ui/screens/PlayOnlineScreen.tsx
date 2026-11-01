@@ -50,14 +50,14 @@ import {
 } from '../theme';
 import type { CrowdCallPanelProps } from '../crowd/CrowdCallPanel';
 import { createCrowdCallsStore, isCrowdSide } from '../crowd/crowdModel';
-import { chip, hoennButton, teamMarker } from '../crowd/hoenn';
+import { chip, hoennButton, hoennButtonSm, teamMarker } from '../crowd/hoenn';
 
 const KANTO_SPECIES = listAllSpecies().filter((s) => KANTO_IDS.includes(s.id));
 const SPECIES_NAME = new Map(KANTO_SPECIES.map((s) => [s.id, s.name]));
 const MODE_LABEL = new Map(PLAY_MODES.map((m) => [m.value, m.label]));
 const ROOM_LIST_POLL_MS = 3000;
 const NAME_STORAGE_KEY = 'pokeclash.play.name';
-/** The match sidebar is wider than the default chat column: the vote cards and the shared panels' 44 px targets need it. */
+/** The match sidebar is wider than the default chat column so chat lines and the vote rows' labels don't wrap. */
 const MATCH_SIDEBAR_WIDTH = 400;
 
 /** The name picked at sign-up, remembered for next time. */
@@ -324,10 +324,10 @@ export function PlayOnlineScreen({
 function JoinNextMatch({ queued, onToggle }: { queued: boolean; onToggle: () => void }) {
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-      <button onClick={onToggle} aria-pressed={queued} style={hoennButton(queued ? 'secondary' : 'primary', true, 'lg')}>
+      <button onClick={onToggle} aria-pressed={queued} style={hoennButton(queued ? 'secondary' : 'primary')}>
         {queued ? '✓ Seat saved · cancel' : '▶ Join next match'}
       </button>
-      <span style={{ fontSize: 13, color: INK_MUTED, textAlign: 'center' }}>
+      <span style={{ fontSize: 12, color: INK_MUTED, textAlign: 'center' }}>
         {queued
           ? 'You’ll get a seat when this one ends — pick a Pokémon in the break, or get a random one.'
           : 'Fight in the next match instead of watching.'}
@@ -356,12 +356,12 @@ function SignUpForm({
   const crowd = variant === 'crowd';
   if (me?.name && !editing) {
     return (
-      <div style={{ ...signUpBox, flexDirection: 'row', alignItems: 'center', background: INFO_BOX }}>
-        <span style={{ flex: 1, fontSize: 15 }}>
+      <div style={{ ...signUpBox, ...(crowd ? signUpBoxCompact : null), flexDirection: 'row', alignItems: 'center', background: INFO_BOX }}>
+        <span style={{ flex: 1, fontSize: crowd ? 13 : 15 }}>
           Signed up as <b>{me.name}</b>
         </span>
         <span style={chip(ACTION)}>${me.balance.toLocaleString()}</span>
-        <button onClick={() => setEditing(true)} style={hoennButton('secondary')}>
+        <button onClick={() => setEditing(true)} style={crowd ? hoennButtonSm('secondary', true, false) : hoennButton('secondary')}>
           Change name
         </button>
       </div>
@@ -828,6 +828,8 @@ const signUpBox: CSSProperties = {
   boxSizing: 'border-box',
   flexWrap: 'wrap',
 };
+/** The crowd variant's signed-up row sits in the sidebar's capped Vote tab, so it stays one slim line. */
+const signUpBoxCompact: CSSProperties = { gap: 8, padding: '6px 8px', border: `2px solid ${INK}` };
 const nameInput: CSSProperties = {
   minHeight: 48,
   padding: '0 12px',

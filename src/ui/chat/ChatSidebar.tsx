@@ -115,11 +115,11 @@ export function ChatSidebar({ vote, predictions, shop, width = CHAT_SIDEBAR_WIDT
           )}
           <div style={topBodyStyle}>
             {shown === 'vote' && vote ? (
-              <CrowdCallPanel {...vote} />
+              <CrowdCallPanel {...vote} dense />
             ) : shown === 'shop' && shop ? (
-              <ShopPanel {...shop} />
+              <ShopPanel {...shop} dense />
             ) : predictions ? (
-              <PredictionsPanel {...predictions} />
+              <PredictionsPanel {...predictions} dense />
             ) : null}
           </div>
         </div>
@@ -131,7 +131,7 @@ export function ChatSidebar({ vote, predictions, shop, width = CHAT_SIDEBAR_WIDT
         <span style={titleStyle}>CHAT</span>
       </header>
       <div style={bodyStyle}>
-        <MemoChatPanel {...props} listHeight="flex" showTimestamps />
+        <MemoChatPanel {...props} listHeight="flex" showTimestamps dense />
       </div>
     </aside>
   );
@@ -150,8 +150,9 @@ const sidebarStyle: CSSProperties = {
   color: TEXT,
 };
 
-// Capped so an 8-fighter showcase pool can't crowd the chat out entirely —
-// past the cap the panel scrolls within itself and the chat keeps its share.
+// Capped so the Vote/Bets/Items panels can't crowd the chat out — past the
+// cap the panel scrolls within itself and chat keeps the larger share.
+// 40% leaves the chat ~55% of the column after its slim header.
 // The cap is on the region, not on either panel, which is the point of
 // tabbing the two rather than stacking them: adding the shop (and later,
 // items to it) costs the chat nothing.
@@ -159,7 +160,7 @@ const topRegionStyle: CSSProperties = {
   flex: 'none',
   display: 'flex',
   flexDirection: 'column',
-  maxHeight: '58%',
+  maxHeight: '40%',
   minHeight: 0,
 };
 
@@ -179,8 +180,8 @@ function topTabStyle(active: boolean, crowd: boolean): CSSProperties {
     alignItems: 'center',
     justifyContent: 'center',
     gap: 5,
-    minHeight: 46,
-    fontSize: 18,
+    minHeight: 36,
+    fontSize: 15,
     fontFamily: FONT_UI,
     fontWeight: active ? 700 : 500,
     color: INK,
@@ -210,22 +211,22 @@ const dotStyle: CSSProperties = {
 const headerStyle: CSSProperties = {
   display: 'flex',
   alignItems: 'center',
-  gap: 8,
-  padding: '8px 10px',
+  gap: 6,
+  padding: '2px 6px',
   borderBottom: `1px solid ${textAlpha(0.12)}`,
 };
 
 const titleStyle: CSSProperties = {
-  fontSize: 18,
+  fontSize: 14,
   fontFamily: FONT_UI,
   fontWeight: 700,
 };
 
 const headerButtonStyle: CSSProperties = {
-  fontSize: 16,
+  fontSize: 14,
   lineHeight: 1,
-  minWidth: 44,
-  minHeight: 44,
+  minWidth: 32,
+  minHeight: 32,
   color: TEXT,
   background: 'transparent',
   border: `1px solid ${textAlpha(0.15)}`,
@@ -238,7 +239,7 @@ const bodyStyle: CSSProperties = {
   minHeight: 0,
   display: 'flex',
   flexDirection: 'column',
-  padding: 10,
+  padding: '6px 8px 8px',
   boxSizing: 'border-box',
 };
 

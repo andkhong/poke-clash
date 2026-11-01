@@ -4,7 +4,7 @@ import { ITEMS, MATCH_ITEM_LIMIT_PER_SESSION, type ItemId, type ShopItem } from 
 import type { SimStore } from '../state/simStore';
 import { useSimSnapshot } from '../hooks/useSimSnapshot';
 import { formatDollars } from '../predictions/predictionModel';
-import { DESTRUCTIVE, FONT_BODY, FONT_UI, INFO_BOX, INK, INK_MUTED, OUTLINE, PANEL, SUCCESS, SUNK } from '../theme';
+import { DESTRUCTIVE, FONT_BODY, FONT_UI, INFO_BOX, INK, INK_MUTED, PANEL, SUCCESS, SUNK } from '../theme';
 import {
   canBuyItem,
   hpColor,
@@ -19,6 +19,7 @@ import {
   itemUseEmoji,
   itemUseText,
 } from './shopModel';
+import { tapHeight } from '../crowd/hoenn';
 
 export interface ShopPanelProps {
   /** The room's shop for the running match, or null between rounds. */
@@ -34,6 +35,8 @@ export interface ShopPanelProps {
   /** Resolves to null on success, or a machine error code the panel turns
    * into a short notice (see itemErrorNotice). */
   onBuy: (itemId: ItemId, targetInstanceId: string) => Promise<string | null>;
+  /** Desktop sidebar density: 36 px controls instead of 44 px touch targets. */
+  dense?: boolean;
 }
 
 const NOTICE_MS = 2000;
@@ -51,7 +54,7 @@ const NOTICE_MS = 2000;
  * subscription — between rounds there is no shop and no store to read, and a
  * hook can't be called conditionally. Unmounting the body then also drops a
  * half-made pick, which is what should happen when a match ends anyway. */
-export function ShopPanel({ shop, store, ...rest }: ShopPanelProps) {
+export function ShopPanel({ shop, store, dense = false, ...rest }: ShopPanelProps) {
   if (!shop || !store) {
     return (
       <section style={panelStyle} aria-label="Item shop">
@@ -62,7 +65,7 @@ export function ShopPanel({ shop, store, ...rest }: ShopPanelProps) {
       </section>
     );
   }
-  return <ShopPanelBody shop={shop} store={store} {...rest} />;
+  return <ShopPanelBody shop={shop} store={store} dense={dense} {...rest} />;
 }
 
 function ShopPanelBody({
@@ -72,7 +75,9 @@ function ShopPanelBody({
   myItemUses,
   canBuy,
   onBuy,
-}: Omit<ShopPanelProps, 'shop' | 'store'> & { shop: ShopSummary; store: SimStore }) {
+  dense,
+}: Omit<ShopPanelProps, 'shop' | 'store' | 'dense'> & { shop: ShopSummary; store: SimStore; dense: boolean }) {
+  const control = tapHeight(dense);
   const [picked, setPicked] = useState<ItemId | null>(null);
   const [buying, setBuying] = useState(false);
   const [notice, setNotice] = useState<string | null>(null);
@@ -154,7 +159,7 @@ function ShopPanelBody({
                   // The label is assembled from several spans (and the emoji
                   // is decorative), so spell it out — same as the bet buttons.
                   aria-label={`${item.label}, ${formatDollars(item.price)}, ${stockLabel(shop, item)}`}
-                  style={{ ...itemStyle, ...(enabled ? null : disabledStyle) }}
+                  style={{ ...itemStyle, minHeight: control + 4, ...(enabled ? null : disabledStyle) }}
                 >
                   <span style={itemEmojiStyle} aria-hidden>
                     {item.emoji}
@@ -176,7 +181,7 @@ function ShopPanelBody({
       ) : (
         <>
           <div style={stepHeaderStyle}>
-            <button type="button" onClick={() => setPicked(null)} style={backStyle}>
+            <button type="button" onClick={() => setPicked(null)} style={{ ...backStyle, minHeight: control }}>
               ‹ BACK
             </button>
             <span style={stepTitleStyle}>
@@ -196,7 +201,7 @@ function ShopPanelBody({
                     ? `${pickedItem.effect === 'revive' ? 'Revive' : `Use ${pickedItem.label} on`} ${row.name}, restores ${row.heal} HP`
                     : `${row.name}, ${targetBlockedLabel(row.blocked)}`
                 }
-                style={{ ...targetStyle, ...(row.blocked === null && !buying ? null : disabledStyle) }}
+                style={{ ...targetStyle, minHeight: control + 4, ...(row.blocked === null && !buying ? null : disabledStyle) }}
               >
                 <span style={targetNameStyle}>{row.name.toUpperCase()}</span>
                 <span style={hpBarStyle} aria-hidden>
@@ -247,8 +252,8 @@ function ActivityLog({ recent }: { recent: ItemUse[] }) {
 const panelStyle: CSSProperties = {
   display: 'flex',
   flexDirection: 'column',
-  gap: 8,
-  padding: 10,
+  gap: 6,
+  padding: '8px 10px 10px',
   boxSizing: 'border-box',
   fontFamily: FONT_BODY,
   color: INK,
@@ -263,7 +268,7 @@ const headerStyle: CSSProperties = {
 
 const titleStyle: CSSProperties = {
   fontFamily: FONT_UI,
-  fontSize: 20,
+  fontSize: 16,
   fontWeight: 700,
 };
 
@@ -278,21 +283,21 @@ const walletRowStyle: CSSProperties = {
   display: 'flex',
   alignItems: 'baseline',
   justifyContent: 'space-between',
-  padding: '6px 10px',
-  borderRadius: 8,
+  padding: '3px 8px',
+  borderRadius: 6,
   background: INFO_BOX,
-  border: OUTLINE,
+  border: `2px solid ${INK}`,
 };
 
 const walletLabelStyle: CSSProperties = {
-  fontSize: 13,
+  fontSize: 12,
   fontWeight: 'bold',
   color: INK_MUTED,
 };
 
 const walletValueStyle: CSSProperties = {
   fontFamily: FONT_UI,
-  fontSize: 20,
+  fontSize: 16,
   fontWeight: 700,
   fontVariantNumeric: 'tabular-nums',
 };
@@ -322,13 +327,12 @@ const itemStyle: CSSProperties = {
   alignItems: 'center',
   gap: 8,
   width: '100%',
-  minHeight: 52,
-  padding: '6px 10px 9px',
+  padding: '3px 8px 7px',
   fontFamily: FONT_BODY,
   color: INK,
   textAlign: 'left',
   background: PANEL,
-  border: OUTLINE,
+  border: `2px solid ${INK}`,
   borderRadius: 8,
   cursor: 'pointer',
   overflow: 'hidden',
@@ -342,31 +346,31 @@ const disabledStyle: CSSProperties = {
 };
 
 const itemEmojiStyle: CSSProperties = {
-  fontSize: 20,
+  fontSize: 18,
   lineHeight: 1,
 };
 
 const itemTextStyle: CSSProperties = {
   display: 'flex',
   flexDirection: 'column',
-  gap: 2,
+  gap: 0,
   flex: 1,
   minWidth: 0,
 };
 
 const itemNameStyle: CSSProperties = {
   fontFamily: FONT_UI,
-  fontSize: 18,
+  fontSize: 15,
   fontWeight: 700,
 };
 
 const itemTermsStyle: CSSProperties = {
-  fontSize: 13,
+  fontSize: 12,
   fontVariantNumeric: 'tabular-nums',
 };
 
 const stockStyle: CSSProperties = {
-  fontSize: 13,
+  fontSize: 12,
   fontWeight: 'bold',
   whiteSpace: 'nowrap',
   fontVariantNumeric: 'tabular-nums',
@@ -395,22 +399,21 @@ const stepHeaderStyle: CSSProperties = {
 };
 
 const backStyle: CSSProperties = {
-  minHeight: 44,
   padding: '0 10px',
-  fontSize: 17,
+  fontSize: 14,
   fontFamily: FONT_UI,
   fontWeight: 600,
   color: INK,
   background: PANEL,
-  border: OUTLINE,
-  borderRadius: 8,
+  border: `2px solid ${INK}`,
+  borderRadius: 6,
   boxShadow: `inset 0 -3px 0 ${SUNK}`,
   cursor: 'pointer',
 };
 
 const stepTitleStyle: CSSProperties = {
   fontFamily: FONT_UI,
-  fontSize: 18,
+  fontSize: 15,
   fontWeight: 700,
   fontVariantNumeric: 'tabular-nums',
 };
@@ -420,13 +423,12 @@ const targetStyle: CSSProperties = {
   alignItems: 'center',
   gap: 8,
   width: '100%',
-  minHeight: 46,
-  padding: '0 10px',
+  padding: '0 8px',
   fontFamily: FONT_BODY,
   color: INK,
   textAlign: 'left',
   background: INFO_BOX,
-  border: OUTLINE,
+  border: `2px solid ${INK}`,
   borderRadius: 8,
   cursor: 'pointer',
 };
@@ -435,7 +437,7 @@ const targetNameStyle: CSSProperties = {
   flex: 1,
   minWidth: 0,
   fontFamily: FONT_UI,
-  fontSize: 18,
+  fontSize: 15,
   fontWeight: 700,
   whiteSpace: 'nowrap',
   overflow: 'hidden',
@@ -475,14 +477,14 @@ const blockedStyle: CSSProperties = {
 
 const noticeStyle: CSSProperties = {
   margin: 0,
-  fontSize: 14,
+  fontSize: 13,
   fontWeight: 'bold',
   color: DESTRUCTIVE,
 };
 
 const blockedNoticeStyle: CSSProperties = {
   margin: 0,
-  fontSize: 14,
+  fontSize: 13,
   color: INK_MUTED,
 };
 
@@ -495,7 +497,7 @@ const logStyle: CSSProperties = {
 };
 
 const logRowStyle: CSSProperties = {
-  fontSize: 13,
+  fontSize: 12,
   color: INK_MUTED,
   whiteSpace: 'nowrap',
   overflow: 'hidden',
