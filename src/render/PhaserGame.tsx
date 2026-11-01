@@ -1,7 +1,7 @@
 import { useEffect, useRef } from 'react';
 import Phaser from 'phaser';
 import { ActionScene } from './scenes/ActionScene';
-import { stadiumViewHeight } from './tileset/stadiumBackground';
+import { stadiumViewHeight } from './tileset/stadiumLayout';
 import type { PlayerController } from '../sim/action/playerController';
 import type { ActionEngine } from '../sim/action/ActionEngine';
 

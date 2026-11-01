@@ -2,15 +2,9 @@ import { lazy, Suspense, useMemo, useRef, useState, type CSSProperties, type Poi
 import type { StageRect } from '../../render/PhaserGame';
 import type { ActionEngine } from '../../sim/action/ActionEngine';
 import type { PlayerController } from '../../sim/action/playerController';
-import {
-  ACTION_MATCH_LIMIT_MS,
-  DASH_CHARGES,
-  DASH_RECHARGE_MS,
-  ENERGY_MAX,
-  moveCooldownMs,
-  moveEnergyCost,
-} from '../../sim/action/rules';
+import { ACTION_MATCH_LIMIT_MS, DASH_CHARGES, DASH_RECHARGE_MS, ENERGY_MAX, moveCooldownMs, moveEnergyCost } from '../../sim/action/rules';
 import { isMobileArena } from '../../sim/constants';
+import { stadiumViewHeight } from '../../render/tileset/stadiumLayout';
 import type { MoveDefinition, SimState } from '../../sim/types';
 import type { CrowdSide } from '../../net/play/playProtocol';
 import { IS_MOBILE_DEVICE } from '../../app/config';
@@ -143,7 +137,9 @@ export function ActionMatchScreen({
   return (
     <div style={pageStyle}>
       <div style={desktop ? desktopColumnStyle : mobileFrameStyle}>
-        <div style={desktop ? desktopStageStyle : fillStyle}>
+        <div
+          style={desktop ? { ...desktopStageStyle, aspectRatio: `${state.arena.width} / ${stadiumViewHeight(state.arena)}` } : fillStyle}
+        >
           <Suspense fallback={null}>
             <PhaserGame engine={engine} controller={controller} onStageRectChange={setStageRect} align={desktop ? 'bottom' : 'center'} />
           </Suspense>
@@ -262,7 +258,14 @@ function TopHud({ state, engine, compact }: { state: SimState; engine: ActionEng
         return (
           <div
             key={id}
-            style={{ display: 'flex', alignItems: 'center', gap: 8, fontFamily: FONT_UI, fontSize: 16, opacity: engine.isAlive(id) ? 1 : 0.5 }}
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: 8,
+              fontFamily: FONT_UI,
+              fontSize: 16,
+              opacity: engine.isAlive(id) ? 1 : 0.5,
+            }}
           >
             <span style={{ width: 92, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
               {state.pokemon[id].name}
@@ -604,7 +607,11 @@ function DeathBanner({ state }: { state: SimState }) {
   return (
     <Banner
       title="FAINTED"
-      subtitle={state.teams ? 'You’re out — your team can still win (or a Revive from the crowd)' : 'You’re out — a Revive from the crowd could bring you back'}
+      subtitle={
+        state.teams
+          ? 'You’re out — your team can still win (or a Revive from the crowd)'
+          : 'You’re out — a Revive from the crowd could bring you back'
+      }
     />
   );
 }
@@ -766,19 +773,22 @@ const mobileFrameStyle: CSSProperties = {
   background: '#000',
 };
 const fillStyle: CSSProperties = { position: 'relative', width: '100%', height: '100%' };
-/** The arena on top, scaled to fit what's left above the HUD bar. */
+/** The arena with the HUD bar right under it, centred together: the arena's
+ * box has the canvas's own shape (shrinking to fit a short window), so no
+ * dead space opens up inside it, and nothing jumps when the bar goes away. */
 const desktopColumnStyle: CSSProperties = {
   width: 'min(98%, 1800px)',
   height: 'calc(100% - 16px)',
   display: 'flex',
   flexDirection: 'column',
   alignItems: 'center',
+  justifyContent: 'center',
   gap: 10,
 };
 const desktopStageStyle: CSSProperties = {
   position: 'relative',
   alignSelf: 'stretch',
-  flex: '1 1 0',
+  flex: '0 1 auto',
   minHeight: 0,
   borderRadius: 8,
   overflow: 'hidden',
