@@ -74,7 +74,8 @@ export class BotBrain {
   private hasRangedMove(engine: ActionEngine, self: PokemonInstance): boolean {
     return self.moves.some((slot) => {
       const move = engine.getMove(slot.moveId);
-      return move !== undefined && moveKind(move) === 'ranged';
+      // A ranged status move (Growl, Charm…) does no damage: holding back for it, a bot never closes in to hit.
+      return move !== undefined && moveKind(move) === 'ranged' && (move.power ?? 0) > 0;
     });
   }
 
@@ -85,7 +86,13 @@ export class BotBrain {
       if (!move || !engine.canFire(this.id, index)) return;
       const kind = moveKind(move);
       const reach =
-        kind === 'self' ? Infinity : kind === 'aoe' ? AOE_RADIUS : kind === 'physical' ? PROJECTILE.physical.range : PROJECTILE.ranged.range;
+        kind === 'self'
+          ? Infinity
+          : kind === 'aoe'
+            ? AOE_RADIUS
+            : kind === 'physical'
+              ? PROJECTILE.physical.range
+              : PROJECTILE.ranged.range;
       if (kind === 'self' && !rngChance(this.rng, SELF_MOVE_CHANCE)) return;
       if (d <= reach + target.collisionRadius) usable.push(index);
     });

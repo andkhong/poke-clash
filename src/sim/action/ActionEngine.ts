@@ -181,6 +181,9 @@ function facingOf(v: Vec2): PokemonInstance['facing'] {
   return EIGHT_WAY[Math.round(angle / (Math.PI / 4)) % 8];
 }
 
+/** How long after a dash or a hit a reported mover keeps the fast movement budget — the dash itself plus room for its reports to arrive late. */
+const FAST_MOVE_GRACE_MS = 400;
+
 /**
  * Play Mode: one human-controlled fighter (speciesIds[0]) plus bots, in real
  * time. Reuses the spectator sim's match setup, damage formula and status
@@ -205,7 +208,10 @@ export class ActionEngine implements EngineLike {
   private readonly moves: MoveLookup;
   private accumulatorMs = 0;
   private readonly reportedMovers: Set<string>;
-  private readonly lastReportAtMs = new Map<string, number>();
+  /** px a reported mover may still move — accrued per tick, spent by reports (see reportMovement). */
+  private readonly moveBudget = new Map<string, number>();
+  /** Until when (elapsedMs) a reported mover may move at dash/knockback pace: just after a dash or a hit. */
+  private readonly fastMoveUntil = new Map<string, number>();
 
   constructor(
     config: MatchConfig,
@@ -311,6 +317,8 @@ export class ActionEngine implements EngineLike {
     const f = this.fighters[id];
     if (!f) return;
     const len = Math.hypot(x, y);
+    // A NaN or infinite stick would turn the fighter's position into NaN for good.
+    if (!Number.isFinite(len)) return void (f.moveInput = { x: 0, y: 0 });
     f.moveInput = len > 1 ? { x: x / len, y: y / len } : { x, y };
   }
 
@@ -396,27 +404,28 @@ export class ActionEngine implements EngineLike {
     f.dashMs = R.DASH_MS;
     f.invulnMs = Math.max(f.invulnMs, R.DASH_INVULN_MS);
     f.dashCharges -= 1;
+    this.fastMoveUntil.set(id, this.state.elapsedMs + R.DASH_MS + FAST_MOVE_GRACE_MS);
     this.pushAction({ type: 'dashed', instanceId: id, from: { ...self.position }, direction: dir });
     return true;
   }
 
   /** Online server: where a human's own screen says it is. Accepted only as
-   * far as it could legally have got since its last report — a dash plus a
-   * hard knockback, with some slack for network bunching — so a tampered
-   * client can't teleport. Hits, damage and KOs stay server-side. */
+   * far as the fighter's movement budget allows — it fills each tick at
+   * walking pace (dash-plus-knockback pace just after a dash or a hit) and is
+   * spent by reports, so neither one jump, a flood of reports in one tick,
+   * nor a steady stream of them can move a tampered client faster than the
+   * game allows.
+   * Hits, damage and KOs stay server-side. */
   reportMovement(id: string, position: Vec2, velocity: Vec2, facing: PokemonInstance['facing']): void {
     if (!this.reportedMovers.has(id) || this.state.phase !== 'battle' || !this.isAlive(id)) return;
     const self = this.state.pokemon[id];
     if (isIncapacitatingStatus(self.status)) return;
-    const now = this.state.elapsedMs;
-    const sinceSec = Math.max(R.ACTION_TICK_MS, now - (this.lastReportAtMs.get(id) ?? now - 100)) / 1000;
-    this.lastReportAtMs.set(id, now);
-    const burst = this.fighters[id].speedMs > 0 ? R.MAX_SPEED * (R.CROWD_SPEED_MULT - 1) : 0;
-    const maxStep = (R.DASH_SPEED + R.KNOCKBACK_PHYSICAL * 1.5 + burst) * sinceSec + 40;
+    const budget = this.moveBudget.get(id) ?? this.moveBudgetCap(id);
     const dx = position.x - self.position.x;
     const dy = position.y - self.position.y;
     const d = Math.hypot(dx, dy);
-    const t = d > maxStep ? maxStep / d : 1;
+    const t = d > budget ? budget / d : 1;
+    this.moveBudget.set(id, budget - d * t);
     const next = clampToArenaBounds({ x: self.position.x + dx * t, y: self.position.y + dy * t }, this.state.arena);
     self.position.x = next.x;
     self.position.y = next.y;
@@ -427,14 +436,30 @@ export class ActionEngine implements EngineLike {
     self.aiState = speed > R.WALK_THRESHOLD ? 'chase' : 'attack';
   }
 
+  /** px/s a reported mover's budget fills at: top walking speed (with a speed
+   * burst, halved by paralysis), or a dash plus a hard knockback right after
+   * the server saw a dash or applied a hit. */
+  private moveBudgetRate(id: string): number {
+    if ((this.fastMoveUntil.get(id) ?? -Infinity) > this.state.elapsedMs) return R.DASH_SPEED + R.KNOCKBACK_PHYSICAL * 1.5;
+    const burst = this.fighters[id].speedMs > 0 ? R.CROWD_SPEED_MULT : 1;
+    const paralysis = this.state.pokemon[id].status === 'paralysis' ? R.PARALYSIS_MOVE_MULT : 1;
+    return R.MAX_SPEED * burst * paralysis;
+  }
+
+  /** At most a fifth of a second of budget banks up (a whole dash), plus slack for reports the network bunched. */
+  private moveBudgetCap(id: string): number {
+    return this.moveBudgetRate(id) * 0.2 + 40;
+  }
+
   /** A spectator's purchase. Heal: restores `fraction` of max HP to a fighter
    * on the field. Revive: a KO'd fighter comes back on their spawn point with
    * `fraction` of max HP (not one who left the room). Returns the HP
    * restored, or null when it can't apply — nothing is charged then. */
   useItem(id: string, effect: 'heal' | 'revive', fraction: number, buyerName: string): number | null {
+    // The id comes from a spectator's message: '__proto__' would otherwise "revive" Object.prototype.
+    if (!Object.hasOwn(this.fighters, id) || this.state.phase !== 'battle') return null;
     const p = this.state.pokemon[id];
     const f = this.fighters[id];
-    if (!p || !f || this.state.phase !== 'battle') return null;
     let amount: number;
     if (effect === 'revive') {
       if (this.isAlive(id) || f.left) return null;
@@ -517,7 +542,10 @@ export class ActionEngine implements EngineLike {
     if (!this.isAlive(id)) return; // already KO'd: already out
     this.state.pokemon[id].currentHp = 0;
     this.state.pokemon[id].lastDamagedByInstanceId = id;
-    // Swept on the next tick like any other faint.
+    // Out now, not on the next tick: until then a potion could undo the faint, bots would still chase
+    // them, and the time-limit score would count them standing (and during the intro, nothing sweeps).
+    this.sweepFaints(this.state.elapsedMs);
+    this.checkWin();
   }
 
   /** The state an online client renders, plus the action events after `sinceSeq`. */
@@ -583,7 +611,8 @@ export class ActionEngine implements EngineLike {
     const dx = aim.x - self.position.x;
     const dy = aim.y - self.position.y;
     const d = Math.hypot(dx, dy);
-    return d > 1 ? { x: dx / d, y: dy / d } : FACING_VECTORS[self.facing];
+    // An aim near ±1e308 overflows d to Infinity, and dx / d to 0 or NaN: a still, never-expiring shot.
+    return d > 1 && Number.isFinite(d) ? { x: dx / d, y: dy / d } : FACING_VECTORS[self.facing];
   }
 
   private isHittable(p: PokemonInstance): boolean {
@@ -611,6 +640,11 @@ export class ActionEngine implements EngineLike {
       const self = this.state.pokemon[id];
       this.stepTimers(self, this.fighters[id]);
       if (!this.reportedMovers.has(id)) this.stepMovement(self, this.fighters[id], dtSec);
+      else
+        this.moveBudget.set(
+          id,
+          Math.min(this.moveBudgetCap(id), (this.moveBudget.get(id) ?? this.moveBudgetCap(id)) + this.moveBudgetRate(id) * dtSec)
+        );
     }
     resolveCollisions(this.state.livingOrder, this.state.pokemon, this.state.arena);
     this.stepProjectiles(dtSec);
@@ -712,7 +746,9 @@ export class ActionEngine implements EngineLike {
         const owner = this.state.pokemon[p.ownerId];
         const move = this.moves(p.moveId);
         const speed = Math.hypot(p.velocity.x, p.velocity.y);
-        if (move) this.applyHit(owner, hit.target, move, { x: p.velocity.x / speed, y: p.velocity.y / speed }, hit.point);
+        // A still shot (it can't happen via fire(), but 0 / 0 here would be a NaN shove) hits along the owner's facing.
+        const direction = speed > 0 ? { x: p.velocity.x / speed, y: p.velocity.y / speed } : FACING_VECTORS[owner.facing];
+        if (move) this.applyHit(owner, hit.target, move, direction, hit.point);
         continue;
       }
       p.position = to;
@@ -775,6 +811,7 @@ export class ActionEngine implements EngineLike {
         const kb = this.fighters[target.instanceId].knockback;
         kb.x += shoveVec.x;
         kb.y += shoveVec.y;
+        this.fastMoveUntil.set(target.instanceId, this.state.elapsedMs + FAST_MOVE_GRACE_MS);
       }
       if (maybeThawOnFireHit(target, move.type === 'fire' && !move.typeless)) {
         this.events.push({

@@ -204,6 +204,101 @@ describe('ActionEngine', () => {
     expect(engine.useItem(quitter.instanceId, 'revive', 0.3, 'Brock')).toBeNull(); // left the room
   });
 
+  it('takes a player who leaves out at once, even during the intro', () => {
+    const config: MatchConfig = { level: 50, speciesIds: [1, 2], arena: { width: 900, height: 1950 }, shiny: false, ...MOVESET };
+    const engine = new ActionEngine(config, SPECIES, lookup, 7, { bots: false });
+    const [me, foe] = engine.getState().allInstanceIds;
+    engine.tick(R.ACTION_TICK_MS);
+    expect(engine.getState().phase).toBe('intro');
+    engine.eliminate(foe);
+    expect(engine.isAlive(foe)).toBe(false);
+    expect(engine.finished).toBe(true);
+    expect(engine.getState().winnerInstanceIds).toEqual([me]);
+  });
+
+  it('never lets a potion, a bot or the time-limit score treat a player who just left as standing', () => {
+    const engine = makeEngine([1, 2, 3, 4], { teams: { size: 2 } });
+    const [a1, a2, b1, b2] = [0, 1, 2, 3].map((i) => mon(engine, i));
+    for (const p of [b1, b2]) p.currentHp = 1;
+    engine.eliminate(a1.instanceId);
+    expect(engine.useItem(a1.instanceId, 'heal', 0.25, 'Brock')).toBeNull();
+    expect(engine.enemiesOf(b1.instanceId).map((p) => p.instanceId)).toEqual([a2.instanceId]);
+    // One of A standing at full HP against two of B at 1 HP: B has more standing.
+    engine.endMatchNow();
+    expect(engine.getState().winnerInstanceIds).toEqual([b1.instanceId, b2.instanceId]);
+  });
+
+  it('ends in a draw, with no winner, when the last fighters go down on the same tick', () => {
+    const engine = makeEngine([1, 2]);
+    mon(engine, 0).currentHp = 0;
+    mon(engine, 1).currentHp = 0;
+    run(engine, 50);
+    expect(engine.finished).toBe(true);
+    expect(engine.getState().winnerInstanceIds).toEqual([]);
+  });
+
+  it('turns an overflowing aim into a normal shot along the facing, not a frozen one that never expires', () => {
+    const engine = makeEngine([1, 2]);
+    const me = mon(engine, 0);
+    place(me, 450, 900);
+    place(mon(engine, 1), 100, 300);
+    expect(engine.fire(me.instanceId, SLOT.ember, { x: 1.7e308, y: 1.7e308 })).toBe(true);
+    const [shot] = engine.getProjectiles();
+    expect(Math.hypot(shot.velocity.x, shot.velocity.y)).toBeCloseTo(R.PROJECTILE.ranged.speed, 0);
+    run(engine, 2000);
+    expect(engine.getProjectiles()).toHaveLength(0);
+  });
+
+  it('ignores a NaN or infinite move input instead of losing the fighter', () => {
+    const engine = makeEngine([1, 2]);
+    const me = mon(engine, 0);
+    for (const [x, y] of [
+      [NaN, 0],
+      [Infinity, 1],
+    ]) {
+      engine.setMoveInput(me.instanceId, x, y);
+      run(engine, 100);
+      expect(Number.isFinite(me.position.x) && Number.isFinite(me.position.y)).toBe(true);
+    }
+  });
+
+  it('refuses an item aimed at a prototype key', () => {
+    const engine = makeEngine([1, 2]);
+    for (const id of ['__proto__', 'constructor']) expect(engine.useItem(id, 'revive', 0.3, 'Brock')).toBeNull();
+    expect(({} as { currentHp?: number }).currentHp).toBeUndefined();
+  });
+
+  it('sends a bot whose only ranged move is a status move in close enough to land its physical one', () => {
+    // Fix2 knows Growl and Tackle: it has no damaging shot to hold back at range for.
+    const engine = makeEngine([1, 2], { customMoves: { 1: [2, 1, 3, 4], 2: [5, 1] } }, true);
+    const me = mon(engine, 0);
+    place(me, 450, 975);
+    const hits = run(engine, 15_000).filter((e) => e.type === 'hit' && e.targetId === me.instanceId && e.damage > 0);
+    expect(hits.length).toBeGreaterThan(0);
+  });
+
+  it('spends one movement budget across every report: walking pace, dash pace only after a dash, paralysis halves it', () => {
+    const config: MatchConfig = { level: 50, speciesIds: [1, 2], arena: { width: 900, height: 1950 }, shiny: false, ...MOVESET };
+    const moved = (status: PokemonInstance['status'], dash = false) => {
+      const engine = new ActionEngine(config, SPECIES, lookup, 7, { bots: false, humanIds: ['p0-1', 'p1-2'], reportedMovement: true });
+      while (engine.getState().phase === 'intro') engine.tick(R.ACTION_TICK_MS);
+      const p = engine.getState().pokemon['p0-1'];
+      p.status = status;
+      place(p, 450, 400);
+      if (dash) {
+        engine.dash(p.instanceId);
+        for (let t = 0; t < 12; t++) engine.tick(R.ACTION_TICK_MS); // the budget fills at dash pace for a few ticks
+        place(p, 450, 400);
+      }
+      for (let i = 1; i <= 50; i++) engine.reportMovement(p.instanceId, { x: 450, y: 400 + i * 40 }, { x: 0, y: 0 }, 'S');
+      return p.position.y - 400;
+    };
+    const walking = moved(null);
+    expect(walking).toBeLessThanOrEqual(R.MAX_SPEED * 0.2 + 40); // a flood of reports can't outrun walking pace
+    expect(moved(null, true)).toBeGreaterThan((R.DASH_SPEED * R.DASH_MS) / 1000); // but a real dash fits
+    expect(moved('paralysis')).toBeLessThan(walking);
+  });
+
   it('runs bot-filled matches to a clean finish', () => {
     for (const [ids, extra] of [
       [[1, 2], {}],

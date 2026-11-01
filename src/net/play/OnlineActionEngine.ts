@@ -133,13 +133,12 @@ export class OnlineActionEngine extends ActionEngine {
     this.stepOwn(dtMs, now);
     this.interpolateOthers(now);
     const age = (now - this.projectilesAtMs) / 1000;
-    this.projectiles = this.projectileBase.map((p) => ({
-      ...p,
-      position: {
-        x: p.position.x + p.velocity.x * age,
-        y: p.position.y + p.velocity.y * age,
-      },
-    }));
+    // A shot past its range is gone on the server; a late snapshot mustn't fly it on across the arena.
+    this.projectiles = this.projectileBase.flatMap((p) =>
+      p.travelled + Math.hypot(p.velocity.x, p.velocity.y) * age >= p.range
+        ? []
+        : [{ ...p, position: { x: p.position.x + p.velocity.x * age, y: p.position.y + p.velocity.y * age } }]
+    );
   }
 
   override fire(id: string, slot: number, aim: Vec2): boolean {

@@ -99,6 +99,9 @@ describe('purchaseItem', () => {
 
     expect(buy(shop, state, 's1', 'megaPotion', alive)).toEqual({ ok: false, error: 'unknown_item' });
     expect(buy(shop, state, 's1', 'potion', 'p9-999')).toEqual({ ok: false, error: 'unknown_target' });
+    // Prototype keys are not fighters: a revive on one would write onto Object.prototype.
+    for (const id of ['__proto__', 'constructor', 'toString'])
+      expect(purchaseItem(shop, state, 's1', 'revive', id, 1e6, 'Tester', 1000, () => 1)).toEqual({ ok: false, error: 'unknown_target' });
     expect(buy(shop, state, 's1', 'potion', downed)).toEqual({ ok: false, error: 'target_fainted' });
     // None of those touched the shelf.
     expect(shop.stockLeft.potion).toBe(getItem('potion').stock);

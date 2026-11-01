@@ -28,10 +28,10 @@ import {
 } from '../src/net/play/playProtocol';
 import { createRng, rngPick, rngShuffle, type Rng } from '../src/sim/rng';
 import type { ChatMessage, WalletEventPayload } from '../src/net/protocol';
-import { CHAT_LOG_LIMIT, normalizeChatText, normalizeSpectatorName } from '../src/net/chat';
+import { CHAT_LOG_LIMIT, normalizeChatText, normalizeSpectatorName, SPECTATOR_NAME_MAX_LENGTH } from '../src/net/chat';
 import { containsBlockedLanguage } from '../src/net/chatFilter';
 import { AGGRESSION_TRIGGER_MS } from '../src/sim/constants';
-import { openPrediction, placeBet, settlePrediction, toPredictionSummary, type PredictionState } from './predictions';
+import { computePayouts, openPrediction, placeBet, settlePrediction, toPredictionSummary, type PredictionState } from './predictions';
 import { itemUsesForSession, openShop, purchaseItem, toShopSummary, type ShopState } from './shop';
 import { CHAT_BURST, CHAT_REFILL_MS, ITEM_BURST, ITEM_REFILL_MS, takeToken, type RateBucket } from './rateLimit';
 import { adjustBalance, getBalance, MATCH_WATCHED_REWARD, touchWallet, walletStreamClosed, walletStreamOpened } from './wallets';
@@ -58,7 +58,10 @@ export const LIVE_ROOMS: readonly { id: string; mode: PlayModeKind }[] = [
   { id: 'liveffa', mode: 'ffa' },
 ];
 export const LIVE_INTERMISSION_MS = 15_000;
-const MAX_NAME_LENGTH = 24;
+/** Hosted (non-live) rooms open at once — each runs a 60 Hz loop once started. */
+export const MAX_HOSTED_ROOMS = 200;
+/** Reported positions and aims past this are junk (the arena is ~2000 px); bigger ones overflow the aim maths. */
+const MAX_COORD = 1e6;
 /** While a Crowd Call is voting, its tally goes out every this many ticks (~4×/s). */
 const CALL_BROADCAST_EVERY_TICKS = 15;
 const CROWD_CARDS: readonly CrowdCardId[] = ['speed', 'shield', 'energy', 'supply'];
@@ -166,7 +169,9 @@ export function handlePlayMessage(conn: PlayConn, raw: unknown): void {
         // Keeps the wallet alive while connected, like a watch room's stream.
         walletStreamOpened(conn.sessionId);
       }
-      if (typeof msg.name === 'string') conn.name = msg.name.trim().slice(0, MAX_NAME_LENGTH) || 'Player';
+      // A signed-up name already passed signUp's filter and uniqueness check; hello mustn't swap it out.
+      if (typeof msg.name === 'string' && !conn.signedUp)
+        conn.name = normalizeSpectatorName(msg.name.trim().slice(0, SPECTATOR_NAME_MAX_LENGTH)) ?? 'Player';
       return;
     case 'ping':
       if (typeof msg.c === 'number') conn.send({ t: 'pong', c: msg.c });
@@ -175,6 +180,8 @@ export function handlePlayMessage(conn: PlayConn, raw: unknown): void {
       conn.send({ t: 'rooms', rooms: listPlayRooms() });
       return;
     case 'create':
+      if ([...rooms.values()].filter((r) => !r.live).length >= MAX_HOSTED_ROOMS)
+        return conn.send({ t: 'error', message: 'The server is full right now — try one of the live rooms.' });
       if (isPlayModeKind(msg.mode)) joinRoom(conn, createPlayRoom(msg.mode, isWide(msg.arena) ? wideArena() : portraitArena()).id);
       return;
     case 'join':
@@ -313,6 +320,9 @@ function leaveRoom(conn: PlayConn): void {
   conn.roomId = null;
   if (!room) return;
   room.conns.delete(conn);
+  // Rate buckets would otherwise pile up for every visitor a room ever had; the per-match item cap still holds.
+  room.chatBuckets.delete(String(conn.id));
+  if (conn.sessionId && ![...room.conns].some((c) => c.sessionId === conn.sessionId)) room.itemBuckets.delete(conn.sessionId);
   room.queue = room.queue.filter((c) => c !== conn);
   const seat = room.seats.find((s) => s.conn === conn);
   if (seat) {
@@ -331,7 +341,11 @@ function leaveRoom(conn: PlayConn): void {
   }
   if (room.host === conn) room.host = room.seats.find((s) => s.conn)?.conn ?? [...room.conns][0] ?? null;
   if (room.conns.size === 0 && !room.live) {
-    if (room.battle) clearInterval(room.battle.timer);
+    if (room.battle) {
+      clearInterval(room.battle.timer);
+      // The match will never settle now: every stake goes back to its bettor.
+      refundBets(room);
+    }
     rooms.delete(room.id);
     return;
   }
@@ -413,15 +427,19 @@ function handleBattleMessage(battle: Battle, conn: PlayConn, msg: Record<string,
   const { engine } = battle;
   if (msg.t === 'move') {
     const { x, y, vx, vy, facing } = msg;
-    if (![x, y, vx, vy].every((n) => typeof n === 'number' && Number.isFinite(n)) || !isFacing(facing)) return;
+    if (![x, y, vx, vy].every(isSaneNumber) || !isFacing(facing)) return;
     engine.reportMovement(id, { x: x as number, y: y as number }, { x: vx as number, y: vy as number }, facing);
   } else if (msg.t === 'fire') {
     const { slot, x, y } = msg;
-    if (typeof slot !== 'number' || ![x, y].every((n) => typeof n === 'number' && Number.isFinite(n))) return;
+    if (typeof slot !== 'number' || ![x, y].every(isSaneNumber)) return;
     battle.flushNext ||= engine.fire(id, slot, { x: x as number, y: y as number });
   } else if (msg.t === 'dash') {
     battle.flushNext ||= engine.dash(id);
   }
+}
+
+function isSaneNumber(n: unknown): n is number {
+  return typeof n === 'number' && Math.abs(n) < MAX_COORD;
 }
 
 function startBattle(room: PlayRoom): void {
@@ -461,7 +479,7 @@ function startBattle(room: PlayRoom): void {
     seatInstanceIds,
     humans,
     names,
-    timer: setInterval(() => stepBattle(room), ACTION_TICK_MS),
+    timer: setInterval(() => guardTimer(room, () => stepBattle(room)), ACTION_TICK_MS),
     lastWallMs: Date.now(),
     ticks: 0,
     sentSeq: 0,
@@ -577,12 +595,35 @@ function sendCalls(room: PlayRoom, conn: PlayConn): void {
   conn.send({ t: 'calls', current: calls.at(-1) ?? null, history: calls });
 }
 
-/** Straight back to the lobby; clients keep showing their results screen until they leave it. */
-function endBattle(room: PlayRoom): void {
+/** A timer body that throws would escape to the process and take the whole server down (there's no
+ * uncaughtException handler, and entrypoint.sh stops the container when a server dies). Instead the
+ * room's match is called off: stakes refunded, back to the lobby, and a live room tries again after its break. */
+function guardTimer(room: PlayRoom, body: () => void): void {
+  try {
+    body();
+  } catch (error) {
+    console.error('[game-server] match loop failed in room', room.id, error);
+    try {
+      endBattle(room, true);
+    } catch (again) {
+      console.error('[game-server] could not end the failed match in room', room.id, again);
+      if (room.battle) clearInterval(room.battle.timer);
+      room.battle = null;
+      if (room.live && !room.startTimer) scheduleLiveStart(room);
+    }
+  }
+}
+
+/** Straight back to the lobby; clients keep showing their results screen until they leave it.
+ * `aborted`: the match loop failed, so the engine's result can't be trusted — refund instead of settling. */
+function endBattle(room: PlayRoom, aborted = false): void {
   if (room.battle) {
     clearInterval(room.battle.timer);
-    settleBets(room, room.battle.engine);
-    room.lastState = room.battle.engine.getState();
+    if (aborted) refundBets(room);
+    else {
+      settleBets(room, room.battle.engine);
+      room.lastState = room.battle.engine.getState();
+    }
   }
   room.battle = null;
   // A call still voting when the match ended never lands — clear it from every screen.
@@ -598,15 +639,33 @@ function endBattle(room: PlayRoom): void {
     Object.assign(seat, { conn, speciesId: null, moves: [], ready: false });
   }
   room.queue = [];
-  if (room.live) {
-    room.nextStartAtMs = Date.now() + LIVE_INTERMISSION_MS;
-    room.startTimer = setTimeout(() => {
-      room.startTimer = null;
-      room.nextStartAtMs = null;
-      if (!room.battle) startBattle(room);
-    }, LIVE_INTERMISSION_MS);
-  }
+  if (room.live) scheduleLiveStart(room);
   broadcastRoom(room);
+}
+
+function scheduleLiveStart(room: PlayRoom): void {
+  if (room.startTimer) clearTimeout(room.startTimer);
+  room.nextStartAtMs = Date.now() + LIVE_INTERMISSION_MS;
+  room.startTimer = setTimeout(() => {
+    room.startTimer = null;
+    room.nextStartAtMs = null;
+    // A start that throws goes through the same call-off, which schedules the next try.
+    guardTimer(room, () => {
+      if (!room.battle) startBattle(room);
+    });
+  }, LIVE_INTERMISSION_MS);
+}
+
+/** Every stake back to its bettor, for a match that will never settle normally. */
+function refundBets(room: PlayRoom): void {
+  const prediction = room.prediction;
+  if (!prediction || prediction.status === 'settled') return;
+  Object.assign(prediction, { status: 'settled', winnerOptionId: null, ...computePayouts(prediction.bets, null) });
+  for (const [sessionId, returned] of prediction.payouts) adjustBalance(sessionId, returned);
+  for (const conn of room.conns) {
+    sendMarket(room, conn);
+    sendMe(room, conn);
+  }
 }
 
 function broadcastRoom(room: PlayRoom): void {
@@ -715,7 +774,8 @@ function handleCrowdMessage(room: PlayRoom, conn: PlayConn, msg: Record<string, 
   } else {
     if (!battle || !room.shop) return 'no_shop';
     if (typeof msg.itemId !== 'string' || typeof msg.targetId !== 'string') return 'unknown_item';
-    if (locked && battle.engine.getState().pokemon[msg.targetId]?.team !== locked) return 'side_locked';
+    const pokemon = battle.engine.getState().pokemon;
+    if (locked && (!Object.hasOwn(pokemon, msg.targetId) || pokemon[msg.targetId].team !== locked)) return 'side_locked';
     if (!takeToken(room.itemBuckets, sessionId, ITEM_BURST, ITEM_REFILL_MS, nowMs)) return 'rate_limited';
     const targetId = msg.targetId;
     const result = purchaseItem(room.shop, battle.engine.getState(), sessionId, msg.itemId, targetId, balance, conn.name, nowMs, (item) =>

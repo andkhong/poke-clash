@@ -86,6 +86,18 @@ describe('OnlineActionEngine', () => {
     expect(client.getActionEventsSince(0).some((e) => e.type === 'fired' && e.attackerId === ME)).toBe(true);
   });
 
+  it('drops a shot that has flown its range while snapshots are late, instead of flying it on', () => {
+    const { server, client, frames } = pair();
+    server.getState().pokemon[FOE].position = { x: 450, y: 1500 };
+    server.getState().pokemon[ME].position = { x: 450, y: 400 };
+    server.fire(ME, 0, { x: 100, y: 400 }); // a ranged shot off to the side, at nobody
+    frames(50);
+    expect(client.getProjectiles()).toHaveLength(1);
+    clock += 2000; // the connection stalls: no snapshot for 2 s
+    client.tick(ACTION_TICK_MS);
+    expect(client.getProjectiles()).toHaveLength(0);
+  });
+
   it('takes the knockback from a hit on the player', () => {
     const { server, client, frames } = pair();
     // Mid-arena, clear of the fence, which would otherwise stop the shove.

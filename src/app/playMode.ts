@@ -16,10 +16,18 @@ export const PLAY_MODES: { value: PlayModeKind; label: string }[] = [
 
 export const PLAY_LEVEL = 50;
 
-/** Play Mode starts with the original 151 only. */
+/** A move that can hurt someone without taking its user down. */
+function canDealDamage(moveId: number): boolean {
+  const move = moveLookup(moveId);
+  return !!move && (move.power ?? 0) > 0 && !move.userFaints;
+}
+
+/** Play Mode starts with the original 151 only — minus the few (Ditto,
+ * Metapod, Kakuna) whose level-50 pool has no damaging move, which a player
+ * could pick and then never attack with. */
 export const KANTO_IDS: readonly number[] = listAllSpecies()
   .map((s) => s.id)
-  .filter((id) => id <= 151 && hasPmdSprite(id));
+  .filter((id) => id <= 151 && hasPmdSprite(id) && (buildSpeciesDataForLevel(id, PLAY_LEVEL)?.movePool ?? []).some(canDealDamage));
 
 export function isPlayModeKind(value: unknown): value is PlayModeKind {
   return value === 1 || value === 2 || value === 3 || value === 4 || value === 'ffa';
@@ -46,7 +54,11 @@ export function rollMoves(speciesId: number): number[] {
     const j = Math.floor(Math.random() * (i + 1));
     [pool[i], pool[j]] = [pool[j], pool[i]];
   }
-  return pool.slice(0, 4);
+  const picked = pool.slice(0, 4);
+  // Never four status moves: a fighter that can't hurt anyone can't win.
+  const damaging = pool.find(canDealDamage);
+  if (damaging !== undefined && !picked.some(canDealDamage)) picked[picked.length - 1] = damaging;
+  return picked;
 }
 
 /** One match's config from its seats in order: a filled seat brings its

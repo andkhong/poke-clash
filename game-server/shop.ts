@@ -92,7 +92,8 @@ export function purchaseItem(
   if ((shop.stockLeft[item.id] ?? 0) <= 0) return { ok: false, error: 'out_of_stock' };
   if ((shop.usesBySession.get(sessionId) ?? 0) >= MATCH_ITEM_LIMIT_PER_SESSION) return { ok: false, error: 'session_limit' };
 
-  const target = state.pokemon[targetInstanceId];
+  // Own keys only: a '__proto__' target would read as a real fighter.
+  const target = Object.hasOwn(state.pokemon, targetInstanceId) ? state.pokemon[targetInstanceId] : undefined;
   if (!target) return { ok: false, error: 'unknown_target' };
   if (item.effect === 'heal') {
     if (target.currentHp <= 0) return { ok: false, error: 'target_fainted' };

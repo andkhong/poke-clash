@@ -4,13 +4,14 @@ import {
   handlePlayMessage,
   LIVE_INTERMISSION_MS,
   openLiveRooms,
+  MAX_HOSTED_ROOMS,
   openPlayConnection,
   resetPlayRoomsForTests,
   type PlayConn,
 } from './playRooms';
 import type { PlayRoomView, ServerMessage } from '../src/net/play/playProtocol';
 import { KANTO_IDS } from '../src/app/playMode';
-import type { ActionSnapshot } from '../src/sim/action/ActionEngine';
+import { ActionEngine, type ActionSnapshot } from '../src/sim/action/ActionEngine';
 import { resetWalletsForTests } from './wallets';
 
 interface FakeConn {
@@ -37,6 +38,7 @@ function connect(name: string): FakeConn {
 
 beforeEach(() => vi.useFakeTimers());
 afterEach(() => {
+  vi.restoreAllMocks();
   resetPlayRoomsForTests();
   resetWalletsForTests();
   vi.useRealTimers();
@@ -116,19 +118,119 @@ describe('online Play Mode rooms', () => {
     expect(host.room().seats[1].name).toBeNull();
   });
 
+  /** A 1v1 of two idle humans: no bot to land a sleep move, which would (rightly) freeze reported movement. */
+  function humanDuel(): { host: FakeConn; me: string; snap: () => ActionSnapshot } {
+    const [host, guest] = lobbyOf(1, ['Ash', 'Gary']);
+    [host, guest].forEach((p, i) => {
+      p.say({ t: 'pick', speciesId: KANTO_IDS[5 + i] });
+      p.say({ t: 'ready', ready: true });
+    });
+    host.say({ t: 'start' });
+    vi.advanceTimersByTime(5000);
+    return { host, me: host.last('start')!.you!, snap: () => (host.last('snap') as { s: ActionSnapshot }).s };
+  }
+
   it('applies a reported move only as far as the fighter could really have gone', () => {
+    const { host, me, snap } = humanDuel();
+    const at = snap().fighters[me];
+    host.say({ t: 'move', x: at.x, y: at.y + 5000, vx: 0, vy: 0, facing: 'S' });
+    vi.advanceTimersByTime(100);
+    const after = snap().fighters[me];
+    expect(after.y - at.y).toBeGreaterThan(0);
+    expect(after.y - at.y).toBeLessThan(500);
+  });
+
+  it('does not let a flood of move reports in one tick add up to a teleport', () => {
+    const { host, me, snap } = humanDuel();
+    const at = snap().fighters[me];
+    for (let i = 1; i <= 100; i++) host.say({ t: 'move', x: at.x, y: at.y + i * 50, vx: 0, vy: 0, facing: 'S' });
+    vi.advanceTimersByTime(40); // the next snapshot
+    expect(snap().fighters[me].y - at.y).toBeLessThan(600);
+  });
+
+  it('ignores an aim or a position too big to be real', () => {
+    const { host, me, snap } = humanDuel();
+    const at = snap().fighters[me];
+    host.say({ t: 'fire', slot: 0, x: 1.7e308, y: 1.7e308 });
+    host.say({ t: 'move', x: 1e300, y: at.y, vx: 0, vy: 0, facing: 'E' });
+    vi.advanceTimersByTime(100);
+    expect(snap().projectiles).toHaveLength(0);
+    expect(snap().fighters[me].x).toBe(at.x);
+  });
+
+  it('calls off a match whose loop throws instead of crashing the server, refunding its bets', () => {
     const [host] = lobbyOf(1, ['Ash']);
-    host.say({ t: 'pick', speciesId: KANTO_IDS[5] });
+    const fan = connect('Brock');
+    fan.say({ t: 'join', roomId: host.room().id, watch: true });
+    fan.say({ t: 'signup', name: 'Brock' });
+    host.say({ t: 'pick', speciesId: KANTO_IDS[0] });
     host.say({ t: 'ready', ready: true });
     host.say({ t: 'start' });
-    const me = host.last('start')!.you!;
-    vi.advanceTimersByTime(5000);
-    const at = (host.last('snap') as { s: ActionSnapshot }).s.fighters[me];
-    host.say({ t: 'move', x: at.x + 5000, y: at.y, vx: 0, vy: 0, facing: 'E' });
+    fan.say({ t: 'bet', optionId: 'teamB', amount: 30, req: 1 });
+    expect(fan.last('me')!.balance).toBe(70);
+    const spy = vi.spyOn(ActionEngine.prototype, 'tick').mockImplementationOnce(() => {
+      throw new Error('boom');
+    });
+    const error = vi.spyOn(console, 'error').mockImplementation(() => {});
+    expect(() => vi.advanceTimersByTime(100)).not.toThrow();
+    expect(error).toHaveBeenCalled();
+    expect(host.room().phase).toBe('lobby');
+    expect(fan.last('me')!.balance).toBe(100);
+    spy.mockRestore();
+  });
+
+  it('tries again after the break when a live room match fails', () => {
+    openLiveRooms();
+    const fan = connect('fan');
+    fan.say({ t: 'join', roomId: 'live1v1', watch: true });
+    vi.spyOn(console, 'error').mockImplementation(() => {});
+    const spy = vi.spyOn(ActionEngine.prototype, 'tick').mockImplementation(() => {
+      throw new Error('boom');
+    });
     vi.advanceTimersByTime(100);
-    const after = (host.last('snap') as { s: ActionSnapshot }).s.fighters[me];
-    expect(after.x - at.x).toBeGreaterThan(0);
-    expect(after.x - at.x).toBeLessThan(500);
+    expect(fan.room().phase).toBe('lobby');
+    spy.mockRestore();
+    const starts = fan.inbox.filter((m) => m.t === 'start').length;
+    vi.advanceTimersByTime(LIVE_INTERMISSION_MS + 100);
+    expect(fan.inbox.filter((m) => m.t === 'start').length).toBe(starts + 1);
+    expect(fan.room().phase).toBe('battle');
+  });
+
+  it('refunds the bets when everyone leaves a hosted room mid-match', () => {
+    const [host] = lobbyOf(1, ['Ash']);
+    const fan = connect('Brock');
+    fan.say({ t: 'join', roomId: host.room().id, watch: true });
+    fan.say({ t: 'signup', name: 'Brock' });
+    host.say({ t: 'pick', speciesId: KANTO_IDS[0] });
+    host.say({ t: 'ready', ready: true });
+    host.say({ t: 'start' });
+    fan.say({ t: 'bet', optionId: 'teamA', amount: 40, req: 1 });
+    fan.say({ t: 'leave' });
+    host.say({ t: 'leave' });
+    fan.say({ t: 'list' });
+    expect(fan.last('rooms')!.rooms.some((r) => !r.live)).toBe(false);
+    fan.say({ t: 'signup', name: 'Brock' }); // any sendMe: shows the balance
+    expect(fan.last('me')!.balance).toBe(100);
+  });
+
+  it('keeps a signed-up name when a later hello tries to change it, and filters hello names', () => {
+    const fan = connect('Misty');
+    fan.say({ t: 'signup', name: 'Brock' });
+    fan.say({ t: 'hello', name: 'Gary' });
+    expect(fan.conn.name).toBe('Brock');
+    const other = connect('x'.repeat(40));
+    expect(other.conn.name).toBe('x'.repeat(24));
+  });
+
+  it('refuses new rooms past the cap', () => {
+    const host = connect('Ash');
+    for (let i = 0; i < MAX_HOSTED_ROOMS; i++) host.say({ t: 'create', mode: 1, arena: { width: 900, height: 1950 } });
+    // Each create left the previous room, deleting it: still one room, no refusal.
+    expect(host.last('error')).toBeUndefined();
+    const crowd = Array.from({ length: MAX_HOSTED_ROOMS }, (_, i) => connect(`p${i}`));
+    for (const c of crowd) c.say({ t: 'create', mode: 1, arena: { width: 900, height: 1950 } });
+    expect(crowd.at(-1)!.last('error')).toBeDefined();
+    expect(crowd.at(-2)!.last('error')).toBeUndefined();
   });
 
   it('keeps players in order when the host changes the mode', () => {
@@ -230,11 +332,13 @@ describe('online Play Mode rooms', () => {
       expect(ask(watcher, { t: 'buy', itemId: 'potion', targetId: botId })).toBe('target_full_hp');
       expect(ask(host, { t: 'buy', itemId: 'potion', targetId: hostId })).toBe('fighters_cant');
 
-      // Let the bot land a few hits on the host, who stands still.
-      const fullHp = watcher.inbox.flatMap((m) => (m.t === 'snap' ? [m.s.fighters[hostId].hp] : []))[0];
-      for (let i = 0; i < 60 && watcher.last('snap')!.s.fighters[hostId].hp >= fullHp; i++) {
-        vi.advanceTimersByTime(500);
-      }
+      // Hurt the host directly: the bot is a random species, and some (Ditto, Metapod) can't deal damage at all.
+      const fullHp = watcher.last('snap')!.s.fighters[hostId].hp;
+      const tick = vi.spyOn(ActionEngine.prototype, 'tick').mockImplementationOnce(function (this: ActionEngine) {
+        this.getState().pokemon[hostId].currentHp = Math.round(fullHp / 2);
+      });
+      vi.advanceTimersByTime(100);
+      tick.mockRestore();
       expect(watcher.last('snap')!.s.fighters[hostId].hp).toBeLessThan(fullHp);
 
       expect(ask(watcher, { t: 'buy', itemId: 'potion', targetId: hostId })).toBeNull();
