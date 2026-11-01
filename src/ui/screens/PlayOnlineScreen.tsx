@@ -260,7 +260,13 @@ export function PlayOnlineScreen({
     const side = match.controller ? (isCrowdSide(fighterTeam) ? fighterTeam : null) : (me?.side ?? null);
     // Signed up already, it's the "Signed up as … · Change name" row, so a viewer can see (and change) who they are.
     const joinNext = spectator && room?.phase === 'battle' && (
-      <JoinNextMatch queued={room.queued} onToggle={() => conn.send({ t: 'queue', join: !room.queued })} />
+      <JoinNextMatch
+        queued={room.queued}
+        queue={room.queue}
+        myPlace={room.queuePlace}
+        freeSeats={room.seats.filter((s) => s.name === null).length}
+        onToggle={() => conn.send({ t: 'queue', join: !room.queued })}
+      />
     );
     const signUp = spectator && (
       <>
@@ -321,20 +327,75 @@ export function PlayOnlineScreen({
 }
 
 /** Mid-match, a watcher reserves a seat in the next match (or gives it back). */
-function JoinNextMatch({ queued, onToggle }: { queued: boolean; onToggle: () => void }) {
+function JoinNextMatch({
+  queued,
+  queue,
+  myPlace,
+  freeSeats,
+  onToggle,
+}: {
+  queued: boolean;
+  queue: string[];
+  myPlace: number | null;
+  /** Seats no player is holding — the bots' seats, which the queue takes first come first served. */
+  freeSeats: number;
+  onToggle: () => void;
+}) {
+  const gettingIn = myPlace !== null && myPlace <= freeSeats;
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
       <button onClick={onToggle} aria-pressed={queued} style={hoennButton(queued ? 'secondary' : 'primary')}>
-        {queued ? '✓ Seat saved · cancel' : '▶ Join next match'}
+        {queued ? '✓ In line · cancel' : '▶ Join next match'}
       </button>
       <span style={{ fontSize: 12, color: INK_MUTED, textAlign: 'center' }}>
-        {queued
-          ? 'You’ll get a seat when this one ends — pick a Pokémon in the break, or get a random one.'
-          : 'Fight in the next match instead of watching.'}
+        {!queued
+          ? `Fight in the next match instead of watching · ${freeSeats} ${freeSeats === 1 ? 'seat' : 'seats'} open`
+          : gettingIn
+            ? `You’re #${myPlace} — you get a seat when this one ends. Pick a Pokémon in the break, or get a random one.`
+            : `You’re #${myPlace} for ${freeSeats} ${freeSeats === 1 ? 'seat' : 'seats'} — if it fills up, you keep watching.`}
       </span>
+      {queue.length > 0 && (
+        <ol aria-label="Next match queue" style={queueListStyle}>
+          {queue.map((name, i) => (
+            <li key={`${i}-${name}`} style={{ ...queueRowStyle, opacity: i < freeSeats ? 1 : 0.6 }}>
+              <span style={{ fontFamily: FONT_UI, minWidth: 22 }}>{i + 1}.</span>
+              <span
+                style={{
+                  flex: 1,
+                  minWidth: 0,
+                  overflow: 'hidden',
+                  textOverflow: 'ellipsis',
+                  whiteSpace: 'nowrap',
+                  fontWeight: i + 1 === myPlace ? 700 : 400,
+                }}
+              >
+                {name}
+                {i + 1 === myPlace ? ' (you)' : ''}
+              </span>
+              <span style={{ fontSize: 12, color: INK_MUTED }}>{i < freeSeats ? 'gets a seat' : 'waiting'}</span>
+            </li>
+          ))}
+        </ol>
+      )}
     </div>
   );
 }
+
+const queueListStyle: CSSProperties = {
+  margin: 0,
+  padding: '4px 8px',
+  listStyle: 'none',
+  display: 'flex',
+  flexDirection: 'column',
+  gap: 2,
+  borderRadius: 6,
+  border: `2px solid ${INK}`,
+  background: PANEL,
+  fontSize: 13,
+  maxHeight: 120,
+  overflowY: 'auto',
+};
+const queueRowStyle: CSSProperties = { display: 'flex', alignItems: 'center', gap: 6, minHeight: 22 };
 
 /** Sign-up: the name you chat, bet, buy and vote under (and play under, if seated). */
 function SignUpForm({

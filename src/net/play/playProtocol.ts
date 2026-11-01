@@ -69,6 +69,10 @@ export interface PlayRoomView {
   live: boolean;
   /** The receiving connection is queued for a seat in the next match. */
   queued: boolean;
+  /** Who's queued for the next match, in order (display names); the first free seats' worth get in. */
+  queue: string[];
+  /** The receiving connection's 1-based place in `queue`, or null. */
+  queuePlace: number | null;
   /** During a live room's break: ms until the next match starts (as of sending). */
   startsInMs: number | null;
 }

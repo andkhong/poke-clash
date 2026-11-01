@@ -376,7 +376,19 @@ describe('online Play Mode rooms', () => {
       expect(fan.room().queued).toBe(false);
       fan.say({ t: 'queue', join: true });
 
+      // A second watcher lines up behind: everyone sees the queue in order, with their own place.
+      const [second, third] = ['second', 'third'].map(connect);
+      for (const c of [second, third]) {
+        c.say({ t: 'join', roomId: 'live1v1', watch: true });
+        c.say({ t: 'queue', join: true });
+      }
+      expect(fan.room()).toMatchObject({ queue: ['fan', 'second', 'third'], queuePlace: 1 });
+      expect(third.room()).toMatchObject({ queue: ['fan', 'second', 'third'], queuePlace: 3 });
+
       for (let i = 0; i < 400 && fan.room().phase === 'battle'; i++) vi.advanceTimersByTime(1000);
+      // A 1v1 has two seats: the first two in line get them, the third keeps watching.
+      expect(second.room().you).toBe(1);
+      expect(third.room()).toMatchObject({ you: null, queue: [], queuePlace: null });
       expect(fan.room()).toMatchObject({ phase: 'lobby', you: 0, queued: false });
       vi.advanceTimersByTime(LIVE_INTERMISSION_MS);
       const start = fan.last('start')!;

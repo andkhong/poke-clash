@@ -198,7 +198,8 @@ export function handlePlayMessage(conn: PlayConn, raw: unknown): void {
     const seated = room.seats.some((s) => s.conn === conn);
     room.queue = room.queue.filter((c) => c !== conn);
     if (msg.join === true && room.battle && !seated) room.queue.push(conn);
-    return sendRoom(room, conn);
+    // Everyone watching sees the line change.
+    return broadcastRoom(room);
   }
   if (room.battle) handleBattleMessage(room.battle, conn, msg);
   else handleLobbyMessage(room, conn, msg);
@@ -631,6 +632,8 @@ function sendRoom(room: PlayRoom, conn: PlayConn): void {
     seats,
     you: youIndex >= 0 ? youIndex : null,
     queued: room.queue.includes(conn),
+    queue: room.queue.map((c) => c.name),
+    queuePlace: room.queue.indexOf(conn) + 1 || null,
     live: room.live,
     startsInMs: room.nextStartAtMs !== null ? Math.max(0, room.nextStartAtMs - Date.now()) : null,
   };
