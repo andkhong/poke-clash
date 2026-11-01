@@ -50,7 +50,7 @@ export function PlayModeScreen({ onStart, onBack }: PlayModeScreenProps) {
           lineHeight: 1.5,
         }}
       >
-        You control one of the original 151. Bots fill every other seat. 3 lives each — last side standing wins.
+        You control one of the original 151. Bots fill every other seat. One KO and you're out — last side standing wins.
       </p>
 
       <a href="#/play" style={onlineButton}>

@@ -109,7 +109,8 @@ describe('online Play Mode rooms', () => {
     closePlayConnection(guest.conn);
     vi.advanceTimersByTime(200);
     const snap = (host.last('snap') as { s: ActionSnapshot }).s;
-    expect(snap.fighters[guestId].lives).toBe(0);
+    expect(snap.fighters[guestId].hp).toBe(0);
+    expect(snap.livingOrder).not.toContain(guestId);
     expect(snap.phase).toBe('complete');
     expect(host.room().phase).toBe('lobby');
     expect(host.room().seats[1].name).toBeNull();

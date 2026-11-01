@@ -15,7 +15,6 @@ import { moveKind, type MoveKind } from './rules';
 
 /** Play Mode's per-fighter state that the spectator SimState has no room for. */
 export interface FighterState {
-  lives: number;
   energy: number;
   /** ms left on each move slot's own cooldown. */
   cooldowns: number[];
@@ -30,8 +29,8 @@ export interface FighterState {
   moveInput: Vec2;
   aimFacingMs: number;
   statusTurnMs: number;
-  /** When a KO'd fighter with lives left comes back; null while alive or out for good. */
-  respawnAtMs: number | null;
+  /** Left the room mid-match: out, and a Revive can't bring them back. */
+  left: boolean;
   spawn: Vec2;
   kos: number;
   damageDealt: number;
@@ -93,7 +92,7 @@ export type ActionEvent =
       blocked?: true;
     }
   | { seq: number; atMs: number; type: 'dashed'; instanceId: string; from: Vec2; direction: Vec2 }
-  | { seq: number; atMs: number; type: 'ko'; instanceId: string; byInstanceId: string | null; livesLeft: number }
+  | { seq: number; atMs: number; type: 'ko'; instanceId: string; byInstanceId: string | null }
   | { seq: number; atMs: number; type: 'respawned'; instanceId: string }
   /** A spectator's shop item landed (see game-server/playRooms.ts). */
   | { seq: number; atMs: number; type: 'item'; instanceId: string; effect: 'heal' | 'revive'; amount: number; buyerName: string }
@@ -113,14 +112,12 @@ export interface FighterSnapshot {
   hp: number;
   status: PokemonInstance['status'];
   lastHitAtMs: number | null;
-  lives: number;
   energy: number;
   cooldowns: number[];
   globalCooldownMs: number;
   dashCharges: number;
   dashRechargeMs: number;
   invulnMs: number;
-  respawnAtMs: number | null;
   kos: number;
   damageDealt: number;
   speedMs: number;
@@ -189,7 +186,7 @@ function facingOf(v: Vec2): PokemonInstance['facing'] {
  * time. Reuses the spectator sim's match setup, damage formula and status
  * rules, but replaces its AI pacing (attack gate, hold windows, PP) with
  * direct control: momentum movement, dashes, energy, per-move cooldowns,
- * free-aimed projectiles and lives. Implements EngineLike so the existing
+ * free-aimed projectiles and one-KO-and-out. Implements EngineLike so the existing
  * HUD pieces and sprites can read its SimState unchanged.
  */
 export class ActionEngine implements EngineLike {
@@ -230,7 +227,6 @@ export class ActionEngine implements EngineLike {
       p.currentHp = p.maxHp;
       p.aiState = 'attack';
       this.fighters[id] = {
-        lives: R.LIVES,
         energy: R.ENERGY_MAX,
         cooldowns: p.moves.map(() => 0),
         globalCooldownMs: 0,
@@ -242,7 +238,7 @@ export class ActionEngine implements EngineLike {
         moveInput: { x: 0, y: 0 },
         aimFacingMs: 0,
         statusTurnMs: 0,
-        respawnAtMs: null,
+        left: false,
         spawn: { ...p.position },
         kos: 0,
         damageDealt: 0,
@@ -407,7 +403,7 @@ export class ActionEngine implements EngineLike {
   /** Online server: where a human's own screen says it is. Accepted only as
    * far as it could legally have got since its last report — a dash plus a
    * hard knockback, with some slack for network bunching — so a tampered
-   * client can't teleport. Hits, damage and lives stay server-side. */
+   * client can't teleport. Hits, damage and KOs stay server-side. */
   reportMovement(id: string, position: Vec2, velocity: Vec2, facing: PokemonInstance['facing']): void {
     if (!this.reportedMovers.has(id) || this.state.phase !== 'battle' || !this.isAlive(id)) return;
     const self = this.state.pokemon[id];
@@ -432,18 +428,19 @@ export class ActionEngine implements EngineLike {
   }
 
   /** A spectator's purchase. Heal: restores `fraction` of max HP to a fighter
-   * on the field. Revive: a fighter waiting to respawn comes back now (a
-   * fighter out of lives can't be revived). Returns the HP restored, or null
-   * when it can't apply — nothing is charged then. */
+   * on the field. Revive: a KO'd fighter comes back on their spawn point with
+   * `fraction` of max HP (not one who left the room). Returns the HP
+   * restored, or null when it can't apply — nothing is charged then. */
   useItem(id: string, effect: 'heal' | 'revive', fraction: number, buyerName: string): number | null {
     const p = this.state.pokemon[id];
     const f = this.fighters[id];
     if (!p || !f || this.state.phase !== 'battle') return null;
     let amount: number;
     if (effect === 'revive') {
-      if (f.respawnAtMs === null) return null;
+      if (this.isAlive(id) || f.left) return null;
+      this.state.eliminationOrder = this.state.eliminationOrder.filter((other) => other !== id);
       this.respawn(id);
-      // Back now, but at the item's share of HP rather than a fresh respawn's full bar.
+      // Back at the item's share of HP, not a full bar.
       amount = Math.max(1, Math.round(p.maxHp * fraction));
       p.currentHp = amount;
     } else {
@@ -512,21 +509,15 @@ export class ActionEngine implements EngineLike {
     });
   }
 
-  /** A player who left: out of the match for good, whatever lives they had. */
+  /** A player who left: out of the match for good, and never revivable. */
   eliminate(id: string): void {
     const f = this.fighters[id];
-    if (!f || f.lives <= 0 || this.state.phase === 'complete') return;
-    if (this.isAlive(id)) {
-      f.lives = 1;
-      this.state.pokemon[id].currentHp = 0;
-      this.state.pokemon[id].lastDamagedByInstanceId = id;
-      return; // swept on the next tick like any other faint
-    }
-    f.lives = 0;
-    f.respawnAtMs = null;
-    this.state.eliminationOrder.push(id);
-    this.events.push({ seq: this.nextSeq(), atMs: this.state.elapsedMs, type: 'fainted', instanceId: id, byInstanceId: id });
-    this.checkWin();
+    if (!f || f.left || this.state.phase === 'complete') return;
+    f.left = true;
+    if (!this.isAlive(id)) return; // already KO'd: already out
+    this.state.pokemon[id].currentHp = 0;
+    this.state.pokemon[id].lastDamagedByInstanceId = id;
+    // Swept on the next tick like any other faint.
   }
 
   /** The state an online client renders, plus the action events after `sinceSeq`. */
@@ -545,14 +536,12 @@ export class ActionEngine implements EngineLike {
         hp: p.currentHp,
         status: p.status,
         lastHitAtMs: p.lastHitAtMs ?? null,
-        lives: f.lives,
         energy: round1(f.energy),
         cooldowns: f.cooldowns.map(Math.round),
         globalCooldownMs: Math.round(f.globalCooldownMs),
         dashCharges: f.dashCharges,
         dashRechargeMs: Math.round(f.dashRechargeMs),
         invulnMs: Math.round(f.invulnMs),
-        respawnAtMs: f.respawnAtMs,
         kos: f.kos,
         damageDealt: f.damageDealt,
         speedMs: Math.round(f.speedMs),
@@ -615,10 +604,6 @@ export class ActionEngine implements EngineLike {
       return;
     }
 
-    for (const id of this.state.allInstanceIds) {
-      const at = this.fighters[id].respawnAtMs;
-      if (at !== null && nowMs >= at) this.respawn(id);
-    }
     for (const bot of this.bots) bot.think(this, nowMs);
 
     const dtSec = R.ACTION_TICK_MS / 1000;
@@ -846,20 +831,16 @@ export class ActionEngine implements EngineLike {
     for (const id of down) {
       const p = this.state.pokemon[id];
       const f = this.fighters[id];
-      f.lives -= 1;
       p.aiState = 'fainted';
       p.velocity = { x: 0, y: 0 };
       f.knockback = { x: 0, y: 0 };
       f.moveInput = { x: 0, y: 0 };
       const by = p.lastDamagedByInstanceId ?? null;
       if (by && by !== id && this.state.pokemon[by].team !== p.team) this.fighters[by].kos += 1;
-      if (f.lives > 0) {
-        f.respawnAtMs = nowMs + R.RESPAWN_DELAY_MS;
-      } else {
-        this.state.eliminationOrder.push(id);
-        this.events.push({ seq: this.nextSeq(), atMs: nowMs, type: 'fainted', instanceId: id, byInstanceId: by });
-      }
-      this.pushAction({ type: 'ko', instanceId: id, byInstanceId: by, livesLeft: f.lives });
+      // One KO and you're out (unless a spectator's Revive brings you back).
+      this.state.eliminationOrder.push(id);
+      this.events.push({ seq: this.nextSeq(), atMs: nowMs, type: 'fainted', instanceId: id, byInstanceId: by });
+      this.pushAction({ type: 'ko', instanceId: id, byInstanceId: by });
     }
   }
 
@@ -885,7 +866,6 @@ export class ActionEngine implements EngineLike {
       dashMs: 0,
       invulnMs: R.SPAWN_SHIELD_MS,
       knockback: { x: 0, y: 0 },
-      respawnAtMs: null,
       speedMs: 0,
       shieldMs: 0,
     });
@@ -894,23 +874,20 @@ export class ActionEngine implements EngineLike {
     this.pushAction({ type: 'respawned', instanceId: id });
   }
 
-  /** Ends the match once at most one side still has anyone on the field or waiting to respawn. */
+  /** Ends the match once at most one side still has anyone standing. */
   private checkWin(): void {
     const sides = new Set<string>();
-    for (const id of this.state.allInstanceIds) {
-      if (this.isAlive(id) || this.fighters[id].respawnAtMs !== null) sides.add(this.state.pokemon[id].team);
-    }
+    for (const id of this.state.livingOrder) sides.add(this.state.pokemon[id].team);
     if (sides.size <= 1) this.complete([...sides]);
   }
 
-  /** Time's up (or End Match): most lives left wins, remaining HP breaks ties. */
+  /** Time's up (or End Match): most fighters still standing wins, remaining HP breaks ties. */
   private finishByScore(): void {
     const scores = new Map<string, number>();
     for (const id of this.state.allInstanceIds) {
       const p = this.state.pokemon[id];
-      const f = this.fighters[id];
-      const hpShare = this.isAlive(id) ? p.currentHp / p.maxHp : 0;
-      scores.set(p.team, (scores.get(p.team) ?? 0) + f.lives + hpShare * 0.99);
+      const standing = this.isAlive(id) ? 1 + (p.currentHp / p.maxHp) * 0.99 : 0;
+      scores.set(p.team, (scores.get(p.team) ?? 0) + standing);
     }
     const best = Math.max(...scores.values());
     this.complete([...scores].filter(([, score]) => score === best).map(([team]) => team));

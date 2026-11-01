@@ -14,7 +14,7 @@ Framing rules for every post:
 - Never ask for upvotes. It breaks Product Hunt rules and most subreddit rules.
 
 Gameplay facts the copy below relies on, as the code has them (check again if the rules change):
-- Play Mode: you control one Pokémon. Move (WASD or the touch joystick), aim, four moves, a dash, 3 lives (`LIVES`), 3-minute matches (`ACTION_MATCH_LIMIT_MS`), both in src/sim/action/rules.ts. Original 151 only (`KANTO_IDS`, src/app/playMode.ts).
+- Play Mode: you control one Pokémon. Move (WASD or the touch joystick), aim, four moves, a dash, one KO and you're out (no respawns; a spectator's Revive can bring a fighter back), 3-minute matches (`ACTION_MATCH_LIMIT_MS`, src/sim/action/rules.ts). Original 151 only (`KANTO_IDS`, src/app/playMode.ts).
 - Modes: 1v1, 2v2, 3v3, 4v4 and FFA up to 8 (`PLAY_MODES`). Bots fill every empty seat when a match starts.
 - Solo vs bots needs no server (Play now). Online rooms are at `#/play`: pick a room or create one, share the link, and bots hold the open seats.
 - The crowd: anyone can watch a room, sign up with a display name (no account), chat, bet play money and buy potions.
@@ -38,7 +38,7 @@ PH limits: tagline max 60 chars, description ≤260 chars, thumbnail 240×240, g
 > [CONFIRM] I wanted Pokémon battles that feel like a brawler, not a menu, and I wanted the people watching to matter. So I built Pokémon Brawl.
 >
 > **How it works**
-> • Hit Play now and you're in a match against bots in seconds. Move, dodge, aim four moves, dash, and keep your three lives for three minutes.
+> • Hit Play now and you're in a match against bots in seconds. Move, dodge, aim four moves, dash, and stay standing — one KO and you're out.
 > • Play online: open a room, share the link, and bots hold the empty seats until friends arrive. 1v1 up to 4v4, or a free-for-all for 8.
 > • Or watch and join the crowd: pick a name (no account), chat, bet play money, and every 30 seconds vote in a Crowd Call. The winning card (Speed Burst, Shield, Energy Refill or Supply Drop) lands on your side two seconds later, and both teams see it coming.
 >
@@ -72,7 +72,7 @@ General caveats:
 - Caveat: check the sidebar for a required title tag or flair. Post as a **link post** straight to the game URL.
 - Title: `Pokémon Brawl: real-time Pokémon brawls in the browser, and the crowd votes on what lands next (free, no sign-up)`
 - First comment:
-> I made this! You control one Pokémon in a real-time match: move, dodge, aim four moves, dash, three lives. Play solo against bots, or open an online room (1v1 to 4v4, or FFA for 8) and share the link; bots fill any empty seats.
+> I made this! You control one Pokémon in a real-time match: move, dodge, aim four moves, dash, one KO and you're out. Play solo against bots, or open an online room (1v1 to 4v4, or FFA for 8) and share the link; bots fill any empty seats.
 >
 > Anyone watching can join the crowd: pick a name, chat, bet play money (no real money, nothing to buy), and vote every 30 seconds on a card that lands on their side, like a Shield or a Speed Burst.
 >
@@ -84,7 +84,7 @@ General caveats:
 - Body:
 > **Play:** https://pokemonbrawl.com/ (browser, desktop or mobile, no sign-up)
 >
-> **What it is:** a real-time arena brawler with the original 151. WASD or a touch joystick to move, four moves to aim, a dash, three lives, three-minute matches. Solo vs bots or online rooms up to 4v4 or an 8-player FFA.
+> **What it is:** a real-time arena brawler with the original 151. WASD or a touch joystick to move, four moves to aim, a dash, one KO and you're out, three-minute matches. Solo vs bots or online rooms up to 4v4 or an 8-player FFA.
 >
 > **The twist:** spectators are part of the game. Every 30 seconds in a team match, each side's crowd votes on one of three cards (Speed Burst, Shield, Energy Refill, Supply Drop), and it lands on their fighters two seconds later.
 >
@@ -101,7 +101,7 @@ General caveats:
 - Body:
 > [CONFIRM] I wanted Pokémon battles you actually play with your thumbs, and I wanted spectators to matter instead of just watching. So I built Pokémon Brawl: https://pokemonbrawl.com/
 >
-> **How it plays:** you control one Pokémon: move, aim four moves, dash, three lives. Play solo vs bots or online with friends; bots hold open seats. Viewers sign up with just a name, chat, bet play money, and vote in a "Crowd Call" every 30 seconds that drops a Shield, Speed Burst, Energy Refill or Supply Drop on their side.
+> **How it plays:** you control one Pokémon: move, aim four moves, dash, one KO and you're out. Play solo vs bots or online with friends; bots hold open seats. Viewers sign up with just a name, chat, bet play money, and vote in a "Crowd Call" every 30 seconds that drops a Shield, Speed Burst, Energy Refill or Supply Drop on their side.
 >
 > **Stack:** React 18 + Phaser 3 on the client, a server-authoritative real-time sim over WebSockets, PMDCollab pixel sprites, deployed on Fly.io.
 >

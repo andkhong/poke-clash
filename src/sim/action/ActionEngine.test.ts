@@ -43,13 +43,12 @@ describe('Play Mode rules', () => {
 });
 
 describe('ActionEngine', () => {
-  it('starts everyone with boosted HP, 3 lives, full energy and 2 dash charges', () => {
+  it('starts everyone with boosted HP, full energy and 2 dash charges', () => {
     const engine = makeEngine([1, 2]);
     const p = mon(engine, 0);
     const f = engine.getFighter(p.instanceId);
     expect(p.maxHp % R.HP_MULTIPLIER).toBe(0);
     expect(p.currentHp).toBe(p.maxHp);
-    expect(f.lives).toBe(R.LIVES);
     expect(f.energy).toBe(R.ENERGY_MAX);
     expect(f.dashCharges).toBe(R.DASH_CHARGES);
   });
@@ -156,32 +155,34 @@ describe('ActionEngine', () => {
     expect(hits.map((e) => e.type === 'hit' && e.targetId)).toEqual([mon(engine, 1).instanceId]);
   });
 
-  it('respawns a KO’d fighter with full HP and a shield until its lives run out, then ends the match', () => {
-    const engine = makeEngine([1, 2]);
-    const me = mon(engine, 0);
-    const foe = mon(engine, 1);
-    foe.currentHp = 0;
+  it('takes a KO’d fighter out for good: no respawn, and the last side standing wins', () => {
+    const engine = makeEngine([1, 2, 3, 4], { teams: { size: 2 } });
+    const [a1, a2, b1, b2] = [0, 1, 2, 3].map((i) => mon(engine, i));
+    b1.currentHp = 0;
     const ko = run(engine, 50).find((e) => e.type === 'ko');
-    expect(ko).toMatchObject({ instanceId: foe.instanceId, livesLeft: R.LIVES - 1 });
-    expect(engine.isAlive(foe.instanceId)).toBe(false);
-    run(engine, R.RESPAWN_DELAY_MS);
-    expect(engine.isAlive(foe.instanceId)).toBe(true);
-    expect(foe.currentHp).toBe(foe.maxHp);
-    expect(engine.getFighter(foe.instanceId).invulnMs).toBeGreaterThan(0);
+    expect(ko).toMatchObject({ instanceId: b1.instanceId });
+    run(engine, 10_000);
+    expect(engine.isAlive(b1.instanceId)).toBe(false); // still out
+    expect(engine.finished).toBe(false); // b2 still standing
 
-    for (let life = 2; life >= 1; life--) {
-      run(engine, R.RESPAWN_DELAY_MS);
-      foe.currentHp = 0;
-      run(engine, 50);
-    }
-    expect(engine.getFighter(foe.instanceId).lives).toBe(0);
+    b2.currentHp = 0;
+    run(engine, 50);
     expect(engine.finished).toBe(true);
-    expect(engine.getState().winnerInstanceIds).toEqual([me.instanceId]);
+    expect(engine.getState().winnerInstanceIds).toEqual([a1.instanceId, a2.instanceId]);
   });
 
-  it('heals a hurt fighter with a shop item, and revives one waiting to respawn at the item’s share of HP', () => {
-    const engine = makeEngine([1, 2]);
-    const foe = mon(engine, 1);
+  it('at the time limit, the side with more fighters standing wins', () => {
+    const engine = makeEngine([1, 2, 3, 4], { teams: { size: 2 } });
+    const [a1, a2, b1] = [0, 1, 2].map((i) => mon(engine, i));
+    b1.currentHp = 0;
+    run(engine, 50);
+    engine.endMatchNow();
+    expect(engine.getState().winnerInstanceIds).toEqual([a1.instanceId, a2.instanceId]);
+  });
+
+  it('heals a hurt fighter with a shop item, and revives a KO’d one (not one who left) at the item’s share of HP', () => {
+    const engine = makeEngine([1, 2, 3, 4], { teams: { size: 2 } });
+    const foe = mon(engine, 2);
     expect(engine.useItem(foe.instanceId, 'heal', 0.25, 'Brock')).toBeNull(); // already full
     foe.currentHp = foe.maxHp - 10;
     expect(engine.useItem(foe.instanceId, 'heal', 0.25, 'Brock')).toBe(10); // never past max
@@ -195,6 +196,12 @@ describe('ActionEngine', () => {
     expect(engine.isAlive(foe.instanceId)).toBe(true);
     expect(foe.currentHp).toBe(Math.round(foe.maxHp * 0.3));
     expect(engine.getActionEventsSince(0).filter((e) => e.type === 'item')).toHaveLength(2);
+
+    const quitter = mon(engine, 3);
+    engine.eliminate(quitter.instanceId);
+    run(engine, 50);
+    expect(engine.isAlive(quitter.instanceId)).toBe(false);
+    expect(engine.useItem(quitter.instanceId, 'revive', 0.3, 'Brock')).toBeNull(); // left the room
   });
 
   it('runs bot-filled matches to a clean finish', () => {

@@ -7,7 +7,6 @@ import {
   DASH_CHARGES,
   DASH_RECHARGE_MS,
   ENERGY_MAX,
-  LIVES,
   moveCooldownMs,
   moveEnergyCost,
 } from '../../sim/action/rules';
@@ -79,7 +78,7 @@ interface ActionMatchScreenProps {
 }
 
 /** Play Mode's in-match screen: the ActionScene canvas plus a Gen III
- * battle-style HUD — team info boxes, your info box (HP/EN/lives/dash), the
+ * battle-style HUD — team info boxes, your info box (HP/EN/dash), the
  * Crowd Call message box, the fight menu / touch controls, KO banners and
  * the results. */
 export function ActionMatchScreen({
@@ -178,7 +177,7 @@ export function ActionMatchScreen({
                 </>
               )}
               {state.phase === 'intro' && <Banner title="GET READY" />}
-              {controller && state.phase === 'battle' && !engine.isAlive(playerId) && <DeathBanner state={state} controller={controller} />}
+              {controller && state.phase === 'battle' && !engine.isAlive(playerId) && <DeathBanner state={state} />}
               {controller && playing && touch && <TouchControls controller={controller} moves={moves} onToggleLock={toggleLock} />}
               {!desktop && bottomRow}
               {stacked && !touch && controller && playing && (
@@ -223,18 +222,18 @@ function TopHud({ state, engine, compact }: { state: SimState; engine: ActionEng
   if (!state.teams)
     return compact ? <div style={{ display: 'flex', justifyContent: 'center' }}>{clock}</div> : <div style={clockWrap}>{clock}</div>;
   const ids = (team: string) => state.allInstanceIds.filter((id) => state.pokemon[id].team === team);
-  const lives = (team: string) => ids(team).reduce((sum, id) => sum + engine.getFighter(id).lives, 0);
+  const standing = (team: string) => ids(team).filter((id) => engine.isAlive(id)).length;
 
   if (compact) {
     return (
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 6 }}>
         <span style={{ ...teamChip, color: TEAM_A_COLOR_CSS }}>
           <span style={teamMarker('teamA', 10)} />
-          RUBY {lives('teamA')}
+          RUBY {standing('teamA')}
         </span>
         {clock}
         <span style={{ ...teamChip, color: TEAM_B_COLOR_CSS }}>
-          {lives('teamB')} SAPPHIRE
+          {standing('teamB')} SAPPHIRE
           <span style={teamMarker('teamB', 10)} />
         </span>
       </div>
@@ -253,7 +252,9 @@ function TopHud({ state, engine, compact }: { state: SimState; engine: ActionEng
         <strong style={{ fontFamily: FONT_UI, fontSize: 20, color: team === 'teamA' ? TEAM_A_COLOR_CSS : TEAM_B_COLOR_CSS }}>
           TEAM {teamName(team).toUpperCase()}
         </strong>
-        <span style={{ marginLeft: 'auto', fontFamily: FONT_UI, fontSize: 17 }}>{lives(team)} lives</span>
+        <span style={{ marginLeft: 'auto', fontFamily: FONT_UI, fontSize: 17 }}>
+          {standing(team)}/{ids(team).length} left
+        </span>
       </div>
       {ids(team).map((id) => {
         const hp = hpFraction(state, engine, id);
@@ -261,7 +262,7 @@ function TopHud({ state, engine, compact }: { state: SimState; engine: ActionEng
         return (
           <div
             key={id}
-            style={{ display: 'flex', alignItems: 'center', gap: 8, fontFamily: FONT_UI, fontSize: 16, opacity: f.lives === 0 ? 0.5 : 1 }}
+            style={{ display: 'flex', alignItems: 'center', gap: 8, fontFamily: FONT_UI, fontSize: 16, opacity: engine.isAlive(id) ? 1 : 0.5 }}
           >
             <span style={{ width: 92, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
               {state.pokemon[id].name}
@@ -306,7 +307,7 @@ function Buffs({ speedMs, shieldMs }: { speedMs: number; shieldMs: number }) {
 
 function Standings({ state, engine }: { state: SimState; engine: ActionEngine }) {
   const standings = [...state.allInstanceIds].sort(
-    (a, b) => engine.getFighter(b).lives - engine.getFighter(a).lives || engine.getFighter(b).kos - engine.getFighter(a).kos
+    (a, b) => Number(engine.isAlive(b)) - Number(engine.isAlive(a)) || engine.getFighter(b).kos - engine.getFighter(a).kos
   );
   return (
     <div style={{ ...standingsStyle, alignSelf: 'flex-end' }}>
@@ -317,7 +318,7 @@ function Standings({ state, engine }: { state: SimState; engine: ActionEngine })
           style={{
             display: 'flex',
             gap: 6,
-            opacity: engine.getFighter(id).lives === 0 ? 0.5 : 1,
+            opacity: engine.isAlive(id) ? 1 : 0.5,
             fontWeight: id === engine.playerId ? 700 : 400,
           }}
         >
@@ -325,19 +326,18 @@ function Standings({ state, engine }: { state: SimState; engine: ActionEngine })
             {id === engine.playerId ? '▶ ' : ''}
             {state.pokemon[id].name}
           </span>
-          <span>{engine.getFighter(id).lives > 0 ? `${engine.getFighter(id).lives} ♥` : 'OUT'}</span>
+          <span>{engine.isAlive(id) ? `${engine.getFighter(id).kos} KO` : 'OUT'}</span>
         </div>
       ))}
     </div>
   );
 }
 
-/** Your fighter's info box: HP (with a draining trail), energy, lives and dash charges. */
+/** Your fighter's info box: HP (with a draining trail), energy and dash charges. */
 function InfoBox({ state, controller }: { state: SimState; controller: PlayerController }) {
   const me = state.pokemon[controller.playerId];
   const fighter = controller.engine.getFighter(controller.playerId);
   const hp = controller.engine.isAlive(controller.playerId) ? me.currentHp / me.maxHp : 0;
-  const lifeColor = teamColorCss(me.team) ?? RUBY;
   return (
     <div style={infoBoxStyle}>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', gap: 8 }}>
@@ -365,12 +365,6 @@ function InfoBox({ state, controller }: { state: SimState; controller: PlayerCon
         <span style={{ fontFamily: FONT_UI, fontSize: 15, minWidth: 26, textAlign: 'right' }}>{Math.floor(fighter.energy)}</span>
       </div>
       <div style={{ display: 'flex', justifyContent: 'space-between', fontFamily: FONT_UI, fontSize: 16 }}>
-        <span style={{ display: 'flex', alignItems: 'center', gap: 5 }} aria-label={`${fighter.lives} lives`}>
-          LIVES
-          {Array.from({ length: Math.max(LIVES, fighter.lives) }, (_, i) => (
-            <span key={i} style={{ ...pip(12, '50%'), background: i < fighter.lives ? lifeColor : 'transparent' }} />
-          ))}
-        </span>
         <span style={{ display: 'flex', alignItems: 'center', gap: 5 }} aria-label={`${fighter.dashCharges} dashes`}>
           DASH
           {Array.from({ length: DASH_CHARGES }, (_, i) => (
@@ -606,13 +600,13 @@ function Joystick({ controller }: { controller: PlayerController }) {
   );
 }
 
-function DeathBanner({ state, controller }: { state: SimState; controller: PlayerController }) {
-  const fighter = controller.engine.getFighter(controller.playerId);
-  if (fighter.respawnAtMs !== null) {
-    const secs = Math.max(1, Math.ceil((fighter.respawnAtMs - state.elapsedMs) / 1000));
-    return <Banner title="FAINTED" subtitle={`${fighter.lives} ${fighter.lives === 1 ? 'life' : 'lives'} left · back in ${secs}`} />;
-  }
-  return <Banner title="OUT OF LIVES" subtitle={state.teams ? 'Spectating — your team can still win' : 'Spectating'} />;
+function DeathBanner({ state }: { state: SimState }) {
+  return (
+    <Banner
+      title="FAINTED"
+      subtitle={state.teams ? 'You’re out — your team can still win (or a Revive from the crowd)' : 'You’re out — a Revive from the crowd could bring you back'}
+    />
+  );
 }
 
 function Banner({ title, subtitle }: { title: string; subtitle?: string }) {
@@ -663,8 +657,7 @@ function Results({
       engine.getFighter(b).kos - engine.getFighter(a).kos ||
       engine.getFighter(b).damageDealt - engine.getFighter(a).damageDealt
   );
-  const livesOf = (team: string) =>
-    state.allInstanceIds.filter((id) => state.pokemon[id].team === team).reduce((sum, id) => sum + engine.getFighter(id).lives, 0);
+  const standingOf = (team: string) => state.allInstanceIds.filter((id) => state.pokemon[id].team === team && engine.isAlive(id)).length;
   const twoCol = !!crowd && !stacked;
   return (
     <div style={{ ...resultsStyle, width: twoCol ? 'min(94%, 780px)' : 'min(94%, 460px)' }}>
@@ -676,7 +669,7 @@ function Results({
         </h2>
         {state.teams && (
           <span style={{ fontSize: 15, color: INK_MUTED }}>
-            Ruby {livesOf('teamA')} lives left · Sapphire {livesOf('teamB')}
+            Ruby {standingOf('teamA')} standing · Sapphire {standingOf('teamB')}
           </span>
         )}
       </div>
@@ -686,7 +679,7 @@ function Results({
             <span>POKÉMON</span>
             <span>KO</span>
             <span>DMG</span>
-            <span>♥</span>
+            <span>OUT</span>
           </div>
           {rows.map((id) => {
             const f = engine.getFighter(id);
@@ -704,7 +697,7 @@ function Results({
                 </span>
                 <span>{f.kos}</span>
                 <span>{f.damageDealt}</span>
-                <span>{f.lives}</span>
+                <span>{engine.isAlive(id) ? '' : '✕'}</span>
               </div>
             );
           })}

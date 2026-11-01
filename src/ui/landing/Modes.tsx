@@ -1,13 +1,13 @@
 /** The five Play Mode sizes (PLAY_MODES in app/playMode.ts, copied here so
  * the landing bundle skips the species dataset). Each opens the online room
  * list, where a room of that mode can be created. Footnote facts: KANTO_IDS,
- * LIVES and ACTION_MATCH_LIMIT_MS (src/sim/action/rules.ts). */
+ * ACTION_MATCH_LIMIT_MS (src/sim/action/rules.ts) and the one-KO rule (ActionEngine). */
 const MODES = [
   { label: '1v1', blurb: 'Duel. Pure reads and dodges.' },
   { label: '2v2', blurb: 'Bring a friend or a bot.' },
   { label: '3v3', blurb: 'Room for a tank and a sniper.' },
   { label: '4v4', blurb: 'Full court, full chaos.' },
-  { label: 'FFA', blurb: 'Up to 8, last lives standing.' },
+  { label: 'FFA', blurb: 'Up to 8, last one standing.' },
 ] as const;
 
 export function Modes() {
@@ -27,7 +27,7 @@ export function Modes() {
           </li>
         ))}
       </ul>
-      <p className="lp-note">Original 151 only. 3 lives, 3 minutes, WASD or touch joystick.</p>
+      <p className="lp-note">Original 151 only. One KO and you're out, 3 minutes, WASD or touch joystick.</p>
     </section>
   );
 }

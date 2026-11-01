@@ -26,7 +26,7 @@ export function LandingHero({ playersOnline, onWatch }: LandingHeroProps) {
           You fight. <span className="lp-crowd-text">The crowd calls it.</span>
         </h1>
         <p className="lp-lead">
-          Real-time Pokémon brawls in your browser. Move, dodge, aim four moves, take three lives into a three-minute match. Everyone
+          Real-time Pokémon brawls in your browser. Move, dodge, aim four moves, one KO and you're out. Everyone
           watching votes on what lands on the court next.
         </p>
         <div className="lp-hero-actions">

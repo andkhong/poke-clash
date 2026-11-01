@@ -75,9 +75,7 @@ export class OnlineActionEngine extends ActionEngine {
       p.status = fs.status;
       p.lastHitAtMs = fs.lastHitAtMs ?? undefined;
       Object.assign(f, {
-        lives: fs.lives,
         invulnMs: fs.invulnMs,
-        respawnAtMs: fs.respawnAtMs,
         kos: fs.kos,
         damageDealt: fs.damageDealt,
         dashRechargeMs: fs.dashRechargeMs,

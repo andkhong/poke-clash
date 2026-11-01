@@ -8,12 +8,10 @@ import type { MoveDefinition } from '../types';
 /** Runs faster than the spectator sim's 20 Hz: input has to feel immediate. */
 export const ACTION_TICK_MS = 1000 / 60;
 
-export const LIVES = 3;
 /** Fights need to last long enough to aim and dodge. */
 export const HP_MULTIPLIER = 6;
 export const ACTION_MATCH_LIMIT_MS = 180_000;
-export const RESPAWN_DELAY_MS = 3000;
-/** Invulnerable after respawning, so nobody gets farmed on their spawn point. */
+/** Invulnerable after a Revive, so nobody gets farmed on their spawn point. */
 export const SPAWN_SHIELD_MS = 1500;
 
 // Movement: velocity eases toward the input and bleeds off without it,
