@@ -1,4 +1,4 @@
-import type { ChatMessage, RoomSummary } from '../../net/protocol';
+import type { ChatMessage } from '../../net/protocol';
 import { CHAT_LOG_LIMIT } from '../../net/chat';
 import { teamColorCss } from '../teamColors';
 import { TEXT_ACCENTS } from '../theme';
@@ -46,32 +46,12 @@ export function isSystemMessage(message: ChatMessage): boolean {
   return message.kind === 'system';
 }
 
-/** Who to show as the sender. A seated player is known by their pick, same
- * as ever: the seat's *current* species name (a message sent before picking
- * upgrades from "Seat N" to the species once they pick), falling back to the
- * name snapshotted on the message, then the seat number. Every room supports
- * chat now (see spectatorIdentity.ts), so an unseated sender
- * (message.slotIndex null) shows their generated display name instead. The
- * name carries the sender's wallet balance — "Piplup ($100)" — live from the
- * seat for a seated sender (so it moves as they bet and win), snapshotted at
- * send time for a spectator. Each viewer's own messages get a " (You)"
- * suffix appended, so they can still see who they are while spotting their
- * own lines. */
-export function chatSenderLabel(
-  message: ChatMessage,
-  mySlotIndex: number | null,
-  room: RoomSummary | null,
-  mySpectatorName: string | null
-): string {
-  if (message.slotIndex === null) {
-    const name = withBalance(message.spectatorName ?? 'Spectator', message.balance);
-    const isSelf = mySpectatorName !== null && message.spectatorName === mySpectatorName;
-    return isSelf ? `${name} (You)` : name;
-  }
-  const slot = room?.slots[message.slotIndex] ?? null;
-  const liveName = slot?.speciesName ?? null;
-  const name = withBalance(liveName ?? message.speciesName ?? `Seat ${message.slotIndex + 1}`, slot?.balance ?? message.balance);
-  const isSelf = mySlotIndex !== null && message.slotIndex === mySlotIndex;
+/** Who to show as the sender: their display name (sign-up name), with the
+ * wallet balance snapshotted at send time — "Brock ($100)". The viewer's own
+ * messages get a " (You)" suffix. */
+export function chatSenderLabel(message: ChatMessage, mySpectatorName: string | null): string {
+  const name = withBalance(message.spectatorName ?? message.speciesName ?? 'Spectator', message.balance);
+  const isSelf = mySpectatorName !== null && message.spectatorName === mySpectatorName;
   return isSelf ? `${name} (You)` : name;
 }
 

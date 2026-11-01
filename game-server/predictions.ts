@@ -2,11 +2,11 @@ import type { SimState } from '../src/sim/types';
 import type { MoveLookup } from '../src/sim/matchSetup';
 import { AGGRESSION_TRIGGER_MS } from '../src/sim/constants';
 import { computeWinOdds } from '../src/sim/odds';
-import type { MyBet, PredictionOptionSummary, PredictionStatus, PredictionSummary, RoomMode } from '../src/net/protocol';
+import type { MyBet, PredictionOptionSummary, PredictionStatus, PredictionSummary } from '../src/net/protocol';
 import { MIN_BET } from '../src/net/predictions';
 
 /** One room's prediction pool for one match — pure bookkeeping over a sim
- * state snapshot, with no wallet, timer or SSE knowledge: roomManager owns
+ * state snapshot, with no wallet, timer or socket knowledge: playRooms owns
  * when to open/close/settle and moves the money; this module says what the
  * pool looks like and who gets what. Everything here is synchronous and
  * deterministic so it can be unit-tested without a room. */
@@ -35,27 +35,20 @@ export interface PredictionState {
 }
 
 export type PlaceBetError =
-  | 'no_prediction'
-  | 'closed'
-  | 'invalid_amount'
-  | 'unknown_option'
-  | 'option_locked'
-  | 'cannot_switch'
-  | 'insufficient_funds';
+  'no_prediction' | 'closed' | 'invalid_amount' | 'unknown_option' | 'option_locked' | 'cannot_switch' | 'insufficient_funds';
 
-function optionLabel(mode: RoomMode, team: string, state: Readonly<SimState>, memberIds: string[]): string {
-  if (mode === 'boss') return team === 'boss' ? `Boss · ${state.pokemon[memberIds[0]].name}` : 'Party';
-  if (team === 'teamA') return 'Team A';
-  if (team === 'teamB') return 'Team B';
+function optionLabel(team: string, state: Readonly<SimState>, memberIds: string[]): string {
+  if (team === 'teamA') return 'Team Ruby';
+  if (team === 'teamB') return 'Team Sapphire';
   return state.pokemon[memberIds[0]].name;
 }
 
 /** One option per distinct sim team, in spawn order — in a free-for-all every
- * fighter is its own team (matchSetup.ts), so that's one per fighter; boss
- * and team rooms collapse to their two sides. Keying on the team makes
+ * fighter is its own team (matchSetup.ts), so that's one per fighter; a team
+ * match collapses to its two sides. Keying on the team makes
  * winner resolution uniform across modes: the winner is whichever option's
  * team the surviving Pokémon belong to. */
-export function buildPredictionOptions(mode: RoomMode, state: Readonly<SimState>): PredictionOption[] {
+export function buildPredictionOptions(state: Readonly<SimState>): PredictionOption[] {
   const membersByTeam = new Map<string, string[]>();
   for (const id of state.allInstanceIds) {
     const team = state.pokemon[id].team;
@@ -65,20 +58,20 @@ export function buildPredictionOptions(mode: RoomMode, state: Readonly<SimState>
   }
   return [...membersByTeam.entries()].map(([team, instanceIds]) => ({
     id: team,
-    label: optionLabel(mode, team, state, instanceIds),
+    label: optionLabel(team, state, instanceIds),
     instanceIds,
     total: 0,
     bettors: 0,
   }));
 }
 
-export function openPrediction(mode: RoomMode, state: Readonly<SimState>, matchNo: number, nowMs: number, moveLookup: MoveLookup): PredictionState {
-  const options = buildPredictionOptions(mode, state);
+export function openPrediction(state: Readonly<SimState>, matchNo: number, nowMs: number, moveLookup: MoveLookup): PredictionState {
+  const options = buildPredictionOptions(state);
   return {
     matchNo,
     status: 'open',
     openedAtMs: nowMs,
-    // The sim clock runs at wall-clock pace (see roomManager's tick loop), so
+    // The sim clock runs at wall-clock pace (see playRooms' battle loop), so
     // this is where the aggression mark lands in server time — the sim's own
     // elapsedMs is still the gate that actually closes the window.
     closesAtMs: nowMs + AGGRESSION_TRIGGER_MS,
@@ -127,7 +120,7 @@ export function placeBet(
 
 /** The option the match's winners belong to, or null when there's no single
  * answer: no winner at all, or co-winners (the 120 s cap / a simultaneous
- * last KO) spread across more than one option. In a team/boss room a whole
+ * last KO) spread across more than one option. In a team match a whole
  * surviving side is one option, so several winners there still resolve. */
 export function resolveWinnerOption(prediction: PredictionState, state: Readonly<SimState>): string | null {
   const teams = new Set(state.winnerInstanceIds.map((id) => state.pokemon[id].team));
@@ -140,7 +133,10 @@ export function resolveWinnerOption(prediction: PredictionState, state: Readonly
  * in proportion to their stakes, floored (the odd dollar of rounding stays
  * in the house). With no winner, or nobody on the winner, everyone simply
  * gets their own stake back. */
-export function computePayouts(bets: ReadonlyMap<string, MyBet>, winnerOptionId: string | null): { refunded: boolean; payouts: Map<string, number> } {
+export function computePayouts(
+  bets: ReadonlyMap<string, MyBet>,
+  winnerOptionId: string | null
+): { refunded: boolean; payouts: Map<string, number> } {
   const payouts = new Map<string, number>();
   let pool = 0;
   let winningTotal = 0;

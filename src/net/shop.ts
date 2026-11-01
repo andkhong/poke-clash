@@ -12,11 +12,8 @@
  * wallets exist. The per-session and per-target caps only shape *who* gets
  * the stock and *where* it can land.
  *
- * The shelf is sized for a room with bot spectators in it (see
- * game-server/bots.ts): the showcase room's bots buy alongside real viewers,
- * so eleven units rather than four is what keeps a human from finding it
- * already cleared. It is still small enough that the stock, not the price,
- * is what runs out first.
+ * The shelf is still small enough that the stock, not the price, is what
+ * runs out first.
  */
 
 import type { MatchPhase } from '../sim/types';

@@ -1,8 +1,7 @@
 import { listAllSpecies } from '../data/loader';
 
-/** One generated display name per browser tab ("Slowpoke482"), used for room
- * chat by anyone without a seat — which, for the always-on autoPlay room, is
- * everyone (see game-server/roomManager.ts's startAutoPlayCycle). Persisted
+/** One generated display name per browser tab ("Slowpoke482"), used until the
+ * viewer signs up with a name of their own. Persisted
  * in sessionStorage so it survives reloads within the tab but a fresh tab
  * gets its own, and it's the same identity across every room that tab
  * visits rather than being regenerated per room. */

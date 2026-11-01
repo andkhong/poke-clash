@@ -4,7 +4,6 @@ import type { PlayerController } from '../../sim/action/playerController';
 import { AOE_RADIUS, PROJECTILE } from '../../sim/action/rules';
 import type { MoveDefinition, SimState, Vec2 } from '../../sim/types';
 import { PokemonSprite } from '../sprites/PokemonSprite';
-import { preloadArenaTileset } from '../tileset/arenaBackground';
 import { createStadiumBackground, type Stadium } from '../tileset/stadiumBackground';
 import { preloadPokeballAsset } from '../sprites/pokeballAsset';
 import { playImpactBurst } from '../vfx/moves/impactBurst';
@@ -111,8 +110,6 @@ export class ActionScene extends Phaser.Scene {
 
   preload(): void {
     this.load.json(PMD_SPRITE_INDEX_KEY, pmdSpriteIndexUrl());
-    // The stadium floor is drawn, not loaded — no map image to fetch.
-    preloadArenaTileset(this, null);
     preloadPokeballAsset(this);
     preloadFamilyVfxAssets(this);
     // Every move in the roster is known up front, so the animations download

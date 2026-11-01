@@ -194,7 +194,7 @@ export const ChatOverlay = memo(function ChatOverlay({ vote, predictions, shop, 
               ) : (
                 <>
                   <span style={{ color: chatSenderColor(message), fontWeight: 'bold', textTransform: 'capitalize' }}>
-                    {chatSenderLabel(message, props.mySlotIndex, props.room, props.mySpectatorName)}
+                    {chatSenderLabel(message, props.mySpectatorName)}
                   </span>
                   <span style={{ opacity: 0.6 }}>: </span>
                   <span>{message.text}</span>

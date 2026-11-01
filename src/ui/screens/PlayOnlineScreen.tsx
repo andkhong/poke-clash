@@ -233,9 +233,7 @@ export function PlayOnlineScreen({
   const spectator = room?.you === null;
   const chatProps: ChatPanelProps = {
     messages: chat,
-    mySlotIndex: null,
     mySpectatorName: me?.name ?? HELLO_NAME,
-    room: null,
     canSend: me?.name != null || room?.you != null,
     onSend: (text) => conn.request({ t: 'chat', text }),
     disabledPlaceholder: 'Sign up to chat',

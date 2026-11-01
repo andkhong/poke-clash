@@ -33,7 +33,7 @@ import { containsBlockedLanguage } from '../src/net/chatFilter';
 import { AGGRESSION_TRIGGER_MS } from '../src/sim/constants';
 import { openPrediction, placeBet, settlePrediction, toPredictionSummary, type PredictionState } from './predictions';
 import { itemUsesForSession, openShop, purchaseItem, toShopSummary, type ShopState } from './shop';
-import { CHAT_BURST, CHAT_REFILL_MS, ITEM_BURST, ITEM_REFILL_MS, takeToken, type RateBucket } from './roomManager';
+import { CHAT_BURST, CHAT_REFILL_MS, ITEM_BURST, ITEM_REFILL_MS, takeToken, type RateBucket } from './rateLimit';
 import { adjustBalance, getBalance, MATCH_WATCHED_REWARD, touchWallet, walletStreamClosed, walletStreamOpened } from './wallets';
 
 // Online Play Mode rooms: a lobby (seats, species, ready) and, once the host
@@ -415,7 +415,7 @@ function startBattle(room: PlayRoom): void {
   };
   room.battle = battle;
   room.matchNo += 1;
-  room.prediction = openPrediction(room.mode === 'ffa' ? 'classic' : 'team2', engine.getState(), room.matchNo, Date.now(), moveLookup);
+  room.prediction = openPrediction(engine.getState(), room.matchNo, Date.now(), moveLookup);
   room.shop = openShop(room.matchNo);
   for (const conn of room.conns) conn.send(startMessage(battle, conn));
   broadcastRoom(room);

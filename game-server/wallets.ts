@@ -1,9 +1,9 @@
 /** Per-session Pokémon Dollar wallets. A session is one browser tab (see
  * src/net/sessionIdentity.ts); its wallet is created at STARTING_BALANCE the
  * first time the server sees the id and lives for as long as the tab holds a
- * room stream open — "until they disconnect or leave". Module-level rather
+ * Play Mode socket open (plus a grace period). Module-level rather
  * than per-room so a balance follows the tab from room to room, and never
- * touched by roomManager's resetRoom (same carve-out nextChatId has). */
+ * touched when a room's match ends. */
 
 export const STARTING_BALANCE = 100;
 /** `Infinity` is not JSON-serializable (it becomes null), so local
@@ -22,7 +22,7 @@ export const WALLET_GRACE_MS = 60_000;
 
 interface Wallet {
   balance: number;
-  /** Open room streams carrying this session id (see sse.ts's subscribe). */
+  /** Open Play Mode sockets carrying this session id (see playRooms' hello). */
   streams: number;
   /** Armed whenever `streams` is 0 — fires the wallet's deletion. */
   graceTimer: ReturnType<typeof setTimeout> | null;

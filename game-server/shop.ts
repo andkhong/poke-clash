@@ -14,7 +14,7 @@ import {
 
 /** One room's item shop for one match — pure bookkeeping over a sim state
  * snapshot, with no wallet, timer or SSE knowledge, exactly like its sibling
- * predictions.ts: roomManager owns when to open/clear it and moves the money;
+ * predictions.ts: playRooms owns when to open/clear it and moves the money;
  * this module says what the shelf looks like and whether a purchase is
  * allowed. Everything here is synchronous and deterministic so it can be
  * unit-tested without a room or an engine.
@@ -69,7 +69,7 @@ export function isShopOpen(state: Readonly<SimState>): boolean {
  * still standing → does it even need healing → has it had its share → can I
  * afford it). Mutates the shop on success; the caller debits the wallet.
  *
- * `applyHeal` is SimulationEngine.applyItemHeal bound to the target; it
+ * `applyItem` is ActionEngine.useItem bound to the target; it
  * returns the HP actually restored. Every condition it refuses on is already
  * checked above it, so a null here means something changed underneath us and
  * nothing is charged. */

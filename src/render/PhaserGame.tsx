@@ -1,7 +1,5 @@
 import { useEffect, useRef } from 'react';
 import Phaser from 'phaser';
-import type { EngineLike } from '../sim/engineLike';
-import { ArenaScene } from './scenes/ArenaScene';
 import { ActionScene } from './scenes/ActionScene';
 import type { PlayerController } from '../sim/action/playerController';
 import type { ActionEngine } from '../sim/action/ActionEngine';
@@ -14,33 +12,18 @@ export interface StageRect {
 }
 
 interface PhaserGameProps {
-  engine: EngineLike;
-  highlightInstanceId?: string | null;
+  engine: ActionEngine;
+  /** Drives the player's fighter; null when watching an online match. */
+  controller: PlayerController | null;
   /** Reports the actual on-screen rect of the game canvas (in px, relative to
    * this component's own container) every time Phaser's FIT scaling
-   * recomputes it — lets overlay HUD elements (RosterPanel, BannerOverlay)
-   * position themselves against the visible map instead of the full
-   * (possibly letterboxed) container. */
+   * recomputes it — lets the HUD overlay position itself against the visible
+   * map instead of the full (possibly letterboxed) container. */
   onStageRectChange?: (rect: StageRect) => void;
-  /** Fired once, right after this Phaser instance's canvas exists — it's
-   * stable for the life of the instance, so a consumer (see
-   * useRoomThumbnailCapture) can hold onto it instead of re-reading it. */
-  onCanvasReady?: (canvas: HTMLCanvasElement) => void;
-  /** Keep the WebGL drawing buffer readable after each frame is presented
-   * (Phaser's render.preserveDrawingBuffer) — needed only by a consumer
-   * that reads pixels back off the canvas outside the render loop (see
-   * useRoomThumbnailCapture). Off by default: retaining the buffer costs
-   * an extra full-canvas copy per frame on most GPUs, which solo play and
-   * the always-on showcase room (never captured) shouldn't pay. Read once
-   * at mount, like the arena size. */
-  captureFrames?: boolean;
-  /** Play Mode: run the ActionScene instead of the spectator arena, driven by
-   * `controller` (null when watching an online match). `engine` must then be
-   * an ActionEngine. */
-  action?: { controller: PlayerController | null };
 }
 
-export function PhaserGame({ engine, highlightInstanceId = null, onStageRectChange, onCanvasReady, captureFrames = false, action }: PhaserGameProps) {
+/** The Play Mode canvas: one Phaser game running ActionScene for a match. */
+export function PhaserGame({ engine, controller, onStageRectChange }: PhaserGameProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const gameRef = useRef<Phaser.Game | null>(null);
   const onStageRectChangeRef = useRef(onStageRectChange);
@@ -58,13 +41,12 @@ export function PhaserGame({ engine, highlightInstanceId = null, onStageRectChan
       gameRef.current = null;
     }
 
-    // Read off the match's real arena (not a fixed constant) — a Custom
-    // Battle "Small"/"Tiny" map, or the mobile-vs-wide-desktop arena picked at
-    // match start (see app/config.ts's resolveMatchArena), would otherwise
-    // render inside the wrong-sized canvas: content confined to a corner
-    // instead of filling it, since Phaser's own FIT scaling only scales
-    // *this* canvas to its container, it can't correct for the canvas
-    // itself being the wrong resolution to begin with.
+    // Read off the match's real arena (not a fixed constant) — the
+    // mobile-vs-wide-desktop arena picked at match start (see app/config.ts's
+    // resolveMatchArena) would otherwise render inside the wrong-sized
+    // canvas, since Phaser's own FIT scaling only scales *this* canvas to its
+    // container, it can't correct for the canvas itself being the wrong
+    // resolution to begin with.
     const { width: arenaWidth, height: arenaHeight } = engine.getState().arena;
     const game = new Phaser.Game({
       type: Phaser.AUTO,
@@ -72,19 +54,11 @@ export function PhaserGame({ engine, highlightInstanceId = null, onStageRectChan
       width: arenaWidth,
       height: arenaHeight,
       backgroundColor: '#1a1a1a',
-      // WebGL clears its drawing buffer once a frame is presented unless
-      // told to keep it — without this, useRoomThumbnailCapture's drawImage
-      // (which runs on its own timer, well after any given frame finishes
-      // presenting) reads back an already-cleared buffer and produces a
-      // solid black capture. Standard Phaser screenshot-capture setting,
-      // opted into per mount (see captureFrames) since it isn't free.
       render: {
-        preserveDrawingBuffer: captureFrames,
-        // Multisampling only smooths polygon edges. Play Mode draws textures
-        // (its shapes are baked, see stadiumBackground/bakePill), so it turns
-        // it off and spares a phone GPU a full-canvas resolve every frame;
-        // the watch arena still draws live circles and keeps it.
-        antialiasGL: !action,
+        // Multisampling only smooths polygon edges, and everything here is
+        // textures (shapes are baked, see stadiumBackground/bakePill), so
+        // it's off and spares a phone GPU a full-canvas resolve every frame.
+        antialiasGL: false,
         // Laptops with two GPUs: ask for the fast one.
         powerPreference: 'high-performance',
       },
@@ -108,7 +82,6 @@ export function PhaserGame({ engine, highlightInstanceId = null, onStageRectChan
       // got a chance to run. Registering with autoStart=false avoids that.
     });
     gameRef.current = game;
-    onCanvasReady?.(game.canvas);
 
     // This Phaser version has no config flag to opt out of auto-pausing on
     // blur/hidden (Phaser.Core.Game#onHidden / #onBlur call loop.pause() /
@@ -119,13 +92,8 @@ export function PhaserGame({ engine, highlightInstanceId = null, onStageRectChan
     gameInternals.onHidden = () => {};
     gameInternals.onBlur = () => {};
 
-    if (action) {
-      game.scene.add('Action', ActionScene, false);
-      game.scene.start('Action', { engine: engine as ActionEngine, controller: action.controller });
-    } else {
-      game.scene.add('Arena', ArenaScene, false);
-      game.scene.start('Arena', { engine, highlightInstanceId });
-    }
+    game.scene.add('Action', ActionScene, false);
+    game.scene.start('Action', { engine, controller });
 
     const container = containerRef.current;
     const reportStageRect = (): void => {
@@ -168,9 +136,8 @@ export function PhaserGame({ engine, highlightInstanceId = null, onStageRectChan
       if (gameRef.current === game) gameRef.current = null;
     };
     // Intentionally only re-mount if the engine instance itself changes (a
-    // new match) — Phaser owns its own render loop after that. highlightInstanceId
-    // is fixed for the whole match anyway (a multiplayer player's pick can't
-    // change once the battle starts), so capturing it once here is correct.
+    // new match) — Phaser owns its own render loop after that, and the
+    // controller is fixed for the whole match.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [engine]);
 
@@ -191,10 +158,9 @@ export function PhaserGame({ engine, highlightInstanceId = null, onStageRectChan
 /** Game#destroy only flags the game; the actual teardown (Phaser's private
  * Game#runDestroy) runs at the start of its next frame. That frame never
  * comes while the tab is hidden — the loop is requestAnimationFrame-driven
- * and a hidden tab gets no animation frames — so a landing page left in a
- * background tab stacked up one still-live Game (its WebGL context,
- * AudioContext and listeners) per showcase-room round, all torn down at
- * once whenever the tab was next looked at. Nothing here ever runs from
+ * and a hidden tab gets no animation frames — so a match left in a background
+ * tab would keep its still-live Game (its WebGL context, AudioContext and
+ * listeners) until the tab was next looked at. Nothing here ever runs from
  * inside a Phaser step, so the teardown can simply be finished now. Only
  * for a game that has actually started: an unstarted one (React
  * StrictMode's dev double-mount destroys a game the same instant it's

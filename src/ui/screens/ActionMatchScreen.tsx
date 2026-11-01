@@ -134,7 +134,7 @@ export function ActionMatchScreen({
     <div style={pageStyle}>
       <div style={isMobileArena(state.arena) ? mobileFrameStyle : desktopFrameStyle}>
         <Suspense fallback={null}>
-          <PhaserGame engine={engine} action={{ controller }} onStageRectChange={setStageRect} />
+          <PhaserGame engine={engine} controller={controller} onStageRectChange={setStageRect} />
         </Suspense>
         {stageRect && (
           <div

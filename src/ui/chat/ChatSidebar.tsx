@@ -51,7 +51,7 @@ type TopTab = 'vote' | 'bets' | 'shop';
  * top, chat below. Collapsible to a narrow strip that keeps an unread badge,
  * like a stream page's "hide chat". */
 export function ChatSidebar({ vote, predictions, shop, width = CHAT_SIDEBAR_WIDTH, ...props }: ChatSidebarProps) {
-  const { messages, room } = props;
+  const { messages } = props;
   const [collapsed, setCollapsed] = useState(readCollapsed);
   const [lastSeenId, setLastSeenId] = useState(() => latestChatId(messages));
   const [topTab, setTopTab] = useState<TopTab>(vote ? 'vote' : 'bets');
@@ -80,7 +80,6 @@ export function ChatSidebar({ vote, predictions, shop, width = CHAT_SIDEBAR_WIDT
     );
   }
 
-  const seated = room ? room.slots.filter((s) => s.occupied).length : 0;
   // With only one panel to show there's no tab row, so whichever exists
   // simply fills the region.
   const tabs = (
@@ -130,11 +129,6 @@ export function ChatSidebar({ vote, predictions, shop, width = CHAT_SIDEBAR_WIDT
           ⇥
         </button>
         <span style={titleStyle}>CHAT</span>
-        {room && (
-          <span style={roomMetaStyle}>
-            {room.name} · {seated}/{room.capacity}
-          </span>
-        )}
       </header>
       <div style={bodyStyle}>
         <MemoChatPanel {...props} listHeight="flex" showTimestamps />
@@ -225,15 +219,6 @@ const titleStyle: CSSProperties = {
   fontSize: 18,
   fontFamily: FONT_UI,
   fontWeight: 700,
-};
-
-const roomMetaStyle: CSSProperties = {
-  marginLeft: 'auto',
-  fontSize: 11,
-  opacity: 0.6,
-  whiteSpace: 'nowrap',
-  overflow: 'hidden',
-  textOverflow: 'ellipsis',
 };
 
 const headerButtonStyle: CSSProperties = {

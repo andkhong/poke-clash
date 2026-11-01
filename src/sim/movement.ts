@@ -1,67 +1,7 @@
 import type { ArenaBounds, FacingDirection, PokemonInstance, Vec2 } from './types';
-import type { Rng } from './rng';
-import {
-  ARENA_PADDING,
-  ARENA_TOP_PADDING,
-  ARRIVAL_SLOWDOWN_RADIUS,
-  CHASE_SPEED,
-  getFenceInsets,
-  getRedZoneInsets,
-  SEPARATION_INFLUENCE_MULTIPLIER,
-  SEPARATION_STRENGTH,
-  WANDER_SPEED,
-  WANDER_STUCK_HEADWAY_FRACTION,
-  WANDER_STUCK_REPICK_MS,
-  WANDER_TURN_AWAY_MIN_RAD,
-} from './constants';
+import { ARENA_PADDING, ARENA_TOP_PADDING, CHASE_SPEED, getFenceInsets, getRedZoneInsets } from './constants';
 
-/** Lightweight neighbor view used for separation — deliberately not a full
- * PokemonInstance so callers can pass a tick-start position snapshot instead of
- * live (mid-tick-mutated) positions, keeping per-tick movement order-independent. */
-export interface NeighborPosition {
-  instanceId: string;
-  position: Vec2;
-  collisionRadius: number;
-}
-
-export function distance(a: Vec2, b: Vec2): number {
-  return Math.hypot(a.x - b.x, a.y - b.y);
-}
-
-function normalize(v: Vec2): Vec2 {
-  const len = Math.hypot(v.x, v.y);
-  return len < 1e-6 ? { x: 0, y: 0 } : { x: v.x / len, y: v.y / len };
-}
-
-export function buildNeighborListFromPositions(
-  ids: readonly string[],
-  positions: ReadonlyMap<string, Vec2>,
-  pokemonById: Record<string, PokemonInstance>
-): NeighborPosition[] {
-  return ids.map((id) => ({
-    instanceId: id,
-    position: positions.get(id)!,
-    collisionRadius: pokemonById[id].collisionRadius,
-  }));
-}
-
-/** Distance window (px) a new wander waypoint must fall in from the
- * Pokémon's current position. The minimum makes every leg a real trek
- * rather than a shuffle: with only a few seconds of guaranteed wander time
- * before combat is allowed to lock in, an unlucky short pick barely moves
- * anyone out of the tightly-packed spawn circle. The maximum bounds how long
- * a leg takes to walk (see updateTargeting in ai.ts — a leg is now walked to
- * its end before the Pokémon looks for a fight again, so an unbounded pick
- * across the full portrait arena could take it out of the action for 8s). */
-const MIN_WANDER_DISTANCE = 400;
-const MAX_WANDER_DISTANCE = 900;
-/** How close to its waypoint a wandering Pokémon has to get for the leg to
- * count as walked — the same threshold updateTargeting (ai.ts) uses to
- * decide the leg is over and stepMovement (engine.ts) uses to start the
- * next one. */
-export const WANDER_ARRIVAL_DISTANCE = 12;
-
-/** The playable rectangle a Pokémon (or a candidate waypoint) is confined
+/** The playable rectangle a Pokémon is confined
  * to. Its outer line is the arena's own edge on a portrait/mobile arena,
  * and the fence drawn around the pitch on a landscape/desktop one (see
  * getFenceInsets) — an invisible wall along the visible one, so nobody ever
@@ -75,8 +15,7 @@ export const WANDER_ARRIVAL_DISTANCE = 12;
  * line plus the buffer is lowest on screen, not all of them added together
  * — each is just "how far down from y=0 is off limits," so a Pokémon clear
  * of the largest one is already clear of the others too; adding them would
- * reserve the same strip twice over. The single definition of the boundary:
- * clampToArenaBounds and pickWanderWaypoint both derive from it. */
+ * reserve the same strip twice over. The single definition of the boundary. */
 export function getPlayableBounds(arena: ArenaBounds): { minX: number; maxX: number; minY: number; maxY: number } {
   const redZone = getRedZoneInsets(arena);
   const fence = getFenceInsets(arena);
@@ -97,236 +36,10 @@ export function clampToArenaBounds(pos: Vec2, arena: ArenaBounds): Vec2 {
   };
 }
 
-/** How many uniform-random points pickWanderWaypoint draws before settling
- * for its best fallback. Each draw is rejected if it's outside the
- * MIN_/MAX_WANDER_DISTANCE window from the Pokémon (from the middle of the
- * portrait arena the minimum alone rules out a good half of the playable
- * area) or inside the `avoidHeading` cone, so a dozen keeps running dry
- * rare while bounding the work per pick. */
-const MAX_WANDER_PICK_ATTEMPTS = 12;
-/** How many acceptable draws pickWanderWaypoint compares for open space
- * before choosing. Best-of-a-few is what makes a crowd drift apart without
- * anyone visibly beelining for the emptiest corner — one draw would ignore
- * the crowd entirely, many would make every Pokémon pick the same lonely
- * spot. */
-const WANDER_SPREAD_CANDIDATES = 3;
-
-/**
- * Picks the destination for a new wander leg: a uniform-random point
- * anywhere in the playable arena between MIN_ and MAX_WANDER_DISTANCE away,
- * and — when `others` (everyone else's positions) is given — the most open
- * of a few such draws, judged by distance to the nearest other Pokémon.
- *
- * Uniform over the arena, rather than the earlier random-angle-and-distance
- * cast from the Pokémon's own position, because that cast was quietly
- * center-seeking: from anywhere near a wall most directions leave the arena
- * and got re-rolled, so the surviving picks pointed back inward, and from
- * the middle of the narrow portrait arena only near-vertical casts fit at
- * all. Every leg trended toward the middle band, and a match's whole
- * roster ended up milling around the center. A uniform point has no such
- * pull (if anything the minimum-distance exclusion leaves *more* candidates
- * for a Pokémon near a wall than one in the middle, a gentle outward
- * lean), and on top of that the open-space preference actively eases a
- * crowd apart — together with legs being walked to their end (see
- * updateTargeting in ai.ts) this is what makes the roster spread across the
- * whole arena between exchanges instead of clumping.
- *
- * `avoidHeading`, when given, is the direction the Pokémon was just blocked
- * walking in (see trackWanderHeadway) — candidates within
- * WANDER_TURN_AWAY_MIN_RAD of it are rejected so the new leg visibly turns
- * away from whatever it walked into. If every draw is rejected (a tiny
- * arena, where nothing is MIN_WANDER_DISTANCE away), the farthest draw that
- * at least turned away is used, so this can never fail to return a point.
- */
-export function pickWanderWaypoint(
-  rng: Rng,
-  arena: ArenaBounds,
-  from: Vec2,
-  avoidHeading?: Vec2,
-  others?: readonly Vec2[]
-): Vec2 {
-  const bounds = getPlayableBounds(arena);
-  const normalizedAvoid = avoidHeading ? normalize(avoidHeading) : undefined;
-  const avoid = normalizedAvoid && (normalizedAvoid.x !== 0 || normalizedAvoid.y !== 0) ? normalizedAvoid : undefined;
-  const avoidCosThreshold = Math.cos(WANDER_TURN_AWAY_MIN_RAD);
-
-  const acceptable: Vec2[] = [];
-  let fallback: { point: Vec2; dist: number; turnsAway: boolean } | undefined;
-  for (let attempt = 0; attempt < MAX_WANDER_PICK_ATTEMPTS; attempt++) {
-    const candidate = {
-      x: bounds.minX + rng() * (bounds.maxX - bounds.minX),
-      y: bounds.minY + rng() * (bounds.maxY - bounds.minY),
-    };
-    const dist = distance(from, candidate);
-    const dir = normalize({ x: candidate.x - from.x, y: candidate.y - from.y });
-    const turnsAway = !avoid || dir.x * avoid.x + dir.y * avoid.y <= avoidCosThreshold;
-    if (dist < MIN_WANDER_DISTANCE || dist > MAX_WANDER_DISTANCE || !turnsAway) {
-      // Turning away outranks distance for the fallback — running out of
-      // attempts must never quietly send the Pokémon straight back into
-      // whatever it was stuck on.
-      if (!fallback || (turnsAway && !fallback.turnsAway) || (turnsAway === fallback.turnsAway && dist > fallback.dist)) {
-        fallback = { point: candidate, dist, turnsAway };
-      }
-      continue;
-    }
-    if (!others) return candidate;
-    acceptable.push(candidate);
-    if (acceptable.length >= WANDER_SPREAD_CANDIDATES) break;
-  }
-
-  // Without `others` the first acceptable draw was already returned above,
-  // so reaching here with an empty list means every draw was rejected.
-  if (!others || acceptable.length === 0) return fallback?.point ?? clampToArenaBounds(from, arena);
-  let best = acceptable[0];
-  let bestClearance = -Infinity;
-  for (const candidate of acceptable) {
-    let clearance = Infinity;
-    for (const other of others) clearance = Math.min(clearance, distance(candidate, other));
-    if (clearance > bestClearance) {
-      bestClearance = clearance;
-      best = candidate;
-    }
-  }
-  return best;
-}
-
-/**
- * Stuck detection for a wander leg. Call once per tick, after every
- * position-changing pass for the tick (movement *and* resolveCollisions)
- * has run, for a Pokémon that steered toward `self.wanderWaypoint` this tick
- * at `seekSpeed` from `tickStartPos`. Compares the headway it actually made
- * toward the waypoint against what an unobstructed walk would have covered,
- * and accumulates `self.wanderStuckMs` while it falls short (see
- * WANDER_STUCK_HEADWAY_FRACTION). Once that reaches WANDER_STUCK_REPICK_MS
- * the leg is abandoned: `wanderWaypoint` is cleared, the counter reset, and
- * the heading it was blocked on is returned so the caller can feed it to
- * pickWanderWaypoint's `avoidHeading`. Returns null while the leg is still
- * live.
- *
- * This replaced clearing the waypoint the instant a collision or wall
- * contact happened — see WANDER_STUCK_REPICK_MS for why that was the direct
- * cause of Pokémon "spinning" in a crowd. Shoving is the normal state of
- * affairs in a packed arena; only *getting nowhere* is worth reacting to.
- */
-export function trackWanderHeadway(self: PokemonInstance, tickStartPos: Vec2, seekSpeed: number, dtMs: number): Vec2 | null {
-  const waypoint = self.wanderWaypoint;
-  if (!waypoint) {
-    self.wanderStuckMs = 0;
-    return null;
-  }
-  const distBefore = distance(tickStartPos, waypoint);
-  const distAfter = distance(self.position, waypoint);
-  const headway = distBefore - distAfter;
-  // Same arrival slowdown steerToward() applies, so closing in on the
-  // waypoint at its deliberately reduced speed isn't mistaken for being
-  // blocked.
-  const expected = seekSpeed * Math.min(1, distBefore / ARRIVAL_SLOWDOWN_RADIUS) * (dtMs / 1000);
-  if (headway >= expected * WANDER_STUCK_HEADWAY_FRACTION) {
-    self.wanderStuckMs = 0;
-    return null;
-  }
-  self.wanderStuckMs = (self.wanderStuckMs ?? 0) + dtMs;
-  if (self.wanderStuckMs < WANDER_STUCK_REPICK_MS) return null;
-
-  const blockedHeading = normalize({ x: waypoint.x - self.position.x, y: waypoint.y - self.position.y });
-  self.wanderWaypoint = undefined;
-  self.wanderStuckMs = 0;
-  return blockedHeading;
-}
-
-/**
- * Seek-with-arrival toward a point, plus separation from nearby living Pokémon
- * (boids-lite — the arena is an open bowl with no obstacles, so no pathfinding
- * is needed). Mutates `self.velocity`; caller applies position + bounds via
- * applyMovement(). `neighbors` should be a tick-start position snapshot, not
- * live instances, so movement this tick doesn't depend on iteration order.
- */
-export function steerToward(
-  self: PokemonInstance,
-  target: Vec2,
-  speed: number,
-  neighbors: readonly NeighborPosition[]
-): void {
-  const toTarget: Vec2 = { x: target.x - self.position.x, y: target.y - self.position.y };
-  const dist = Math.hypot(toTarget.x, toTarget.y);
-  const desiredSpeed = dist < ARRIVAL_SLOWDOWN_RADIUS ? speed * (dist / ARRIVAL_SLOWDOWN_RADIUS) : speed;
-  const seek = normalize(toTarget);
-
-  // Facing follows this pure "where am I actually trying to go" direction,
-  // not the final self.velocity computed below — separation is a corrective
-  // nudge, freshly resummed every tick from whoever happens to be
-  // overlapping this instant, and its direction can swing hard tick to tick
-  // when several (especially large-collision-radius) Pokémon are packed
-  // together. Blending that into the vector facing is derived from turns
-  // "which way is the crowd jostling me" into the Pokémon's visible
-  // orientation, which whips back and forth far faster than any real turn —
-  // this is what actually produced Pokémon reading as "spinning wildly" in a
-  // packed 16-Pokémon match (worst with large species like legendaries,
-  // whose big collision radii mean heavier, near-constant overlap). Skipped
-  // when there's nowhere to go at all (steerToward's hold-still callers pass
-  // target=self.position, i.e. dist=0) — those states' facing is handled
-  // separately (see PokemonSprite.ts's desiredFacing).
-  if (dist > 1e-3) {
-    self.facing = velocityToFacing(seek, self.facing);
-  }
-
-  let sepX = 0;
-  let sepY = 0;
-  for (const other of neighbors) {
-    if (other.instanceId === self.instanceId) continue;
-    const d = distance(self.position, other.position);
-    // Sized to each pair's actual on-screen footprint (not a fixed radius) —
-    // a Wailord and a Voltorb shouldn't start avoiding each other at the same
-    // distance. The hard correction in resolveCollisions() is what actually
-    // guarantees no overlap; this just eases the approach so it looks smooth
-    // rather than bumping into an invisible wall right at the boundary.
-    const influenceRadius = (self.collisionRadius + other.collisionRadius) * SEPARATION_INFLUENCE_MULTIPLIER;
-    if (d > 0 && d < influenceRadius) {
-      const push = (influenceRadius - d) / influenceRadius;
-      sepX += ((self.position.x - other.position.x) / d) * push;
-      sepY += ((self.position.y - other.position.y) / d) * push;
-    }
-  }
-
-  self.velocity = {
-    x: seek.x * desiredSpeed + sepX * SEPARATION_STRENGTH,
-    y: seek.y * desiredSpeed + sepY * SEPARATION_STRENGTH,
-  };
-}
-
-/** Moves `self` by its current velocity and clamps it back inside the arena.
- * A wander waypoint is itself always in-bounds (see pickWanderWaypoint), so
- * a wandering Pokémon only ever meets the wall when separation from a
- * neighbor squeezes it there — and trackWanderHeadway() is what decides
- * whether that's worth abandoning the leg over, not this function.
- *
- * Facing is set by steerToward() itself, not here — see that function's own
- * comment for why it has to be derived from the pure seek direction rather
- * than this function's `self.velocity` (which also carries separation). */
-export function applyMovement(self: PokemonInstance, dtMs: number, arena: ArenaBounds): void {
-  const dtSec = dtMs / 1000;
-  self.position.x += self.velocity.x * dtSec;
-  self.position.y += self.velocity.y * dtSec;
-
-  const clamped = clampToArenaBounds(self.position, arena);
-  self.position.x = clamped.x;
-  self.position.y = clamped.y;
-}
-
-/**
- * Hard collision pass: after everyone's moved this tick, directly separate
- * any pair still overlapping (by their combined collisionRadius) instead of
- * only discouraging it via steering. The soft separation in steerToward()
- * handles the common case smoothly, but under strong opposing forces (e.g. a
- * fast chaser closing on a fleeing target) it's only a suggestion, not a
- * constraint — this guarantees Pokémon actually can't walk through each
- * other regardless. O(n²) over living Pokémon, trivial at this roster size.
- *
- * Being pushed here is deliberately *not* a signal to a wandering Pokémon
- * to change course — that's trackWanderHeadway()'s call, made on whether it
- * is actually getting anywhere, so a crowd jostling it doesn't turn into a
- * new random heading every tick.
- */
+/** Hard collision pass: after everyone's moved this tick, directly separate
+ * any pair still overlapping (by their combined collisionRadius), so
+ * Pokémon can't walk through each other. O(n²) over living Pokémon, trivial
+ * at this roster size. */
 export function resolveCollisions(
   livingIds: readonly string[],
   pokemonById: Record<string, PokemonInstance>,
@@ -374,12 +87,7 @@ const SECTOR_SIZE_RAD = (Math.PI * 2) / 8;
  * wander waypoint dead ahead) could flip `facing` every tick on nothing more
  * than rounding noise — and since the renderer restarts its walk animation on
  * every facing change, that reads as a stuttering "hop" instead of a smooth
- * walk cycle. steerToward() feeds this function the pure seek direction, not
- * the separation-blended velocity, specifically so a crowd of jostling
- * neighbors can't drag facing along with it (see that function's own
- * comment) — this buffer only has to absorb the seek signal's own small
- * jitter, not real, potentially large swings from nearby Pokémon shoving
- * past each other. */
+ * walk cycle. */
 const HYSTERESIS_RAD = (10 * Math.PI) / 180;
 
 /** Buckets velocity into the nearest of 8 compass directions; keeps the
@@ -400,5 +108,4 @@ export function velocityToFacing(v: Vec2, previous: FacingDirection): FacingDire
   return EIGHT_WAY_ORDER[sector];
 }
 
-export const WANDER_MOVE_SPEED = WANDER_SPEED;
 export const CHASE_MOVE_SPEED = CHASE_SPEED;

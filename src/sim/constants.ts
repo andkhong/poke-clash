@@ -119,10 +119,9 @@ export const WIDE_ARENA_MAP = {
  * inside — zero on every side of a portrait arena, which has no fence.
  * Mirrors the renderer's cover-scaling exactly (the image scaled up
  * uniformly until it covers the arena, then centred), so the sim's border
- * is the drawn fence whatever the arena's size: the desktop arena and its
- * Custom Battle "Small"/"Tiny" scalings (app/config.ts's
- * buildArenaSizeOptions) are all the image's own 16:9, so nothing is
- * cropped and each inset is just the image's proportionally; any other
+ * is the drawn fence whatever the arena's size: the desktop arena and any
+ * scale-down of it are the image's own 16:9, so nothing is cropped and each
+ * inset is just the image's proportionally; any other
  * landscape shape crops the image's long side, and an edge whose fence
  * lands off-arena in that crop is clamped to the arena edge itself.
  */
@@ -140,145 +139,15 @@ export function getFenceInsets(arena: ArenaBounds): EdgeInsets {
   };
 }
 
-/**
- * Match clock: a match can never run past MATCH_TIME_LIMIT_MS — whoever's
- * still standing at that instant is declared a (possibly shared) winner. From
- * AGGRESSION_TRIGGER_MS onward, every Pokémon moves faster, attacks more
- * often, and hunts more relentlessly (bigger aggro radius, longer leash,
- * faster retargeting) — this is what actually drives matches to a real
- * resolution before the clock runs out, replacing an earlier "ramp damage
- * after 3 minutes" failsafe that was tuned for a much longer match length.
- */
+/** Betting on an online match closes this far in (see game-server/playRooms.ts). */
 export const AGGRESSION_TRIGGER_MS = 45_000;
-export const MATCH_TIME_LIMIT_MS = 120_000;
 
-export function isAggressivePhase(elapsedMs: number): boolean {
-  return elapsedMs >= AGGRESSION_TRIGGER_MS;
-}
-
-/** How long after the intro ends every Pokémon stays in a pure, untargeted
- * wander — no chasing, no attacking — before real combat is allowed to
- * begin. Measured from when battle phase actually starts (elapsedMs -
- * introDurationMs), not raw match time, since the intro itself already takes
- * longer for a bigger roster. */
-export const COMBAT_START_DELAY_MS = 3000;
-
-export function isBeforeCombatStart(elapsedMs: number, introDurationMs: number): boolean {
-  return elapsedMs - introDurationMs < COMBAT_START_DELAY_MS;
-}
-
-/** Distance at which a Pokémon notices a living enemy and begins chasing. */
-export const AGGRO_RADIUS = 320;
-export const AGGRO_RADIUS_AGGRESSIVE = 520;
-/** Distance at which a Pokémon can execute an attack against its target. */
-export const ENGAGE_RANGE = 220;
-export const ENGAGE_RANGE_AGGRESSIVE = 280;
-/** A target further than AGGRO_RADIUS * LEASH_MULTIPLIER away is dropped (disengage). */
-export const LEASH_MULTIPLIER = 1.5;
-export const LEASH_MULTIPLIER_AGGRESSIVE = 3;
-/** How often (ms) an already-engaged Pokémon re-evaluates whether a better target exists. */
-export const RETARGET_INTERVAL_MS = 2000;
-export const RETARGET_INTERVAL_MS_AGGRESSIVE = 700;
-
-/** Effective aggro-discovery (and leash) radius when MatchConfig.disableWander
- * is set — comfortably past the diagonal of even the largest arena this game
- * offers (the default 900x1950 arena's diagonal is ~2147px), so
- * pickWeightedRandomTarget (ai.ts) always finds any living enemy regardless
- * of arena size, and LEASH_MULTIPLIER's distance-based disengage never
- * triggers. A large finite number rather than Infinity, so it stays safe to
- * feed into rngWeightedPick's weight arithmetic (rng.ts). */
-export const NO_WANDER_AGGRO_RADIUS = 10_000;
-
-/** How long (ms) a Pokémon holds perfectly still — velocity zeroed, same as
- * the 'attack' AI state — after firing any move, independent of (and often
- * longer than) its actionCooldownMs, before movement.ts is allowed to move
- * it again. Also used verbatim by ArenaScene as its attack visual window
- * (pose/label/sound duration + when the renderer's own cosmetic position
- * lock releases): the two used to be separate constants that could drift out
- * of sync — the render freezing a Pokémon's on-screen position while the sim
- * had already moved it via 'wander' underneath, so the instant the render
- * lock released, the view had to snap/dash to catch up to wherever the sim
- * really was. Sharing one constant means the sim's own position genuinely
- * hasn't moved by the time the render considers the attack over, so there's
- * nothing left to catch up on. */
+/** The move review page's attack visual window: pose, label and sound (see src/review). */
 export const POST_ATTACK_HOLD_MS = 1200;
-
-/**
- * Arena-wide attack pacing — the SimulationEngine's attack gate (see
- * engine.ts's stepActions). Per-Pokémon cooldowns alone let a busy roster
- * fire attacks far faster than a viewer can follow: at the full 16-Pokémon
- * roster most combatants sit on the same POST_ATTACK_HOLD_MS-floored
- * cooldown, so bursts of half a dozen simultaneous attacks were routine,
- * with every attacker frozen in its hold pose at once. The gate caps how
- * many attacks can be in flight arena-wide (an attack is "in flight" for
- * its whole POST_ATTACK_HOLD_MS hold/visual window), forces a beat of quiet
- * after each one finishes, and never lets the same Pokémon fire twice in a
- * row while anyone else could take the turn instead — so at most
- * MAX_SIMULTANEOUS_ATTACKS Pokémon are ever held still attacking, and
- * everyone else keeps moving. When several Pokémon are ready for the same
- * slot, the fastest (effective Speed stat) goes first, mainline-style.
- *
- * Note the throughput this implies: one attack per POST_ATTACK_HOLD_MS +
- * ATTACK_GAP_MS (1.5s) arena-wide at most, i.e. ~80 attacks in a 120s
- * match — a 16-Pokémon roster needs on the order of 70-80 landed attacks
- * to get down to a single winner, so big rosters now routinely reach
- * MATCH_TIME_LIMIT_MS with co-winners unless damage is tuned up to match.
- */
-export const MAX_SIMULTANEOUS_ATTACKS = 1;
-/** Once any in-flight attack completes, no new attack may start until this
- * much later — a short breath between one attack ending and the next one
- * beginning. */
-export const ATTACK_GAP_MS = 300;
-/** A Pokémon that's ready to attack but turned away by the gate (the slot's
- * taken, or it was the last one to attack) doesn't stand in place waiting
- * for a slot — it's put on a cooldown drawn from this range, which sends it
- * off on a fresh wander leg (see ai.ts's updateTargeting) before it
- * re-evaluates its target and tries again. Keeps blocked Pokémon visibly
- * moving instead of piling up motionless around their targets, and sized
- * like a real post-attack cooldown rather than a quick bounce: a half-second
- * leg (the first cut) only carried a Pokémon ~90px before it turned straight
- * back into the same fight, so with one slot arena-wide the whole roster
- * hovered over its targets and the match collapsed into one clump at the
- * arena center. A leg this long actually clears the crowd (see also
- * pickWanderWaypoint's open-space preference in movement.ts). The one
- * exception is the post-attack gap (ATTACK_GAP_MS): that's short enough to
- * just wait out in place. */
-export const ATTACK_DEFERRED_RETRY_MIN_MS = 1000;
-export const ATTACK_DEFERRED_RETRY_MAX_MS = 2000;
-
-export const BASE_ACTION_COOLDOWN_MS = 1600;
-/** The real floor on how soon *anyone* can attack again, no matter how fast —
- * pinned to POST_ATTACK_HOLD_MS (both here and for the aggressive-phase
- * variant below) so a Pokémon's next attack can never fire before its
- * current one's own hold/visual window has even finished. Left lower (800ms,
- * 400ms aggressive) than POST_ATTACK_HOLD_MS, a fast Pokémon's cooldown
- * formula below would clamp to that lower floor and let it queue a second
- * attack while the first one's pose/label/sound was still playing — reading
- * as attacking nonstop with no real pause, regardless of Speed. Speed still
- * fully controls pacing *above* this shared floor via the BASELINE_SPEED
- * formula below — slower Pokémon get a correspondingly longer delay; this
- * only caps how short that delay can ever get. */
-export const MIN_ACTION_COOLDOWN_MS = POST_ATTACK_HOLD_MS;
-export const MIN_ACTION_COOLDOWN_MS_AGGRESSIVE = POST_ATTACK_HOLD_MS;
-export const MAX_ACTION_COOLDOWN_MS = 3000;
-/** Reference speed stat the cooldown formula is centered on. */
-export const BASELINE_SPEED = 100;
-/** A landed priority move shortens the user's *next* cooldown by this fraction. */
-export const PRIORITY_COOLDOWN_DISCOUNT = 0.25;
-/** Applied to movement speed and inversely to action cooldown once aggressive. */
-export const AGGRESSIVE_SPEED_MULTIPLIER = 2.0;
-export const AGGRESSIVE_COOLDOWN_MULTIPLIER = 0.55;
 
 export const STATUS_TICK_INTERVAL_MS = 1000;
 export const BURN_CHIP_FRACTION = 1 / 16;
 export const POISON_CHIP_FRACTION = 1 / 8;
-
-/** A move that takes its user down with it (MoveDefinition.userFaints —
- * Explosion, Self-Destruct) is a last resort: the AI only reaches for it
- * once the user is at or under this fraction of its max HP, or has nothing
- * else with PP left (see ai.ts's chooseMove). Without this a Pokémon that
- * knows Explosion would blow itself up at full HP one time in four. */
-export const SELF_KO_MOVE_HP_FRACTION = 1 / 3;
 
 export const CRIT_CHANCE = 1 / 24;
 export const HIGH_CRIT_CHANCE = 1 / 8;
@@ -317,37 +186,7 @@ export const SLEEP_MAX_TURNS = 3;
  */
 export const STATUS_TURN_INTERVAL_MS = 2000;
 
-/** Movement */
-export const WANDER_SPEED = 180; // px/s (3x)
 export const CHASE_SPEED = 270; // px/s (3x)
-export const ARRIVAL_SLOWDOWN_RADIUS = 40;
-
-/**
- * A wandering Pokémon commits to its current waypoint even while being
- * jostled — bumped by a neighbor, shoved apart by resolveCollisions(), or
- * squeezed against a wall — and only gives up on it after this long (ms) of
- * making no real headway toward it. Repicking the instant a collision
- * happens (the old behavior) meant a Pokémon packed into a crowd got a brand
- * new random direction every single tick for as long as it kept touching
- * anyone, and since facing follows the seek direction, that read as spinning
- * in place. Worst right at battle start with a roster of large species (the
- * Legendaries preset: 16 max-size sprites whose combined collision radii
- * don't fit on the spawn circle at all), where everyone is overlapping
- * everyone for the first second or so. Half a second is long enough that the
- * hard collision push has usually already slid the two apart by itself.
- */
-export const WANDER_STUCK_REPICK_MS = 500;
-/** Headway toward the waypoint over one tick below this fraction of what an
- * unobstructed walk would have covered counts as "no real headway" for
- * WANDER_STUCK_REPICK_MS's purposes. Sliding past a neighbor at a shallow
- * angle still makes plenty of headway and isn't stuck; pressing head-on into
- * one (or a wall) makes none. */
-export const WANDER_STUCK_HEADWAY_FRACTION = 0.25;
-/** When a stuck Pokémon finally gives up on a waypoint, its replacement is
- * picked at least this far (radians) off the heading it was blocked on, so
- * it visibly turns away from whatever it walked into rather than having a
- * 50/50 chance of picking another direction straight back into it. */
-export const WANDER_TURN_AWAY_MIN_RAD = Math.PI / 3;
 
 /** Fixed buffer between a Pokémon's position and the playable area's edge —
  * the arena's own edge on a portrait arena, the wide map's fence line (see
@@ -447,11 +286,3 @@ export function computeOnScreenSizeFromHeight(heightDm: number): number {
  * and not solid to their corners, so a touch under that lets two sprites
  * walk close enough to read as jostling without their bodies overlapping. */
 export const COLLISION_RADIUS_FACTOR = 0.45;
-
-/** How far beyond two Pokémon's combined collision radii (i.e. beyond
- * actually touching) the soft steering nudge starts easing them apart. The
- * hard positional correction in resolveCollisions() is what actually
- * guarantees no overlap — this just makes the approach look smooth instead
- * of Pokémon visibly bumping into an invisible wall. */
-export const SEPARATION_INFLUENCE_MULTIPLIER = 1.15;
-export const SEPARATION_STRENGTH = 35;

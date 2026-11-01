@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import type { ChatMessage, RoomSummary } from '../../net/protocol';
+import type { ChatMessage } from '../../net/protocol';
 import { CHAT_LOG_LIMIT } from '../../net/chat';
 import { TEAM_A_COLOR_CSS, TEAM_B_COLOR_CSS } from '../teamColors';
 import { appendChatMessage, chatSenderColor, chatSenderLabel, countUnread, formatChatTime, latestChatId } from './chatModel';
@@ -16,31 +16,6 @@ function msg(id: number, overrides: Partial<ChatMessage> = {}): ChatMessage {
     text: `m${id}`,
     sentAtMs: id * 1000,
     ...overrides,
-  };
-}
-
-function roomWith(speciesNames: Array<string | null>, balances: Array<number | null> = []): RoomSummary {
-  return {
-    id: 'room-1',
-    name: 'Room 1',
-    mode: 'classic',
-    phase: 'countdown',
-    slots: speciesNames.map((speciesName, slotIndex) => ({
-      slotIndex,
-      occupied: true,
-      speciesId: speciesName ? slotIndex + 1 : null,
-      speciesName,
-      isAutoFilled: false,
-      team: null,
-      balance: balances[slotIndex] ?? null,
-    })),
-    countdownEndsAtMs: null,
-    bossSpeciesName: null,
-    capacity: speciesNames.length,
-    arena: { width: 900, height: 1950 },
-    autoPlay: false,
-    thumbnailUpdatedAtMs: null,
-    viewerCount: 0,
   };
 }
 
@@ -64,45 +39,18 @@ describe('appendChatMessage', () => {
 });
 
 describe('chatSenderLabel', () => {
-  it('appends " (You)" to the local seat\'s own name', () => {
-    expect(chatSenderLabel(msg(1, { slotIndex: 2 }), 2, roomWith(['Aipom', 'Litleo', 'Skiddo']), null)).toBe('Skiddo (You)');
+  it('shows the sender\'s name, with " (You)" only for this viewer\'s own', () => {
+    const message = msg(1, { slotIndex: null, spectatorName: 'Slowpoke482' });
+    expect(chatSenderLabel(message, null)).toBe('Slowpoke482');
+    expect(chatSenderLabel(message, 'Eevee123')).toBe('Slowpoke482');
+    expect(chatSenderLabel(message, 'Slowpoke482')).toBe('Slowpoke482 (You)');
   });
 
-  it('prefers the seat\'s live species name, so a pre-pick message upgrades once they pick', () => {
-    const message = msg(1, { slotIndex: 1, speciesName: null });
-    expect(chatSenderLabel(message, 0, roomWith(['Aipom', null]), null)).toBe('Seat 2');
-    expect(chatSenderLabel(message, 0, roomWith(['Aipom', 'Litleo']), null)).toBe('Litleo');
-  });
-
-  it('falls back to the snapshotted name, then the seat number, without a room', () => {
-    expect(chatSenderLabel(msg(1, { slotIndex: 3, speciesName: 'Burmy' }), null, null, null)).toBe('Burmy');
-    expect(chatSenderLabel(msg(1, { slotIndex: 3 }), null, null, null)).toBe('Seat 4');
-  });
-
-  it('never labels a spectator "You" just for watching a seated player\'s message', () => {
-    expect(chatSenderLabel(msg(1, { slotIndex: 0, speciesName: 'Aipom' }), null, null, 'Eevee123')).toBe('Aipom');
-  });
-
-  it('shows a seated sender\'s live balance, falling back to the message\'s snapshot', () => {
-    const message = msg(1, { slotIndex: 2, speciesName: 'Skiddo', balance: 100 });
-    expect(chatSenderLabel(message, 2, roomWith(['Aipom', 'Litleo', 'Skiddo'], [null, null, 175]), null)).toBe('Skiddo ($175) (You)');
-    expect(chatSenderLabel(message, 0, roomWith(['Aipom', 'Litleo', 'Skiddo']), null)).toBe('Skiddo ($100)');
-    expect(chatSenderLabel(message, null, null, null)).toBe('Skiddo ($100)');
-    expect(chatSenderLabel(msg(1, { slotIndex: 2, speciesName: 'Skiddo' }), null, null, null)).toBe('Skiddo');
-  });
-
-  it('shows a spectator\'s balance as snapshotted on the message', () => {
-    expect(chatSenderLabel(msg(1, { slotIndex: null, spectatorName: 'Slowpoke482', balance: 1250 }), null, null, 'Slowpoke482')).toBe('Slowpoke482 ($1,250) (You)');
-    expect(chatSenderLabel(msg(1, { slotIndex: null, spectatorName: 'Slowpoke482', balance: 0 }), null, null, null)).toBe('Slowpoke482 ($0)');
-  });
-
-  it('shows an unseated sender\'s generated name, with " (You)" only for this tab\'s own', () => {
-    const message = msg(1, { slotIndex: null, speciesName: null, spectatorName: 'Slowpoke482' });
-    expect(chatSenderLabel(message, null, null, null)).toBe('Slowpoke482');
-    expect(chatSenderLabel(message, null, null, 'Eevee123')).toBe('Slowpoke482');
-    expect(chatSenderLabel(message, null, null, 'Slowpoke482')).toBe('Slowpoke482 (You)');
-    // A seated viewer's own mySlotIndex must never match an unseated sender.
-    expect(chatSenderLabel(message, 0, roomWith(['Aipom']), null)).toBe('Slowpoke482');
+  it('shows the balance as snapshotted on the message', () => {
+    expect(chatSenderLabel(msg(1, { slotIndex: null, spectatorName: 'Slowpoke482', balance: 1250 }), 'Slowpoke482')).toBe(
+      'Slowpoke482 ($1,250) (You)'
+    );
+    expect(chatSenderLabel(msg(1, { slotIndex: null, spectatorName: 'Slowpoke482', balance: 0 }), null)).toBe('Slowpoke482 ($0)');
   });
 });
 

@@ -150,7 +150,7 @@ export class ReviewScene extends Phaser.Scene {
 
   preload(): void {
     this.load.json(PMD_SPRITE_INDEX_KEY, pmdSpriteIndexUrl());
-    preloadArenaTileset(this, 'review');
+    preloadArenaTileset(this);
     preloadPokeballAsset(this);
     preloadFamilyVfxAssets(this);
   }

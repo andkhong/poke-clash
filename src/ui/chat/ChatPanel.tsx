@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState, type CSSProperties } from 'react';
-import type { ChatMessage, RoomSummary } from '../../net/protocol';
+import type { ChatMessage } from '../../net/protocol';
 import { CHAT_MAX_LENGTH, normalizeChatText, QUICK_REACTIONS } from '../../net/chat';
 import { containsBlockedLanguage } from '../../net/chatFilter';
 import { chatSenderColor, chatSenderLabel, formatChatTime, isSystemMessage } from './chatModel';
@@ -7,12 +7,8 @@ import { ACTION, ACTION_BEVEL, CROWD, DESTRUCTIVE, FONT_BODY, FONT_UI, INK, INK_
 
 export interface ChatPanelProps {
   messages: ChatMessage[];
-  /** The local player's seat, or null when unseated. */
-  mySlotIndex: number | null;
-  /** This tab's generated spectator identity (see spectatorIdentity.ts) —
-   * used to append " (You)" to an unseated sender's own messages. */
+  /** This viewer's display name — used to append " (You)" to their own messages. */
   mySpectatorName: string | null;
-  room: RoomSummary | null;
   canSend: boolean;
   /** Resolves to null on success, or a machine error code (`rate_limited`,
    * `not_in_room`, `blocked_language`, `send_failed`, …) the panel turns into
@@ -40,9 +36,7 @@ const NEAR_BOTTOM_PX = 40;
  * parent decides how tall the list is. */
 export function ChatPanel({
   messages,
-  mySlotIndex,
   mySpectatorName,
-  room,
   canSend,
   onSend,
   listHeight = 'flex',
@@ -142,7 +136,7 @@ export function ChatPanel({
               <div key={message.id} style={rowStyle}>
                 {showTimestamps && <span style={timeStyle}>{formatChatTime(message.sentAtMs)}</span>}
                 <span style={{ color: chatSenderColor(message), fontWeight: 'bold', textTransform: 'capitalize' }}>
-                  {chatSenderLabel(message, mySlotIndex, room, mySpectatorName)}
+                  {chatSenderLabel(message, mySpectatorName)}
                 </span>
                 <span style={{ color: INK_MUTED }}>: </span>
                 <span>{message.text}</span>

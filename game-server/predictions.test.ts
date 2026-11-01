@@ -1,5 +1,13 @@
 import { describe, expect, it } from 'vitest';
-import { buildPredictionOptions, computePayouts, openPrediction, placeBet, resolveWinnerOption, settlePrediction, toPredictionSummary } from './predictions';
+import {
+  buildPredictionOptions,
+  computePayouts,
+  openPrediction,
+  placeBet,
+  resolveWinnerOption,
+  settlePrediction,
+  toPredictionSummary,
+} from './predictions';
 import type { MyBet } from '../src/net/protocol';
 import { createMatch } from '../src/sim/matchSetup';
 import { createRng } from '../src/sim/rng';
@@ -40,28 +48,18 @@ function finish(state: SimState) {
 describe('buildPredictionOptions', () => {
   it('makes every fighter its own option in a free-for-all, in spawn order, labelled by name', () => {
     const state = stateFor();
-    const options = buildPredictionOptions('classic', state);
+    const options = buildPredictionOptions(state);
     expect(options.map((o) => o.id)).toEqual(state.allInstanceIds);
     expect(options.map((o) => o.instanceIds)).toEqual(state.allInstanceIds.map((id) => [id]));
     expect(options.map((o) => o.label)).toEqual(state.allInstanceIds.map((id) => state.pokemon[id].name));
   });
 
-  it('collapses a boss room to party vs boss', () => {
-    const state = stateFor({ boss: { speciesId: SPECIES[4] } });
-    const options = buildPredictionOptions('boss', state);
-    expect(options.map((o) => o.id)).toEqual(['party', 'boss']);
-    expect(options[0].instanceIds).toHaveLength(4);
-    expect(options[1].instanceIds).toEqual([`boss-${SPECIES[4]}`]);
-    expect(options[0].label).toBe('Party');
-    expect(options[1].label).toBe(`Boss · ${state.pokemon[`boss-${SPECIES[4]}`].name}`);
-  });
-
   it('collapses a team room to its two sides', () => {
     const state = stateFor({ teams: { size: 2 } });
-    const options = buildPredictionOptions('team2', state);
+    const options = buildPredictionOptions(state);
     expect(options.map((o) => [o.id, o.label, o.instanceIds.length])).toEqual([
-      ['teamA', 'Team A', 2],
-      ['teamB', 'Team B', 2],
+      ['teamA', 'Team Ruby', 2],
+      ['teamB', 'Team Sapphire', 2],
     ]);
   });
 });
@@ -69,7 +67,7 @@ describe('buildPredictionOptions', () => {
 describe('placeBet', () => {
   it('rejects in a bettor-friendly order and accumulates a repeat bet on the same option', () => {
     const state = stateFor();
-    const p = openPrediction('classic', state, 1, 1000, moveLookup);
+    const p = openPrediction(state, 1, 1000, moveLookup);
     const [a, b] = state.allInstanceIds;
     expect(p.closesAtMs).toBe(1000 + AGGRESSION_TRIGGER_MS);
 
@@ -97,17 +95,51 @@ describe('computePayouts', () => {
   const bets = (entries: Array<[string, string, number]>): Map<string, MyBet> =>
     new Map(entries.map(([sessionId, optionId, amount]) => [sessionId, { optionId, amount }]));
 
-  it('splits the whole pool among the winner\'s backers pro-rata, flooring', () => {
-    const result = computePayouts(bets([['a', 'x', 30], ['b', 'x', 20], ['c', 'y', 50]]), 'x');
+  it("splits the whole pool among the winner's backers pro-rata, flooring", () => {
+    const result = computePayouts(
+      bets([
+        ['a', 'x', 30],
+        ['b', 'x', 20],
+        ['c', 'y', 50],
+      ]),
+      'x'
+    );
     expect(result.refunded).toBe(false);
-    expect([...result.payouts]).toEqual([['a', 60], ['b', 40]]);
+    expect([...result.payouts]).toEqual([
+      ['a', 60],
+      ['b', 40],
+    ]);
 
-    const odd = computePayouts(bets([['a', 'x', 30], ['b', 'x', 20], ['c', 'y', 51]]), 'x');
-    expect([...odd.payouts]).toEqual([['a', 60], ['b', 40]]); // 101*30/50=60.6, 101*20/50=40.4 — the odd dollar stays
+    const odd = computePayouts(
+      bets([
+        ['a', 'x', 30],
+        ['b', 'x', 20],
+        ['c', 'y', 51],
+      ]),
+      'x'
+    );
+    expect([...odd.payouts]).toEqual([
+      ['a', 60],
+      ['b', 40],
+    ]); // 101*30/50=60.6, 101*20/50=40.4 — the odd dollar stays
   });
 
   it('refunds everyone when nobody backed the winner, or there is no winner', () => {
-    expect(computePayouts(bets([['a', 'x', 30], ['b', 'y', 20]]), 'z')).toEqual({ refunded: true, payouts: new Map([['a', 30], ['b', 20]]) });
+    expect(
+      computePayouts(
+        bets([
+          ['a', 'x', 30],
+          ['b', 'y', 20],
+        ]),
+        'z'
+      )
+    ).toEqual({
+      refunded: true,
+      payouts: new Map([
+        ['a', 30],
+        ['b', 20],
+      ]),
+    });
     expect(computePayouts(bets([['a', 'x', 30]]), null)).toEqual({ refunded: true, payouts: new Map([['a', 30]]) });
     expect(computePayouts(new Map(), 'x')).toEqual({ refunded: true, payouts: new Map() });
   });
@@ -116,30 +148,23 @@ describe('computePayouts', () => {
 describe('resolveWinnerOption / settlePrediction', () => {
   it('names the lone survivor in a free-for-all and null for co-winners', () => {
     const state = stateFor();
-    const p = openPrediction('classic', state, 1, 0, moveLookup);
+    const p = openPrediction(state, 1, 0, moveLookup);
     const [a, b, c, d] = state.allInstanceIds;
     faint(state, b, c, d);
     finish(state);
     expect(resolveWinnerOption(p, state)).toBe(a);
 
     const tied = stateFor();
-    const q = openPrediction('classic', tied, 1, 0, moveLookup);
+    const q = openPrediction(tied, 1, 0, moveLookup);
     faint(tied, tied.allInstanceIds[2], tied.allInstanceIds[3]);
     finish(tied);
     expect(tied.winnerInstanceIds).toHaveLength(2);
     expect(resolveWinnerOption(q, tied)).toBeNull();
   });
 
-  it('resolves a whole surviving side in boss and team rooms', () => {
-    const boss = stateFor({ boss: { speciesId: SPECIES[4] } });
-    const p = openPrediction('boss', boss, 1, 0, moveLookup);
-    faint(boss, `boss-${SPECIES[4]}`);
-    finish(boss);
-    expect(boss.winnerInstanceIds).toHaveLength(4);
-    expect(resolveWinnerOption(p, boss)).toBe('party');
-
+  it('resolves a whole surviving side in a team match', () => {
     const team = stateFor({ teams: { size: 2 } });
-    const q = openPrediction('team2', team, 1, 0, moveLookup);
+    const q = openPrediction(team, 1, 0, moveLookup);
     faint(team, ...team.allInstanceIds.filter((id) => team.pokemon[id].team === 'teamB'));
     finish(team);
     expect(resolveWinnerOption(q, team)).toBe('teamA');
@@ -147,7 +172,7 @@ describe('resolveWinnerOption / settlePrediction', () => {
 
   it('settles once: closes, pays, re-derives odds to the survivor, and leaves a settled pool alone', () => {
     const state = stateFor();
-    const p = openPrediction('classic', state, 3, 0, moveLookup);
+    const p = openPrediction(state, 3, 0, moveLookup);
     const [a, b, c, d] = state.allInstanceIds;
     placeBet(p, state, 's', a, 20, 100);
     placeBet(p, state, 't', b, 30, 100);
@@ -169,7 +194,7 @@ describe('resolveWinnerOption / settlePrediction', () => {
 describe('toPredictionSummary', () => {
   it('exposes totals, odds and liveness per option but never a session id', () => {
     const state = stateFor();
-    const p = openPrediction('classic', state, 2, 500, moveLookup);
+    const p = openPrediction(state, 2, 500, moveLookup);
     const [a, b] = state.allInstanceIds;
     placeBet(p, state, 'session-secret-1', a, 25, 100);
     placeBet(p, state, 'session-secret-2', b, 10, 100);

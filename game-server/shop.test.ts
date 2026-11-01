@@ -34,7 +34,7 @@ function hurt(state: SimState, id: string, fraction = 0.5): void {
   state.pokemon[id].currentHp = Math.max(1, Math.round(state.pokemon[id].maxHp * fraction));
 }
 
-/** Stands in for SimulationEngine.applyItemHeal — the real one is exercised
+/** Stands in for ActionEngine.useItem — the real one is exercised
  * in src/sim/engine.test.ts; here it just has to move HP and report it. */
 function healer(state: SimState, id: string) {
   return (item: { healFraction: number }): number | null => {
@@ -60,7 +60,11 @@ function buy(
 describe('openShop', () => {
   it('stocks every catalog item at its full quantity', () => {
     const shop = openShop(1);
-    expect(shop.stockLeft).toEqual({ potion: getItem('potion').stock, superPotion: getItem('superPotion').stock, revive: getItem('revive').stock });
+    expect(shop.stockLeft).toEqual({
+      potion: getItem('potion').stock,
+      superPotion: getItem('superPotion').stock,
+      revive: getItem('revive').stock,
+    });
     expect(shop.log).toEqual([]);
   });
 });
@@ -250,7 +254,15 @@ describe('toShopSummary', () => {
     const shop = openShop(1);
     // More uses than the wire limit, pushed straight onto the log.
     for (let i = 0; i < ITEM_USE_LOG_LIMIT + 3; i += 1) {
-      shop.log.push({ itemId: 'potion', effect: 'heal', targetInstanceId: 'p0-1', targetName: 'Fixmander', buyerName: `buyer-${i}`, amount: 10, atMs: i });
+      shop.log.push({
+        itemId: 'potion',
+        effect: 'heal',
+        targetInstanceId: 'p0-1',
+        targetName: 'Fixmander',
+        buyerName: `buyer-${i}`,
+        amount: 10,
+        atMs: i,
+      });
     }
     const summary = toShopSummary(shop);
     expect(summary.recent).toHaveLength(ITEM_USE_LOG_LIMIT);
