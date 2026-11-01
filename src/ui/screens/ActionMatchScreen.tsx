@@ -1,4 +1,4 @@
-import { lazy, Suspense, useMemo, useRef, useState, type CSSProperties, type PointerEvent } from 'react';
+import { lazy, memo, Suspense, useMemo, useRef, useState, type CSSProperties, type PointerEvent } from 'react';
 import type { StageRect } from '../../render/PhaserGame';
 import type { ActionEngine } from '../../sim/action/ActionEngine';
 import type { PlayerController } from '../../sim/action/playerController';
@@ -38,7 +38,8 @@ import { CrowdCallsTimeline } from '../crowd/CrowdCallsTimeline';
 import { isCrowdSide, type CrowdCallsStore } from '../crowd/crowdModel';
 import { barFill, barTrack, chip, hoennButton, messageBox, teamMarker } from '../crowd/hoenn';
 
-const PhaserGame = lazy(() => import('../../render/PhaserGame').then((m) => ({ default: m.PhaserGame })));
+// Memoized: its props are stable for a match, so the 10 Hz HUD tick skips it.
+const PhaserGame = lazy(() => import('../../render/PhaserGame').then((m) => ({ default: memo(m.PhaserGame) })));
 
 const JOYSTICK_RADIUS = 56;
 const DRAG_AIM_THRESHOLD = 18;

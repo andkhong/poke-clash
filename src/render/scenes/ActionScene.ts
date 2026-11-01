@@ -73,7 +73,7 @@ export class ActionScene extends Phaser.Scene {
   private engine!: ActionEngine;
   private controller: PlayerController | null = null;
   private readonly sprites = new Map<string, PokemonSprite>();
-  private readonly projectiles = new Map<number, Phaser.GameObjects.Arc>();
+  private readonly projectiles = new Map<number, Phaser.GameObjects.Image>();
   /** Every live (or just-finished) shot's ground position — what a move animation flies along. */
   private readonly shotPositions = new Map<number, Vec2>();
   /** Which sprites are currently drawn see-through for i-frames — set only on change, so it never
@@ -81,13 +81,19 @@ export class ActionScene extends Phaser.Scene {
   private readonly invulnShown = new Map<string, boolean>();
   private pmdSpriteIndex: PmdSpriteIndex | null = null;
   private aimGraphics!: Phaser.GameObjects.Graphics;
+  /** The lock-on reticle, baked: redrawn as live Graphics arcs it was the scene's costliest per-frame draw (~0.13 ms on an M4). */
+  private aimReticle!: Phaser.GameObjects.Image;
   private lastActionSeq = 0;
   private lastWallClockMs = 0;
   private stadium: Stadium | null = null;
   private hitStopUntilMs = 0;
-  private readonly shieldRings = new Map<string, Phaser.GameObjects.Arc>();
+  private readonly shieldRings = new Map<string, Phaser.GameObjects.Image>();
   private readonly lastTrailAtMs = new Map<string, number>();
   private readonly crates = new Map<number, Phaser.GameObjects.Image>();
+  /** Scratch set for syncProjectiles/syncCrates, reused so a frame allocates none. */
+  private readonly liveIds = new Set<number>();
+  /** Hidden damage-number Texts, by style, waiting to be shown again. */
+  private readonly freeDamageLabels = new Map<string, Phaser.GameObjects.Text[]>();
 
   constructor() {
     super('Action');
@@ -104,6 +110,7 @@ export class ActionScene extends Phaser.Scene {
     this.shieldRings.clear();
     this.lastTrailAtMs.clear();
     this.crates.clear();
+    this.freeDamageLabels.clear();
     this.lastActionSeq = 0;
     this.hitStopUntilMs = 0;
   }
@@ -128,6 +135,7 @@ export class ActionScene extends Phaser.Scene {
     this.pmdSpriteIndex = (this.cache.json.get(PMD_SPRITE_INDEX_KEY) as PmdSpriteIndex | undefined) ?? null;
     state.livingOrder.forEach((id, index) => this.createSprite(id, index, state));
     this.aimGraphics = this.add.graphics().setDepth(100_000);
+    this.aimReticle = this.add.image(0, 0, '__DEFAULT').setDepth(100_000).setVisible(false);
     this.buildCrateTexture();
     this.cameras.main.setBackgroundColor('#182952');
     if (this.controller) this.bindKeyboardAndMouse(this.controller);
@@ -248,7 +256,8 @@ export class ActionScene extends Phaser.Scene {
   }
 
   private syncCrates(): void {
-    const live = new Set<number>();
+    const live = this.liveIds;
+    live.clear();
     for (const pickup of this.engine.getPickups()) {
       live.add(pickup.id);
       if (this.crates.has(pickup.id)) continue;
@@ -269,12 +278,12 @@ export class ActionScene extends Phaser.Scene {
     const at = sprite.getRenderPosition();
     let ring = this.shieldRings.get(id);
     if (f.shieldMs > 0) {
+      const key = circleTexture(this, Math.round(sprite.getOnScreenSize() * 0.55), SHIELD_COLOR, 0.15, 4, SHIELD_COLOR, 0.9);
       if (!ring) {
-        ring = this.add.circle(0, 0, 10).setStrokeStyle(4, SHIELD_COLOR, 0.9).setFillStyle(SHIELD_COLOR, 0.15);
+        ring = this.add.image(0, 0, key);
         this.shieldRings.set(id, ring);
-      }
+      } else if (ring.texture.key !== key) ring.setTexture(key);
       ring
-        .setRadius(sprite.getOnScreenSize() * 0.55)
         .setPosition(at.x, at.y - sprite.bodyCenterLift())
         .setDepth(at.y + 2)
         .setVisible(true);
@@ -282,21 +291,29 @@ export class ActionScene extends Phaser.Scene {
 
     if (f.speedMs > 0 && wallNow - (this.lastTrailAtMs.get(id) ?? 0) >= SPEED_TRAIL_EVERY_MS) {
       this.lastTrailAtMs.set(id, wallNow);
-      const puff = this.add.circle(at.x, at.y, 14, SPEED_TRAIL_COLOR, 0.55).setDepth(at.y - 1);
+      const puff = this.add.image(at.x, at.y, circleTexture(this, 14, SPEED_TRAIL_COLOR, 0.55)).setDepth(at.y - 1);
       this.tweens.add({ targets: puff, alpha: 0, scale: 0.3, duration: SPEED_TRAIL_FADE_MS, onComplete: () => puff.destroy() });
     }
   }
 
   private syncProjectiles(): void {
-    const live = new Set<number>();
+    const live = this.liveIds;
+    live.clear();
     for (const p of this.engine.getProjectiles()) {
       live.add(p.id);
-      this.shotPositions.set(p.id, { ...p.position });
+      const pos = this.shotPositions.get(p.id);
+      if (pos) {
+        pos.x = p.position.x;
+        pos.y = p.position.y;
+      } else this.shotPositions.set(p.id, { x: p.position.x, y: p.position.y });
       let orb = this.projectiles.get(p.id);
       if (!orb) {
         // A faint ground marker under the move animation: it's the real hitbox, so dodging stays readable.
-        orb = this.add.circle(p.position.x, p.position.y, p.radius * 0.6, getMoveTypeColor(p.type), 0.45);
-        orb.setStrokeStyle(2, 0xffffff, 0.5);
+        orb = this.add.image(
+          p.position.x,
+          p.position.y,
+          circleTexture(this, p.radius * 0.6, getMoveTypeColor(p.type), 0.45, 2, 0xffffff, 0.5)
+        );
         this.projectiles.set(p.id, orb);
       }
       orb.setPosition(p.position.x, p.position.y).setDepth(p.position.y + 1);
@@ -314,20 +331,18 @@ export class ActionScene extends Phaser.Scene {
   private drawAim(state: Readonly<SimState>): void {
     const g = this.aimGraphics;
     g.clear();
+    this.aimReticle.setVisible(false);
     const controller = this.controller;
     const self = state.pokemon[this.engine.playerId];
     if (!controller || !this.engine.isAlive(this.engine.playerId) || state.phase !== 'battle') return;
     const target = controller.lockOn && controller.lockTargetId ? state.pokemon[controller.lockTargetId] : undefined;
     if (target && !controller.dragAim) {
-      const r = target.collisionRadius + 16;
-      const spin = (state.elapsedMs / 400) % (Math.PI * 2);
-      g.lineStyle(4, 0xffffff, 0.9);
-      for (let i = 0; i < 4; i++) {
-        const a = spin + (i * Math.PI) / 2;
-        g.beginPath();
-        g.arc(target.position.x, target.position.y, r, a, a + Math.PI / 4);
-        g.strokePath();
-      }
+      const key = reticleTexture(this, target.collisionRadius + 16);
+      if (this.aimReticle.texture.key !== key) this.aimReticle.setTexture(key);
+      this.aimReticle
+        .setPosition(target.position.x, target.position.y)
+        .setRotation((state.elapsedMs / 400) % (Math.PI * 2))
+        .setVisible(true);
       return;
     }
     const aim = controller.aimPoint(controller.dragAim);
@@ -489,17 +504,28 @@ export class ActionScene extends Phaser.Scene {
       size = 18;
     }
     const anchor = target.getAnimAnchor();
-    const label = this.add
-      .text(anchor.x + Phaser.Math.Between(-14, 14), anchor.y - target.getOnScreenSize() * 0.45, text, {
-        fontFamily: '"Press Start 2P", monospace',
-        fontSize: `${size}px`,
-        color,
-        stroke: '#000000',
-        strokeThickness: 5,
-      })
-      .setOrigin(0.5)
-      .setDepth(100_001)
-      .setScale(1.4);
+    const x = anchor.x + Phaser.Math.Between(-14, 14);
+    const y = anchor.y - target.getOnScreenSize() * 0.45;
+    // Pooled per look: a fresh Text costs ~0.2 ms (canvas, font metrics, GL
+    // texture) on an M4; reusing one with the same style only redraws it.
+    const styleKey = `${size}:${color}`;
+    let free = this.freeDamageLabels.get(styleKey);
+    if (!free) this.freeDamageLabels.set(styleKey, (free = []));
+    const pooled = free.pop();
+    const label = (
+      pooled
+        ? pooled.setText(text).setPosition(x, y).setAlpha(1).setVisible(true)
+        : this.add
+            .text(x, y, text, {
+              fontFamily: '"Press Start 2P", monospace',
+              fontSize: `${size}px`,
+              color,
+              stroke: '#000000',
+              strokeThickness: 5,
+            })
+            .setOrigin(0.5)
+            .setDepth(100_001)
+    ).setScale(1.4);
     this.tweens.add({ targets: label, scale: 1, duration: 90, ease: 'Back.easeOut' });
     this.tweens.add({
       targets: label,
@@ -507,7 +533,7 @@ export class ActionScene extends Phaser.Scene {
       alpha: 0,
       delay: DAMAGE_NUMBER_MS * 0.4,
       duration: DAMAGE_NUMBER_MS * 0.6,
-      onComplete: () => label.destroy(),
+      onComplete: () => free.push(label.setVisible(false)),
     });
   }
 
@@ -523,10 +549,50 @@ export class ActionScene extends Phaser.Scene {
       alpha: 0,
       duration: 320,
       ease: 'Cubic.easeOut',
-      onUpdate: () => ring.setRadius(ring.radius),
       onComplete: () => ring.destroy(),
     });
   }
+}
+
+/** A filled (optionally outlined) circle baked once into a texture. A live Arc
+ * re-draws its ~100-segment outline every frame (~28 µs each on an M4) and
+ * re-triangulates on every radius change; an Image is one quad. */
+function circleTexture(
+  scene: Phaser.Scene,
+  radius: number,
+  fill: number,
+  fillAlpha: number,
+  strokeWidth = 0,
+  stroke = 0,
+  strokeAlpha = 0
+): string {
+  const key = `circle:${radius}:${fill}:${fillAlpha}:${strokeWidth}:${stroke}:${strokeAlpha}`;
+  if (scene.textures.exists(key)) return key;
+  const half = Math.ceil(radius + strokeWidth / 2) + 1;
+  const g = scene.make.graphics({}, false);
+  g.fillStyle(fill, fillAlpha).fillCircle(half, half, radius);
+  if (strokeWidth > 0) g.lineStyle(strokeWidth, stroke, strokeAlpha).strokeCircle(half, half, radius);
+  g.generateTexture(key, half * 2, half * 2);
+  g.destroy();
+  return key;
+}
+
+/** The lock-on reticle at spin 0: four quarter-gap arcs round the target. */
+function reticleTexture(scene: Phaser.Scene, radius: number): string {
+  const key = `aim-reticle:${radius}`;
+  if (scene.textures.exists(key)) return key;
+  const half = Math.ceil(radius) + 4;
+  const g = scene.make.graphics({}, false);
+  g.lineStyle(4, 0xffffff, 0.9);
+  for (let i = 0; i < 4; i++) {
+    const a = (i * Math.PI) / 2;
+    g.beginPath();
+    g.arc(half, half, radius, a, a + Math.PI / 4);
+    g.strokePath();
+  }
+  g.generateTexture(key, half * 2, half * 2);
+  g.destroy();
+  return key;
 }
 
 /** Where a fired move comes to rest if nothing stops it: its shot's full range

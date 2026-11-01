@@ -15,6 +15,9 @@ export default defineConfig({
       // (src/review/) — a dev aid that ships with the build so a review can
       // happen on the deployed site too.
       input: { main: 'index.html', review: 'review.html' },
+      // Phaser (~1.5 MB) in a chunk of its own: it never changes between our
+      // deploys, so a returning visitor's cached copy survives every render tweak.
+      output: { manualChunks: (id) => (id.includes('/node_modules/phaser/') ? 'phaser' : undefined) },
     },
   },
   server: {
