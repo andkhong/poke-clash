@@ -55,16 +55,16 @@ const SHOT_POSITION_TTL_MS = 2000;
 const INVULN_ALPHA = 0.5;
 
 // Crowd Calls. Colors are placeholders for the theme pass.
-const SHIELD_COLOR = 0x7fd8ff;
-const SPEED_TRAIL_COLOR = 0xffe066;
+const SHIELD_COLOR = 0x73bdf6;
+const SPEED_TRAIL_COLOR = 0xffc55a;
 const SPEED_TRAIL_EVERY_MS = 60;
 const SPEED_TRAIL_FADE_MS = 260;
-const CRATE_BODY_COLOR = 0xb5793a;
-const CRATE_EDGE_COLOR = 0x5c3a17;
+const CRATE_BODY_COLOR = 0xbd9c5a;
+const CRATE_EDGE_COLOR = 0x413931;
 const CRATE_CROSS_COLOR = 0xffffff;
 const CRATE_SIZE = 44;
 const CRATE_TEXTURE_KEY = 'crowd-supply-crate';
-const BLOCK_TEXT_COLOR = '#7fd8ff';
+const BLOCK_TEXT_COLOR = '#73bdf6';
 
 /** Play Mode's arena: drives the ActionEngine each frame, reads keyboard and
  * mouse into the PlayerController, and draws fighters, shots, aim and hit
@@ -129,7 +129,7 @@ export class ActionScene extends Phaser.Scene {
     state.livingOrder.forEach((id, index) => this.createSprite(id, index, state));
     this.aimGraphics = this.add.graphics().setDepth(100_000);
     this.buildCrateTexture();
-    this.cameras.main.setBackgroundColor('#1a1a1a');
+    this.cameras.main.setBackgroundColor('#182952');
     if (this.controller) this.bindKeyboardAndMouse(this.controller);
     installMasterLimiter(this);
     playBattleMusic(this);
@@ -467,25 +467,25 @@ export class ActionScene extends Phaser.Scene {
 
   private showDamageNumber(event: Extract<ActionEvent, { type: 'hit' }>, target: PokemonSprite, taken: boolean): void {
     let text = String(event.damage);
-    let color = taken ? '#ff6b6b' : '#ffffff';
+    let color = taken ? '#ff625a' : '#ffffff';
     let size = 22;
     if (event.blocked) {
       text = 'BLOCK';
       color = BLOCK_TEXT_COLOR;
     } else if (event.effectiveness === 0) {
       text = 'IMMUNE';
-      color = '#bbbbbb';
+      color = '#bdbdbd';
     } else if (event.damage === 0) {
       return; // a status move landing — its effect shows on the sprite itself
     } else if (event.crit) {
       text = `CRIT ${event.damage}`;
-      color = '#ffd479';
+      color = '#ffc55a';
       size = 30;
     } else if (event.effectiveness > 1) {
       text = `${event.damage}!`;
       size = 27;
     } else if (event.effectiveness < 1) {
-      color = taken ? '#e89a9a' : '#bbbbbb';
+      color = taken ? '#deb4a4' : '#bdbdbd';
       size = 18;
     }
     const anchor = target.getAnimAnchor();

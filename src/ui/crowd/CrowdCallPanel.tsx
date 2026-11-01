@@ -16,6 +16,7 @@ import {
   SAPPHIRE,
   SUNK,
   COOLDOWN,
+  CROWD_TEXT,
 } from '../theme';
 import { TEAM_A_COLOR_CSS, TEAM_B_COLOR_CSS } from '../teamColors';
 import {
@@ -165,7 +166,7 @@ export const CrowdCallPanel = memo(function CrowdCallPanel({
           {!voting && callSide.winner && (
             <p style={{ margin: 0, fontFamily: FONT_UI, fontSize: 19 }}>
               {callSide.housePick ? 'House pick: ' : `${SIDE_NAME[viewSide]}'s crowd called `}
-              <strong style={{ color: CROWD }}>{CROWD_CARDS[callSide.winner].label}</strong>
+              <strong style={{ color: CROWD_TEXT }}>{CROWD_CARDS[callSide.winner].label}</strong>
               {status.kind === 'landing' ? ` — lands in ${status.landsInS}` : ' — landed'}
             </p>
           )}
@@ -240,7 +241,7 @@ const wrapStyle: CSSProperties = {
 };
 const noteStyle: CSSProperties = { margin: 0, fontSize: 13, lineHeight: 1.4, color: INK_MUTED };
 const labelStyle: CSSProperties = { fontSize: 14, fontWeight: 700 };
-const clockStyle: CSSProperties = { marginLeft: 'auto', fontFamily: FONT_PIXEL, fontSize: 12, color: CROWD, whiteSpace: 'nowrap' };
+const clockStyle: CSSProperties = { marginLeft: 'auto', fontFamily: FONT_PIXEL, fontSize: 12, color: CROWD_TEXT, whiteSpace: 'nowrap' };
 const lockedRowStyle: CSSProperties = {
   display: 'flex',
   alignItems: 'center',

@@ -28,7 +28,6 @@ import { TEAM_A_COLOR_CSS, TEAM_B_COLOR_CSS } from '../teamColors';
 import { typeColorCss, typeTextCss } from '../typeColorCss';
 import {
   ACTION,
-  CROWD,
   CROWD_TINT,
   FONT_BODY,
   FONT_PIXEL,
@@ -47,6 +46,7 @@ import {
   STAGE_BG,
   SUNK,
   primaryAlpha,
+  CROWD_TEXT,
 } from '../theme';
 import type { CrowdCallPanelProps } from '../crowd/CrowdCallPanel';
 import { createCrowdCallsStore, isCrowdSide } from '../crowd/crowdModel';
@@ -403,7 +403,7 @@ function RoomList({
       <TopBar backHref="#/" title="Play online" subtitle="Real players, real time. Empty seats are filled with bots." />
       <div style={columnStyle}>
         <section style={{ ...cardStyle, background: CROWD_TINT }}>
-          <h2 style={{ ...headingStyle, color: CROWD }}>Watch &amp; vote</h2>
+          <h2 style={{ ...headingStyle, color: CROWD_TEXT }}>Watch &amp; vote</h2>
           <p style={bodyText}>
             Not playing? Hit <b>WATCH</b> on any room. In team matches the crowd votes in <b>Crowd Calls</b> — speed bursts, shields, energy
             and supply drops for the side you cheer for. You can chat, bet and send potions too.
@@ -644,7 +644,7 @@ function Lobby({
 
         <aside aria-label="Crowd and chat" style={{ ...asideStyle, width: wide ? 340 : '100%' }}>
           <div style={crowdBox}>
-            <strong style={{ fontFamily: FONT_UI, fontSize: 22, color: CROWD }}>The crowd</strong>
+            <strong style={{ fontFamily: FONT_UI, fontSize: 22, color: CROWD_TEXT }}>The crowd</strong>
             <span style={{ fontSize: 14, lineHeight: 1.45 }}>
               {room.mode === 'ffa'
                 ? 'Crowd Calls are team modes only. Watchers can still chat, bet and send potions.'

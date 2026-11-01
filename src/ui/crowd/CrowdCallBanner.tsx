@@ -1,6 +1,6 @@
 import type { CSSProperties, ReactNode } from 'react';
 import { CROWD_CALL_EVERY_MS, type CrowdCallView, type CrowdSide } from '../../net/play/playProtocol';
-import { CROWD, FONT_BODY, FONT_UI, INK_MUTED, PANEL } from '../theme';
+import { CROWD, FONT_BODY, FONT_UI, INK_MUTED, PANEL, CROWD_TEXT } from '../theme';
 import { CROWD_CARDS, SIDE_NAME, callStatus, formatClock, otherSide, tallySide } from './crowdModel';
 import { barFill, barTrack, chip, messageBox } from './hoenn';
 
@@ -18,7 +18,7 @@ interface CrowdCallBannerProps {
   style?: CSSProperties;
 }
 
-const card = (label: string) => <strong style={{ color: CROWD }}>{label}</strong>;
+const card = (label: string) => <strong style={{ color: CROWD_TEXT }}>{label}</strong>;
 
 /** The battle message box that announces Crowd Calls: open → called → landed. */
 export function CrowdCallBanner({ current, nowMs, myTeam, compact = false, style }: CrowdCallBannerProps) {

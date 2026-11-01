@@ -13,19 +13,19 @@ const WALL = 18;
 // Hoenn Handheld (src/ui/theme.ts): pale bag-screen stands, an ink wall that
 // reads as the message boxes' outline with a teal FRAME stripe, clay court.
 const COLORS = {
-  stands: 0xb8ccd8,
-  standsRow: 0xa4bcca,
-  wall: 0x283038,
-  wallStripe: 0x78b0c8,
-  court: 0xc9663b,
-  courtGrain: 0xbb5a32,
+  stands: 0xbdcde6,
+  standsRow: 0x9cb4de,
+  wall: 0x29315a,
+  wallStripe: 0x62a4de,
+  court: 0xa4625a,
+  courtGrain: 0x9c7373,
   line: 0xffffff,
-  ballTop: 0xe04830,
+  ballTop: 0xff625a,
   ballBottom: 0xffffff,
-  ballBand: 0x283038,
+  ballBand: 0x29315a,
 };
 // Team Ruby/Sapphire, Emerald, badge gold and friends — saturated enough to pop on the pale stands.
-const CROWD_COLORS = [0xb01830, 0x2048a0, 0x6c9cec, 0x0f7f50, 0xf8c840, 0xe04830, 0x50c060, 0x5848a8, 0xffffff, 0x283038];
+const CROWD_COLORS = [0xc54141, 0x394a7b, 0x62acee, 0x398b31, 0xffc55a, 0xff625a, 0x83c562, 0x624152, 0xffffff, 0x29315a];
 
 /** Each layer is a full-arena texture drawn every frame, so fewer is cheaper on a phone's GPU; two still ripple. */
 const CROWD_LAYERS = 2;
@@ -184,6 +184,6 @@ function drawFloodlights(g: Phaser.GameObjects.Graphics, arena: ArenaBounds): vo
     [0, arena.height],
     [arena.width, arena.height],
   ]) {
-    for (let i = 4; i >= 1; i--) g.fillStyle(0xfff4d6, 0.025).fillCircle(x, y, (radius * i) / 4);
+    for (let i = 4; i >= 1; i--) g.fillStyle(0xffd5b4, 0.025).fillCircle(x, y, (radius * i) / 4);
   }
 }

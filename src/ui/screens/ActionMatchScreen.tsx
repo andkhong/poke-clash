@@ -732,7 +732,7 @@ function sweep(fractionLeft: number): CSSProperties {
     position: 'absolute',
     inset: 0,
     borderRadius: 'inherit',
-    background: `conic-gradient(rgba(168,180,188,0.85) ${clamp01(fractionLeft) * 360}deg, transparent 0)`,
+    background: `conic-gradient(rgba(164,164,164,0.85) ${clamp01(fractionLeft) * 360}deg, transparent 0)`,
     pointerEvents: 'none',
   };
 }

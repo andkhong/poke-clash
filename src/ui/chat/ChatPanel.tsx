@@ -3,7 +3,7 @@ import type { ChatMessage } from '../../net/protocol';
 import { CHAT_MAX_LENGTH, normalizeChatText, QUICK_REACTIONS } from '../../net/chat';
 import { containsBlockedLanguage } from '../../net/chatFilter';
 import { chatSenderColor, chatSenderLabel, formatChatTime, isSystemMessage } from './chatModel';
-import { ACTION, ACTION_BEVEL, CROWD, DESTRUCTIVE, FONT_BODY, FONT_UI, INK, INK_MUTED, OUTLINE, PANEL, SUNK } from '../theme';
+import { ACTION, ACTION_BEVEL, DESTRUCTIVE, FONT_BODY, FONT_UI, INK, INK_MUTED, OUTLINE, PANEL, SUNK, CROWD_TEXT } from '../theme';
 
 export interface ChatPanelProps {
   messages: ChatMessage[];
@@ -237,7 +237,7 @@ const rowStyle: CSSProperties = {
 
 const systemRowStyle: CSSProperties = {
   ...rowStyle,
-  color: CROWD,
+  color: CROWD_TEXT,
   fontWeight: 'bold',
 };
 

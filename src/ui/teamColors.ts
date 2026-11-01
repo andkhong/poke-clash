@@ -6,10 +6,10 @@
 // Team Ruby vs Team Sapphire (see theme.ts). The CSS colors are text-safe on
 // light panels; the arena ring uses Sapphire's lighter fill so the two sides
 // also differ in lightness, not just hue.
-export const TEAM_A_COLOR_CSS = '#b01830';
-export const TEAM_B_COLOR_CSS = '#2048a0';
-export const TEAM_A_COLOR_HEX = 0xb01830;
-export const TEAM_B_COLOR_HEX = 0x6c9cec;
+export const TEAM_A_COLOR_CSS = '#c54141';
+export const TEAM_B_COLOR_CSS = '#394a7b';
+export const TEAM_A_COLOR_HEX = 0xc54141;
+export const TEAM_B_COLOR_HEX = 0x62acee;
 
 export function teamColorCss(team: string | undefined): string | undefined {
   if (team === 'teamA') return TEAM_A_COLOR_CSS;

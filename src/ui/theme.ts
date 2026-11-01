@@ -1,5 +1,7 @@
 // The app's shared color/font tokens — "Hoenn Handheld": the Game Boy
 // Advance Ruby/Sapphire look (design canvas: claude.ai/artifact/9yYywhgd5tarYMh7HSnwYu).
+// Every color is a swatch from the Ruby/Sapphire overworld palette (56 colors);
+// the contrast notes are measured against PANEL (white) unless they say otherwise.
 // Pale bag-screen blue ground, white message-box panels with a dark ink
 // outline and teal trim, badge-gold primary actions; Team Ruby vs Team
 // Sapphire, and Emerald green for anything the crowd causes. Hexes are
@@ -10,27 +12,28 @@
 // own palette (src/render/**), apart from the team colors in teamColors.ts.
 
 // --- Hoenn Handheld tokens ---
-export const GROUND = '#dde9f2'; // page background (bag/summary screen pale blue)
-export const GROUND_ROUTE = '#e2f0d8'; // section bands, chips (route grass)
+export const GROUND = '#dee6ee'; // page background (pale blue)
+export const GROUND_ROUTE = '#a4d5c5'; // section bands, chips (route mint)
 export const PANEL = '#ffffff'; // windows, cards (battle message box)
-export const FRAME = '#78b0c8'; // message-box inner trim — decoration only, never text
-export const INFO_BOX = '#f4f8e8'; // fighter status, roster rows (battle HUD box)
-export const INK = '#283038'; // text and every outline (13.4:1 on white)
-export const INK_MUTED = '#586068'; // secondary text (6.4:1 on white)
-export const SUNK = '#c8d4dc'; // bar tracks, disabled fills, button bottom bevel
-export const COOLDOWN = '#a8b4bc'; // cooldown sweep, losing vote bars
-export const ACTION = '#f8c840'; // primary buttons, focus ring, "You" — always INK text on it
-export const ACTION_BEVEL = '#d09820'; // bottom edge of ACTION buttons — not for text
-export const RUBY = '#b01830'; // Team Ruby (white text 6.9:1)
-export const SAPPHIRE = '#6c9cec'; // Team Sapphire fill (INK text 4.8:1)
-export const SAPPHIRE_DEEP = '#2048a0'; // Sapphire text/headers, links (8.4:1)
-export const CROWD = '#0f7f50'; // everything the crowd causes (white text 5.1:1)
-export const CROWD_BEVEL = '#0a5c3a';
-export const CROWD_TINT = '#d6efe0'; // your vote, crowd rows
-export const HP_GREEN = '#50c060';
-export const HP_YELLOW = '#e8c028';
-export const HP_RED = '#e04830';
-export const ENERGY = '#3890e0'; // energy bar (EXP bar blue)
+export const FRAME = '#62a4de'; // message-box inner trim — decoration only, never text
+export const INFO_BOX = '#eee6a4'; // fighter status, roster rows (battle HUD cream)
+export const INK = '#29315a'; // text and every outline (12.5:1; 9.8:1 on GROUND/INFO_BOX)
+export const INK_MUTED = '#62627b'; // secondary text (5.9:1; 4.6:1 on GROUND/INFO_BOX)
+export const SUNK = '#bdcde6'; // bar tracks, disabled fills, button bottom bevel
+export const COOLDOWN = '#a4a4a4'; // cooldown sweep, losing vote bars
+export const ACTION = '#ffc55a'; // primary buttons, focus ring, "You" — always INK text on it (8.0:1)
+export const ACTION_BEVEL = '#cd9c52'; // bottom edge of ACTION buttons — not for text
+export const RUBY = '#c54141'; // Team Ruby (5.0:1 both ways with white)
+export const SAPPHIRE = '#62acee'; // Team Sapphire fill (INK text 5.2:1)
+export const SAPPHIRE_DEEP = '#394a7b'; // Sapphire text/headers, links (8.6:1)
+export const CROWD = '#398b31'; // fills for anything the crowd causes (white text 4.3:1 — large/bold text only)
+export const CROWD_TEXT = '#395200'; // crowd-colored text on light grounds (8.8:1)
+export const CROWD_BEVEL = '#395200';
+export const CROWD_TINT = '#73c5a4'; // your vote, crowd rows (INK text 6.1:1)
+export const HP_GREEN = '#41b483';
+export const HP_YELLOW = '#ffc55a';
+export const HP_RED = '#ff625a';
+export const ENERGY = '#528bc5'; // energy bar
 export const OUTLINE = `3px solid ${INK}`; // message-box border
 
 /** Pixel face with real weights: headings, HUD, buttons, labels, message-box text. 18px and up. */
@@ -51,12 +54,12 @@ export const BORDER = INK; // default border color (combine with an alpha below)
 export const PRIMARY = ACTION; // primary buttons, CTAs, active state — a FILL; gold text fails contrast
 export const PRIMARY_TEXT = INK; // text/icons drawn on a PRIMARY-colored surface
 export const SECONDARY = SAPPHIRE_DEEP; // secondary actions, "you" markers
-export const ACCENT = '#a84810'; // badges/tags, caution state (text-safe: 5.4:1 on INFO_BOX)
-export const DESTRUCTIVE = '#c02828'; // errors, leave/end-match controls
-export const SUCCESS = '#2e7d3a'; // positive state (text-safe green)
+export const ACCENT = '#7b4141'; // badges/tags, caution state (7.9:1; 6.2:1 on INFO_BOX)
+export const DESTRUCTIVE = '#c54141'; // errors, leave/end-match controls
+export const SUCCESS = '#395200'; // positive state (text-safe green)
 export const BLUE = SAPPHIRE_DEEP;
-export const YELLOW = '#8a6400'; // text-safe gold
-export const VIOLET = '#5848a8';
+export const YELLOW = '#6a5a5a'; // text-safe warm gray (the palette has no dark gold)
+export const VIOLET = '#624152';
 
 export const FONT_MONO = FONT_BODY;
 
@@ -64,38 +67,38 @@ export const FONT_MONO = FONT_BODY;
  * be `rgba(255,255,255,X)` against the old dark theme; same alpha, dark ink
  * instead of white, since the background flipped from dark to light. */
 export function textAlpha(alpha: number): string {
-  return `rgba(40,48,56,${alpha})`;
+  return `rgba(41,49,90,${alpha})`;
 }
 
 /** `PRIMARY` at a given alpha — for tag/badge fills and glows. */
 export function primaryAlpha(alpha: number): string {
-  return `rgba(248,200,64,${alpha})`;
+  return `rgba(255,197,90,${alpha})`;
 }
 
 /** `ACCENT` at a given alpha — for tag/badge fills and glows. */
 export function accentAlpha(alpha: number): string {
-  return `rgba(168,72,16,${alpha})`;
+  return `rgba(123,65,65,${alpha})`;
 }
 
 /** `SECONDARY` at a given alpha. */
 export function secondaryAlpha(alpha: number): string {
-  return `rgba(32,72,160,${alpha})`;
+  return `rgba(57,74,123,${alpha})`;
 }
 
 /** `DESTRUCTIVE` at a given alpha. */
 export function destructiveAlpha(alpha: number): string {
-  return `rgba(192,40,40,${alpha})`;
+  return `rgba(197,65,65,${alpha})`;
 }
 
 /** `YELLOW` at a given alpha. */
 export function yellowAlpha(alpha: number): string {
-  return `rgba(138,100,0,${alpha})`;
+  return `rgba(106,90,90,${alpha})`;
 }
 
 /** `BG` at a given alpha — for panels drawn over the arena canvas (e.g. the
  * mobile chat drawer) that still need to read as part of the light theme. */
 export function bgAlpha(alpha: number): string {
-  return `rgba(221,233,242,${alpha})`;
+  return `rgba(222,230,238,${alpha})`;
 }
 
 /** The 3D "key edge" under PRIMARY buttons. Not a text color (gold on white fails). */
@@ -130,6 +133,6 @@ export const DURATION_PULSE_MS = 1600;
 /** Eight text-safe Gen III hues (all ≥ 4.5:1 on PANEL and INFO_BOX), for
  * palettes that need several distinct colors at once (e.g. chat's per-sender
  * name color). No gold: it fails contrast as text. */
-export const TEXT_ACCENTS = [RUBY, SAPPHIRE_DEEP, CROWD, ACCENT, VIOLET, YELLOW, '#a02878', '#18707c'] as const;
+export const TEXT_ACCENTS = [RUBY, SAPPHIRE_DEEP, CROWD_TEXT, ACCENT, VIOLET, YELLOW, '#414a6a', '#cd4152'] as const;
 /** Legacy name for TEXT_ACCENTS. */
 export const SOLARIZED_ACCENTS = TEXT_ACCENTS;

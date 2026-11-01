@@ -2,6 +2,7 @@ import {
   ACTION,
   ACTION_BEVEL,
   CROWD,
+  CROWD_TEXT,
   CROWD_BEVEL,
   CROWD_TINT,
   DURATION_BASE_MS,
@@ -29,7 +30,7 @@ import { HERO_FIGHTER_CSS } from './courtSprites';
 /** The arena floor in the CSS-drawn courts (hero art, room thumbnails).
  * Illustration only, matched to the design canvas; not a theme token
  * because nothing outside these drawings uses it. */
-const COURT = '#c9663b';
+const COURT = '#a4625a';
 
 /** The battle message box's double trim (white gap, then FRAME teal). */
 const TRIM = `inset 0 0 0 3px ${PANEL},inset 0 0 0 6px ${FRAME}`;
@@ -53,11 +54,13 @@ export const LANDING_CSS = `
 .lp-sr-only{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;border:0}
 .lp-only-mobile{display:none}
 @media (max-width:599px){.lp-hide-mobile{display:none!important}.lp-only-mobile{display:inline}}
-.lp-crowd-text{color:${CROWD}}
+.lp-crowd-text{color:${CROWD_TEXT}}
 .lp-root [id]{scroll-margin-top:84px}
 
 /* ---------- type ---------- */
 .lp-h1{margin:0;font:700 clamp(52px,6.4vw,86px)/1 ${FONT_UI};text-wrap:balance}
+/* Headline-size text passes the 3:1 large-text bar in the brighter crowd green (4.3:1). */
+.lp-h1 .lp-crowd-text{color:${CROWD}}
 .lp-h2{margin:0;font:700 46px/1.08 ${FONT_UI};text-wrap:balance}
 .lp-h3{margin:0;font:700 26px/1.15 ${FONT_UI}}
 .lp-lead{margin:0;max-width:520px;font:400 21px/1.55 ${FONT_BODY};color:${INK_MUTED};text-wrap:pretty}
@@ -78,7 +81,7 @@ export const LANDING_CSS = `
 .lp-btn-primary{background:${ACTION};color:${INK};box-shadow:inset 0 -5px 0 ${ACTION_BEVEL}}
 .lp-btn-secondary,.lp-btn-ghost{background:${PANEL};color:${INK};box-shadow:inset 0 -5px 0 ${SUNK}}
 .lp-btn-crowd{background:${CROWD};color:${PANEL};box-shadow:inset 0 -5px 0 ${CROWD_BEVEL}}
-.lp-btn-crowd-outline{background:${PANEL};color:${CROWD};box-shadow:inset 0 -5px 0 ${SUNK}}
+.lp-btn-crowd-outline{background:${PANEL};color:${CROWD_TEXT};box-shadow:inset 0 -5px 0 ${SUNK}}
 .lp-btn-xl{min-height:62px;padding:0 28px;font-size:22px}
 .lp-btn-xl.lp-btn-primary{font-size:28px}
 .lp-btn-md{min-height:50px;font-size:21px}
@@ -141,9 +144,9 @@ export const LANDING_CSS = `
 .lp-fighter{position:absolute;display:flex;align-items:center;justify-content:center;width:88px;height:88px}
 .lp-sprite{position:relative;z-index:1;image-rendering:pixelated;transform:scale(2)}
 .lp-fighter-mark{position:absolute;bottom:18px;left:50%;width:46px;height:14px;box-sizing:border-box;border-radius:50%;transform:translateX(-50%)}
-.lp-fighter-mark-ruby{border:3px solid ${RUBY};background:rgba(176,24,48,.25)}
-.lp-fighter-mark-sapphire{border:3px solid ${SAPPHIRE_DEEP};background:rgba(108,156,236,.35)}
-.lp-fighter-shield{position:absolute;inset:4px;box-sizing:border-box;border-radius:50%;border:4px dashed ${CROWD};background:rgba(214,239,224,.55)}
+.lp-fighter-mark-ruby{border:3px solid ${RUBY};background:rgba(197,65,65,.25)}
+.lp-fighter-mark-sapphire{border:3px solid ${SAPPHIRE_DEEP};background:rgba(98,172,238,.35)}
+.lp-fighter-shield{position:absolute;inset:4px;box-sizing:border-box;border-radius:50%;border:4px dashed ${CROWD};background:rgba(115,197,164,.55)}
 ${HERO_FIGHTER_CSS}
 .lp-msgbox{box-sizing:border-box;border-radius:8px;background:${PANEL};border:${OUTLINE};box-shadow:${TRIM}}
 .lp-hero-msg{position:absolute;left:3%;right:3%;bottom:4%;height:22%;display:flex;align-items:center;padding:12px 18px;
