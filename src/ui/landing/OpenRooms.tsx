@@ -53,7 +53,8 @@ export function OpenRooms({ rooms, status }: OpenRoomsProps) {
       {/* role="list" because Safari drops list semantics from a list-style:none list. */}
       <ul className="lp-room-grid" role="list">
         {rooms.map((room) => (
-          <li key={room.id}>
+          // Six or eight fighters don't fit a one-column court: those cards get two columns.
+          <li key={room.id} className={room.mode === 3 || room.mode === 4 || room.mode === 'ffa' ? 'lp-room-wide' : undefined}>
             <RoomCard room={room} />
           </li>
         ))}
