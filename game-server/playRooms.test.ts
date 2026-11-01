@@ -364,6 +364,30 @@ describe('online Play Mode rooms', () => {
   });
 
   describe('always-live rooms', () => {
+    it('seats a watcher who queued mid-match in the next match, ahead of the bots', () => {
+      openLiveRooms();
+      const fan = connect('fan');
+      fan.say({ t: 'join', roomId: 'live1v1' }); // mid-match: watching
+      expect(fan.room()).toMatchObject({ you: null, queued: false });
+      fan.say({ t: 'queue', join: true });
+      expect(fan.room().queued).toBe(true);
+      fan.say({ t: 'queue', join: false });
+      expect(fan.room().queued).toBe(false);
+      fan.say({ t: 'queue', join: true });
+
+      for (let i = 0; i < 400 && fan.room().phase === 'battle'; i++) vi.advanceTimersByTime(1000);
+      expect(fan.room()).toMatchObject({ phase: 'lobby', you: 0, queued: false });
+      vi.advanceTimersByTime(LIVE_INTERMISSION_MS);
+      const start = fan.last('start')!;
+      expect(start.you).toBe(`p0-${start.config.speciesIds[0]}`);
+    });
+
+    it('does not queue someone already seated, or between matches', () => {
+      const [host] = lobbyOf(1, ['Ash']);
+      host.say({ t: 'queue', join: true });
+      expect(host.room().queued).toBe(false);
+    });
+
     it('opens 1v1, 2v2, 3v3 and FFA rooms already fighting, listed first, with no host', () => {
       openLiveRooms();
       const fan = connect('fan');

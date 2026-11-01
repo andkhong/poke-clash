@@ -259,8 +259,14 @@ export function PlayOnlineScreen({
     const fighterTeam = match.controller ? match.engine.getState().pokemon[match.engine.playerId]?.team : null;
     const side = match.controller ? (isCrowdSide(fighterTeam) ? fighterTeam : null) : (me?.side ?? null);
     // Signed up already, it's the "Signed up as … · Change name" row, so a viewer can see (and change) who they are.
+    const joinNext = spectator && room?.phase === 'battle' && (
+      <JoinNextMatch queued={room.queued} onToggle={() => conn.send({ t: 'queue', join: !room.queued })} />
+    );
     const signUp = spectator && (
-      <SignUpForm me={me} conn={conn} error={error} prompt="Join the crowd to vote, chat and bet" variant="crowd" />
+      <>
+        <SignUpForm me={me} conn={conn} error={error} prompt="Join the crowd to vote, chat and bet" variant="crowd" />
+        {joinNext}
+      </>
     );
     const vote: CrowdCallPanelProps = {
       calls,
@@ -293,7 +299,7 @@ export function PlayOnlineScreen({
           />
           {/* On a phone the drawer would sit on a fighter's joystick, so only spectators get it there. */}
           {!wide && !match.controller && <ChatOverlay {...chatProps} vote={vote} predictions={predictions} shop={shop} />}
-          {!wide && signUp && !me?.name && <div style={signUpFloat}>{signUp}</div>}
+          {!wide && signUp && (me?.name ? joinNext && <div style={signUpFloat}>{joinNext}</div> : <div style={signUpFloat}>{signUp}</div>)}
         </div>
         {wide && <ChatSidebar {...chatProps} vote={vote} predictions={predictions} shop={shop} width={MATCH_SIDEBAR_WIDTH} />}
       </div>
@@ -311,6 +317,22 @@ export function PlayOnlineScreen({
         window.location.hash = `#/play/${id}?watch`;
       }}
     />
+  );
+}
+
+/** Mid-match, a watcher reserves a seat in the next match (or gives it back). */
+function JoinNextMatch({ queued, onToggle }: { queued: boolean; onToggle: () => void }) {
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+      <button onClick={onToggle} aria-pressed={queued} style={hoennButton(queued ? 'secondary' : 'primary', true, 'lg')}>
+        {queued ? '✓ Seat saved · cancel' : '▶ Join next match'}
+      </button>
+      <span style={{ fontSize: 13, color: INK_MUTED, textAlign: 'center' }}>
+        {queued
+          ? 'You’ll get a seat when this one ends — pick a Pokémon in the break, or get a random one.'
+          : 'Fight in the next match instead of watching.'}
+      </span>
+    </div>
   );
 }
 

@@ -67,6 +67,8 @@ export interface PlayRoomView {
   you: number | null;
   /** An always-live room: no host, bots always fighting, matches start themselves. */
   live: boolean;
+  /** The receiving connection is queued for a seat in the next match. */
+  queued: boolean;
   /** During a live room's break: ms until the next match starts (as of sending). */
   startsInMs: number | null;
 }
@@ -98,6 +100,8 @@ export type ClientMessage =
   | { t: 'leave' }
   | { t: 'mode'; mode: PlayModeKind }
   | { t: 'seat'; index: number }
+  /** Mid-match, a watcher asks for (or gives up) a seat in the next match. */
+  | { t: 'queue'; join: boolean }
   | { t: 'pick'; speciesId: number }
   | { t: 'reroll' }
   | { t: 'ready'; ready: boolean }

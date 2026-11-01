@@ -129,6 +129,8 @@ interface PlayRoom {
   live: boolean;
   /** When a live room's next match starts (Date.now() ms), during its break. */
   nextStartAtMs: number | null;
+  /** Watchers who asked for a seat in the next match ("Join next match"), first come first served. */
+  queue: PlayConn[];
   startTimer: ReturnType<typeof setTimeout> | null;
 }
 
@@ -191,6 +193,13 @@ export function handlePlayMessage(conn: PlayConn, raw: unknown): void {
     if (typeof msg.req === 'number') conn.send({ t: 'ack', req: msg.req, error: handleCrowdMessage(room, conn, msg) });
     return;
   }
+  if (msg.t === 'queue') {
+    // Only a watcher mid-match can queue; between matches they just take a seat.
+    const seated = room.seats.some((s) => s.conn === conn);
+    room.queue = room.queue.filter((c) => c !== conn);
+    if (msg.join === true && room.battle && !seated) room.queue.push(conn);
+    return sendRoom(room, conn);
+  }
   if (room.battle) handleBattleMessage(room.battle, conn, msg);
   else handleLobbyMessage(room, conn, msg);
 }
@@ -233,6 +242,7 @@ export function createPlayRoom(mode: PlayModeKind, arena: ArenaBounds, liveId?: 
     live: liveId !== undefined,
     nextStartAtMs: null,
     startTimer: null,
+    queue: [],
   };
   rooms.set(id, room);
   return room;
@@ -302,6 +312,7 @@ function leaveRoom(conn: PlayConn): void {
   conn.roomId = null;
   if (!room) return;
   room.conns.delete(conn);
+  room.queue = room.queue.filter((c) => c !== conn);
   const seat = room.seats.find((s) => s.conn === conn);
   if (seat) {
     // Leaving mid-match faints you for good; the seat itself frees up when the match ends.
@@ -579,6 +590,13 @@ function endBattle(room: PlayRoom): void {
     if (seat.conn) seat.ready = false;
     else Object.assign(seat, { speciesId: null, moves: [], ready: false });
   }
+  // Seat whoever queued for this moment, in order, while seats last; the rest go back to watching.
+  for (const conn of room.queue) {
+    const seat = room.seats.find((s) => !s.conn);
+    if (!seat) break;
+    Object.assign(seat, { conn, speciesId: null, moves: [], ready: false });
+  }
+  room.queue = [];
   if (room.live) {
     room.nextStartAtMs = Date.now() + LIVE_INTERMISSION_MS;
     room.startTimer = setTimeout(() => {
@@ -612,6 +630,7 @@ function sendRoom(room: PlayRoom, conn: PlayConn): void {
     phase: room.battle ? 'battle' : 'lobby',
     seats,
     you: youIndex >= 0 ? youIndex : null,
+    queued: room.queue.includes(conn),
     live: room.live,
     startsInMs: room.nextStartAtMs !== null ? Math.max(0, room.nextStartAtMs - Date.now()) : null,
   };
