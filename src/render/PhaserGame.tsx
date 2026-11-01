@@ -1,6 +1,7 @@
 import { useEffect, useRef } from 'react';
 import Phaser from 'phaser';
 import { ActionScene } from './scenes/ActionScene';
+import { stadiumViewHeight } from './tileset/stadiumBackground';
 import type { PlayerController } from '../sim/action/playerController';
 import type { ActionEngine } from '../sim/action/ActionEngine';
 
@@ -20,10 +21,12 @@ interface PhaserGameProps {
    * recomputes it — lets the HUD overlay position itself against the visible
    * map instead of the full (possibly letterboxed) container. */
   onStageRectChange?: (rect: StageRect) => void;
+  /** Where a letterboxed canvas sits vertically: centred, or against the bottom (a HUD bar right below). */
+  align?: 'center' | 'bottom';
 }
 
 /** The Play Mode canvas: one Phaser game running ActionScene for a match. */
-export function PhaserGame({ engine, controller, onStageRectChange }: PhaserGameProps) {
+export function PhaserGame({ engine, controller, onStageRectChange, align = 'center' }: PhaserGameProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const gameRef = useRef<Phaser.Game | null>(null);
   const onStageRectChangeRef = useRef(onStageRectChange);
@@ -47,7 +50,10 @@ export function PhaserGame({ engine, controller, onStageRectChange }: PhaserGame
     // canvas, since Phaser's own FIT scaling only scales *this* canvas to its
     // container, it can't correct for the canvas itself being the wrong
     // resolution to begin with.
-    const { width: arenaWidth, height: arenaHeight } = engine.getState().arena;
+    const arena = engine.getState().arena;
+    const arenaWidth = arena.width;
+    // A wide arena's canvas stops just below the court (see stadiumViewHeight).
+    const arenaHeight = stadiumViewHeight(arena);
     const game = new Phaser.Game({
       type: Phaser.AUTO,
       parent: containerRef.current,
@@ -148,7 +154,7 @@ export function PhaserGame({ engine, controller, onStageRectChange }: PhaserGame
         width: '100%',
         height: '100%',
         display: 'flex',
-        alignItems: 'center',
+        alignItems: align === 'bottom' ? 'flex-end' : 'center',
         justifyContent: 'center',
       }}
     />

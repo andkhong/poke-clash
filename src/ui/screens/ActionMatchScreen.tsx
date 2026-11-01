@@ -146,7 +146,7 @@ export function ActionMatchScreen({
       <div style={desktop ? desktopColumnStyle : mobileFrameStyle}>
         <div style={desktop ? desktopStageStyle : fillStyle}>
           <Suspense fallback={null}>
-            <PhaserGame engine={engine} controller={controller} onStageRectChange={setStageRect} />
+            <PhaserGame engine={engine} controller={controller} onStageRectChange={setStageRect} align={desktop ? 'bottom' : 'center'} />
           </Suspense>
           {stageRect && (
             <div
@@ -169,7 +169,7 @@ export function ActionMatchScreen({
               ) : (
                 <>
                   <TopHud state={state} engine={engine} compact={false} />
-                  <div style={{ position: 'absolute', top: 84, left: '50%', transform: 'translateX(-50%)' }}>{meta}</div>
+                  <div style={{ position: 'absolute', top: 29, left: 'calc(50% + 82px)' }}>{meta}</div>
                   {!state.teams && (
                     <div style={{ position: 'absolute', right: 24, top: 16, width: 220 }}>
                       <Standings state={state} engine={engine} />

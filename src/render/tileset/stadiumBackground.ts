@@ -1,5 +1,6 @@
 import Phaser from 'phaser';
 import { getPlayableBounds } from '../../sim/movement';
+import { isMobileArena } from '../../sim/constants';
 import type { ArenaBounds } from '../../sim/types';
 
 // Play Mode's floor: a Pokémon-gym stadium drawn entirely with Graphics (no
@@ -36,6 +37,16 @@ export interface Stadium {
   /** 0..1: a glancing hit is a murmur, a KO is the whole stand on its feet. */
   cheer(amount: number): void;
   update(dtMs: number): void;
+}
+
+/** How much of the arena's height the camera needs to show. The top strip of
+ * stands carries the HUD's team boxes and clock, so it stays; on a wide
+ * (desktop) arena, whose HUD bar sits below the canvas, the stands below the
+ * court are only scenery, so the view ends a little past the court's wall. */
+export function stadiumViewHeight(arena: ArenaBounds): number {
+  if (isMobileArena(arena)) return arena.height;
+  const courtBottom = Math.min(arena.height - WALL, getPlayableBounds(arena).maxY + COURT_MARGIN);
+  return Math.min(arena.height, Math.ceil(courtBottom + WALL + 28));
 }
 
 export function createStadiumBackground(scene: Phaser.Scene, arena: ArenaBounds): Stadium {
