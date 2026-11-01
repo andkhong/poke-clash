@@ -118,6 +118,17 @@ export function ActionMatchScreen({
       style={stacked ? undefined : { flex: '1 1 0', minWidth: 0, minHeight: 112 }}
     />
   );
+  // On a wide (desktop) arena the bottom row — your info box, the crowd message
+  // box, the fight menu — sits in a bar under the arena, never over the court.
+  const desktop = !isMobileArena(state.arena);
+  const bottomRow =
+    !stacked && playing && (controller || banner) ? (
+      <div style={desktop ? { ...bottomBarStyle, width: stageRect?.width } : bottomRowStyle}>
+        {controller && <InfoBox state={state} controller={controller} />}
+        {banner || <div style={{ flex: '1 1 0' }} />}
+        {controller && !touch && <FightMenu controller={controller} moves={moves} onToggleLock={toggleLock} />}
+      </div>
+    ) : null;
   const ping = netInfo?.();
   const meta = (
     <div style={metaRowStyle}>
@@ -132,68 +143,65 @@ export function ActionMatchScreen({
 
   return (
     <div style={pageStyle}>
-      <div style={isMobileArena(state.arena) ? mobileFrameStyle : desktopFrameStyle}>
-        <Suspense fallback={null}>
-          <PhaserGame engine={engine} controller={controller} onStageRectChange={setStageRect} />
-        </Suspense>
-        {stageRect && (
-          <div
-            style={{
-              ...overlayStyle,
-              left: stageRect.left,
-              top: stageRect.top,
-              width: stageRect.width,
-              height: stageRect.height,
-            }}
-          >
-            {stacked ? (
-              <div style={stackStyle}>
-                <TopHud state={state} engine={engine} compact />
-                {meta}
-                {controller && playing && <InfoBox state={state} controller={controller} />}
-                {banner}
-                {!state.teams && <Standings state={state} engine={engine} />}
-              </div>
-            ) : (
-              <>
-                <TopHud state={state} engine={engine} compact={false} />
-                <div style={{ position: 'absolute', top: 84, left: '50%', transform: 'translateX(-50%)' }}>{meta}</div>
-                {!state.teams && (
-                  <div style={{ position: 'absolute', right: 24, top: 16, width: 220 }}>
-                    <Standings state={state} engine={engine} />
-                  </div>
-                )}
-              </>
-            )}
-            {state.phase === 'intro' && <Banner title="GET READY" />}
-            {controller && state.phase === 'battle' && !engine.isAlive(playerId) && <DeathBanner state={state} controller={controller} />}
-            {controller && playing && touch && <TouchControls controller={controller} moves={moves} onToggleLock={toggleLock} />}
-            {!stacked && playing && (controller || banner) && (
-              <div style={bottomRowStyle}>
-                {controller && <InfoBox state={state} controller={controller} />}
-                {banner || <div style={{ flex: '1 1 0' }} />}
-                {controller && !touch && <FightMenu controller={controller} moves={moves} onToggleLock={toggleLock} />}
-              </div>
-            )}
-            {stacked && !touch && controller && playing && (
-              <div style={{ position: 'absolute', left: 10, right: 10, bottom: 10, display: 'flex', justifyContent: 'center' }}>
-                <FightMenu controller={controller} moves={moves} onToggleLock={toggleLock} />
-              </div>
-            )}
-            {state.phase === 'complete' && (
-              <Results
-                state={state}
-                engine={engine}
-                names={names}
-                labels={[playAgainLabel, exitLabel]}
-                onPlayAgain={onPlayAgain}
-                onExit={onExit}
-                crowd={crowd && state.teams ? { history: calls?.history ?? [], betResult: crowd.betResult } : undefined}
-                stacked={stacked}
-              />
-            )}
-          </div>
-        )}
+      <div style={desktop ? desktopColumnStyle : mobileFrameStyle}>
+        <div style={desktop ? desktopStageStyle : fillStyle}>
+          <Suspense fallback={null}>
+            <PhaserGame engine={engine} controller={controller} onStageRectChange={setStageRect} />
+          </Suspense>
+          {stageRect && (
+            <div
+              style={{
+                ...overlayStyle,
+                left: stageRect.left,
+                top: stageRect.top,
+                width: stageRect.width,
+                height: stageRect.height,
+              }}
+            >
+              {stacked ? (
+                <div style={stackStyle}>
+                  <TopHud state={state} engine={engine} compact />
+                  {meta}
+                  {controller && playing && <InfoBox state={state} controller={controller} />}
+                  {banner}
+                  {!state.teams && <Standings state={state} engine={engine} />}
+                </div>
+              ) : (
+                <>
+                  <TopHud state={state} engine={engine} compact={false} />
+                  <div style={{ position: 'absolute', top: 84, left: '50%', transform: 'translateX(-50%)' }}>{meta}</div>
+                  {!state.teams && (
+                    <div style={{ position: 'absolute', right: 24, top: 16, width: 220 }}>
+                      <Standings state={state} engine={engine} />
+                    </div>
+                  )}
+                </>
+              )}
+              {state.phase === 'intro' && <Banner title="GET READY" />}
+              {controller && state.phase === 'battle' && !engine.isAlive(playerId) && <DeathBanner state={state} controller={controller} />}
+              {controller && playing && touch && <TouchControls controller={controller} moves={moves} onToggleLock={toggleLock} />}
+              {!desktop && bottomRow}
+              {stacked && !touch && controller && playing && (
+                <div style={{ position: 'absolute', left: 10, right: 10, bottom: 10, display: 'flex', justifyContent: 'center' }}>
+                  <FightMenu controller={controller} moves={moves} onToggleLock={toggleLock} />
+                </div>
+              )}
+              {state.phase === 'complete' && (
+                <Results
+                  state={state}
+                  engine={engine}
+                  names={names}
+                  labels={[playAgainLabel, exitLabel]}
+                  onPlayAgain={onPlayAgain}
+                  onExit={onExit}
+                  crowd={crowd && state.teams ? { history: calls?.history ?? [], betResult: crowd.betResult } : undefined}
+                  stacked={stacked}
+                />
+              )}
+            </div>
+          )}
+        </div>
+        {desktop && bottomRow}
       </div>
     </div>
   );
@@ -764,12 +772,21 @@ const mobileFrameStyle: CSSProperties = {
   height: '100%',
   background: '#000',
 };
-const desktopFrameStyle: CSSProperties = {
-  position: 'relative',
+const fillStyle: CSSProperties = { position: 'relative', width: '100%', height: '100%' };
+/** The arena on top, scaled to fit what's left above the HUD bar. */
+const desktopColumnStyle: CSSProperties = {
   width: 'min(98%, 1800px)',
-  aspectRatio: '16 / 9',
-  maxHeight: '98vh',
-  background: '#000',
+  height: 'calc(100% - 16px)',
+  display: 'flex',
+  flexDirection: 'column',
+  alignItems: 'center',
+  gap: 10,
+};
+const desktopStageStyle: CSSProperties = {
+  position: 'relative',
+  alignSelf: 'stretch',
+  flex: '1 1 0',
+  minHeight: 0,
   borderRadius: 8,
   overflow: 'hidden',
 };
@@ -852,6 +869,15 @@ const quitButton: CSSProperties = {
   pointerEvents: 'auto',
 };
 const pingStyle: CSSProperties = { ...chip(PANEL), fontSize: 13, minHeight: 0, padding: '2px 6px' };
+const bottomBarStyle: CSSProperties = {
+  flex: 'none',
+  maxWidth: '100%',
+  display: 'flex',
+  alignItems: 'flex-end',
+  gap: 14,
+  fontFamily: FONT_BODY,
+  color: INK,
+};
 const bottomRowStyle: CSSProperties = {
   position: 'absolute',
   left: 24,
