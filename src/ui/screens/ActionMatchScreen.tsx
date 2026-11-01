@@ -90,7 +90,7 @@ export function ActionMatchScreen({
 }: ActionMatchScreenProps) {
   const state = useSimSnapshot(store);
   const [stageRect, setStageRect] = useState<StageRect | null>(null);
-  /** The desktop bar's last height: once the match ends and the bar goes, a spacer this tall keeps the arena where it was. */
+  /** The desktop bar's tallest height so far: the bar never shrinks below it, and once the match ends a spacer this tall keeps the arena where it was. */
   const barHeightRef = useRef(0);
   const touch = useMemo(() => IS_MOBILE_DEVICE || window.matchMedia('(pointer: coarse)').matches, []);
   const playerId = engine.playerId;
@@ -121,9 +121,9 @@ export function ActionMatchScreen({
     !stacked && playing && (controller || banner) ? (
       <div
         ref={(el) => {
-          if (el && desktop) barHeightRef.current = el.offsetHeight;
+          if (el && desktop) barHeightRef.current = Math.max(barHeightRef.current, el.offsetHeight);
         }}
-        style={desktop ? { ...bottomBarStyle, width: stageRect?.width } : bottomRowStyle}
+        style={desktop ? { ...bottomBarStyle, width: stageRect?.width, minHeight: barHeightRef.current } : bottomRowStyle}
       >
         {controller && <InfoBox state={state} controller={controller} />}
         {banner || <div style={{ flex: '1 1 0' }} />}
