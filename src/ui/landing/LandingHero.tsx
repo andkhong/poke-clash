@@ -1,4 +1,5 @@
 import { CrowdIcon, PlayIcon } from './icons';
+import { HERO_FIGHTERS } from './heroFighters';
 
 interface LandingHeroProps {
   /** Players seated in online rooms right now, or null until the room list
@@ -50,22 +51,21 @@ export function LandingHero({ playersOnline, onWatch }: LandingHeroProps) {
 
 function HeroCourt() {
   return (
-    <div className="lp-hero-art" role="img" aria-label="Illustration: a 2v2 match where Sapphire's crowd has called a Shield">
+    <div
+      className="lp-hero-art"
+      role="img"
+      aria-label="Illustration: Charmander and Pikachu for Team Ruby face Squirtle and Bulbasaur for Team Sapphire, whose crowd has called a Shield"
+    >
       <div className="lp-court">
         <span className="lp-court-line" />
         <span className="lp-court-circle" />
-        <span className="lp-token lp-token-ruby lp-hero-t1">
-          <span className="lp-hide-mobile">CHAR</span>
-        </span>
-        <span className="lp-token lp-token-ruby lp-hero-t2">
-          <span className="lp-hide-mobile">PIKA</span>
-        </span>
-        <span className="lp-shield-ring lp-hero-t3">
-          <span className="lp-token-sapphire" />
-        </span>
-        <span className="lp-shield-ring lp-hero-t4 lp-hide-mobile">
-          <span className="lp-token-sapphire" />
-        </span>
+        {HERO_FIGHTERS.map((f) => (
+          <span key={f.id} className={`lp-fighter ${f.slot}${f.hideOnMobile ? ' lp-hide-mobile' : ''}`}>
+            {f.shielded && <span className="lp-fighter-shield" />}
+            <span className={`lp-fighter-mark lp-fighter-mark-${f.team}`} />
+            <span className={`lp-sprite lp-sprite-${f.id}`} />
+          </span>
+        ))}
       </div>
       <div className="lp-msgbox lp-hero-msg">
         <span>

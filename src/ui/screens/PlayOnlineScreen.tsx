@@ -427,8 +427,12 @@ function RoomList({
             <div key={r.id} style={roomCard}>
               <div style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', gap: 4 }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
-                  <strong style={{ fontFamily: FONT_UI, fontSize: 20 }}>Room {r.id.toUpperCase()}</strong>
-                  <span style={chip(GROUND_ROUTE)}>{MODE_LABEL.get(r.mode)}</span>
+                  <strong style={{ fontFamily: FONT_UI, fontSize: 20 }}>{roomTitle(r)}</strong>
+                  {r.live ? (
+                    <span style={chip(CROWD_TINT)}>ALWAYS LIVE</span>
+                  ) : (
+                    <span style={chip(GROUND_ROUTE)}>{MODE_LABEL.get(r.mode)}</span>
+                  )}
                   {r.phase === 'battle' ? (
                     <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5, fontFamily: FONT_UI, fontSize: 16 }}>
                       <span style={{ width: 9, height: 9, borderRadius: '50%', background: HP_RED }} />
@@ -456,6 +460,23 @@ function RoomList({
   );
 }
 
+/** Always-live rooms go by their mode; others by their code. */
+function roomTitle(room: { id: string; mode: PlayModeKind; live: boolean }): string {
+  return room.live ? `Live ${MODE_LABEL.get(room.mode)}` : `Room ${room.id.toUpperCase()}`;
+}
+
+/** Whole seconds until a live room's next match, counting down locally from the last room update. */
+function useStartsIn(room: PlayRoomView): number | null {
+  const deadline = useMemo(() => (room.startsInMs !== null ? performance.now() + room.startsInMs : null), [room]);
+  const [now, setNow] = useState(() => performance.now());
+  useEffect(() => {
+    if (deadline === null) return;
+    const timer = setInterval(() => setNow(performance.now()), 250);
+    return () => clearInterval(timer);
+  }, [deadline]);
+  return deadline === null ? null : Math.max(0, Math.ceil((deadline - now) / 1000));
+}
+
 function Lobby({
   room,
   conn,
@@ -476,6 +497,7 @@ function Lobby({
   const taken = room.seats.filter((s) => s.index !== room.you && s.speciesId !== null).map((s) => s.speciesId!);
   const seated = room.seats.filter((s) => s.name !== null);
   const canStart = seated.length > 0 && seated.every((s) => s.ready);
+  const startsIn = useStartsIn(room);
   const copyLink = () => {
     void navigator.clipboard?.writeText(window.location.href).then(() => setCopied(true));
   };
@@ -496,11 +518,12 @@ function Lobby({
         </a>
         <div style={{ display: 'flex', flexDirection: 'column', gap: 1, minWidth: 0 }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
-            <h1 style={{ margin: 0, fontFamily: FONT_UI, fontWeight: 700, fontSize: 28 }}>Room {room.id.toUpperCase()}</h1>
+            <h1 style={{ margin: 0, fontFamily: FONT_UI, fontWeight: 700, fontSize: 28 }}>{roomTitle(room)}</h1>
             <span style={chip(GROUND_ROUTE)}>{room.mode === 'ffa' ? MODE_LABEL.get(room.mode) : `${MODE_LABEL.get(room.mode)} TEAMS`}</span>
           </div>
           <span style={{ fontSize: 14, color: INK_MUTED }}>
-            {you ? (you.host ? 'You are host' : 'You are playing') : 'Watching'} · {lobby ? 'Lobby' : 'Match in progress'} ·{' '}
+            {you ? (you.host ? 'You are host' : 'You are playing') : 'Watching'} ·{' '}
+            {lobby ? (startsIn !== null ? `Next match in ${startsIn}s` : 'Lobby') : 'Match in progress'} ·{' '}
             {isMobileArena(room.arena) ? 'Portrait arena' : 'Wide arena'}
           </span>
         </div>
@@ -577,29 +600,37 @@ function Lobby({
                 {you.moves.length > 0 && <MoveCards moveIds={you.moves} />}
                 <span style={{ fontSize: 14, color: INK_MUTED }}>Original 151 · no duplicates in a room</span>
               </section>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 16, flexWrap: 'wrap' }}>
-                <button
-                  onClick={() => conn.send({ t: 'ready', ready: !you.ready })}
-                  disabled={you.speciesId === null}
-                  aria-pressed={you.ready}
-                  style={hoennButton(you.ready ? 'primary' : 'secondary', you.speciesId !== null, 'lg')}
-                >
-                  {you.ready ? '✓ Ready' : 'I’m ready'}
-                </button>
-                <span style={{ fontSize: 15, color: INK_MUTED }}>
-                  {seated.filter((s) => s.ready).length} of {seated.length} humans ready · bots are always ready
-                </span>
-                {you.host && (
-                  <button
-                    onClick={() => conn.send({ t: 'start' })}
-                    disabled={!canStart}
-                    style={{ ...hoennButton('primary', canStart, 'lg'), marginLeft: 'auto' }}
-                  >
-                    ▶ Start match
-                  </button>
-                )}
-              </div>
-              {!you.host && <p style={{ ...bodyText, color: INK_MUTED }}>The host starts the match once everyone is ready.</p>}
+              {room.live ? (
+                <p style={{ ...bodyText, fontFamily: FONT_UI, fontSize: 20 }}>
+                  ▶ You’re in the next match{startsIn !== null ? ` — it starts in ${startsIn}s` : ''}. No pick? You get a random Pokémon.
+                </p>
+              ) : (
+                <>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 16, flexWrap: 'wrap' }}>
+                    <button
+                      onClick={() => conn.send({ t: 'ready', ready: !you.ready })}
+                      disabled={you.speciesId === null}
+                      aria-pressed={you.ready}
+                      style={hoennButton(you.ready ? 'primary' : 'secondary', you.speciesId !== null, 'lg')}
+                    >
+                      {you.ready ? '✓ Ready' : 'I’m ready'}
+                    </button>
+                    <span style={{ fontSize: 15, color: INK_MUTED }}>
+                      {seated.filter((s) => s.ready).length} of {seated.length} humans ready · bots are always ready
+                    </span>
+                    {you.host && (
+                      <button
+                        onClick={() => conn.send({ t: 'start' })}
+                        disabled={!canStart}
+                        style={{ ...hoennButton('primary', canStart, 'lg'), marginLeft: 'auto' }}
+                      >
+                        ▶ Start match
+                      </button>
+                    )}
+                  </div>
+                  {!you.host && <p style={{ ...bodyText, color: INK_MUTED }}>The host starts the match once everyone is ready.</p>}
+                </>
+              )}
             </>
           )}
           {!you && lobby && (

@@ -24,6 +24,7 @@ import {
   SUNK,
   textAlpha,
 } from '../theme';
+import { HERO_FIGHTER_CSS } from './heroFighters';
 
 /** The arena floor in the CSS-drawn courts (hero art, room thumbnails).
  * Illustration only, matched to the design canvas; not a theme token
@@ -137,6 +138,13 @@ export const LANDING_CSS = `
 .lp-shield-ring{position:absolute;display:flex;align-items:center;justify-content:center;width:64px;height:64px;box-sizing:border-box;
   border-radius:50%;border:4px dashed ${CROWD};background:${CROWD_TINT}}
 .lp-hero-t1{left:18%;top:22%}.lp-hero-t2{left:28%;top:56%}.lp-hero-t3{right:18%;top:16%}.lp-hero-t4{right:28%;top:52%}
+.lp-fighter{position:absolute;display:flex;align-items:center;justify-content:center;width:88px;height:88px}
+.lp-sprite{position:relative;z-index:1;image-rendering:pixelated;transform:scale(2)}
+.lp-fighter-mark{position:absolute;bottom:18px;left:50%;width:46px;height:14px;box-sizing:border-box;border-radius:50%;transform:translateX(-50%)}
+.lp-fighter-mark-ruby{border:3px solid ${RUBY};background:rgba(176,24,48,.25)}
+.lp-fighter-mark-sapphire{border:3px solid ${SAPPHIRE_DEEP};background:rgba(108,156,236,.35)}
+.lp-fighter-shield{position:absolute;inset:4px;box-sizing:border-box;border-radius:50%;border:4px dashed ${CROWD};background:rgba(214,239,224,.55)}
+${HERO_FIGHTER_CSS}
 .lp-msgbox{box-sizing:border-box;border-radius:8px;background:${PANEL};border:${OUTLINE};box-shadow:${TRIM}}
 .lp-hero-msg{position:absolute;left:3%;right:3%;bottom:4%;height:22%;display:flex;align-items:center;padding:12px 18px;
   font:400 21px/1.25 ${FONT_UI}}
@@ -150,6 +158,8 @@ export const LANDING_CSS = `
   .lp-court{left:5%;right:5%;top:6%;bottom:34%}
   .lp-court::before{inset:6px;border-width:2px}.lp-court-line{top:6px;bottom:6px;width:2px}.lp-court-circle{width:44px;height:44px;border-width:2px}
   .lp-token{width:34px;height:34px}.lp-hero-t1{left:18%;top:30%}
+  .lp-fighter{width:60px;height:60px}.lp-sprite{transform:scale(1.4)}.lp-fighter-mark{bottom:6px;width:34px;height:10px;border-width:2px}
+  .lp-fighter-shield{border-width:3px}
   .lp-shield-ring{width:52px;height:52px;border-width:3px}.lp-shield-ring .lp-token-sapphire{width:26px;height:26px}.lp-hero-t3{right:15%;top:18%}
   .lp-hero-msg{bottom:5%;height:26%;padding:8px 14px;font-size:18px;line-height:1.2}
   .lp-hero-actions .lp-btn-xl{min-height:58px}
@@ -305,6 +315,7 @@ html:has(.lp-modal[open]){overflow:hidden}
 
 /* ---------- reduced motion (keep last) ---------- */
 @media (prefers-reduced-motion:reduce){
+  .lp-sprite{animation:none}
   .lp-modal[open]{animation:none}
   .lp-btn,.lp-mode,.lp-modal-option{transition:none}
   .lp-btn:hover,.lp-btn:active,.lp-mode:hover,.lp-modal-option:hover{transform:none}

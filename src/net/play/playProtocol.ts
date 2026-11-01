@@ -65,6 +65,10 @@ export interface PlayRoomView {
   seats: SeatView[];
   /** The receiving connection's seat, or null while only watching. */
   you: number | null;
+  /** An always-live room: no host, bots always fighting, matches start themselves. */
+  live: boolean;
+  /** During a live room's break: ms until the next match starts (as of sending). */
+  startsInMs: number | null;
 }
 
 export interface PlayRoomSummary {
@@ -73,6 +77,7 @@ export interface PlayRoomSummary {
   players: number;
   seats: number;
   phase: 'lobby' | 'battle';
+  live: boolean;
 }
 
 export type ClientMessage =

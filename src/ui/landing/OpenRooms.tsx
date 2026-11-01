@@ -76,7 +76,7 @@ export function OpenRooms({ rooms, status }: OpenRoomsProps) {
 
 function RoomCard({ room }: { room: PlayRoomSummary }) {
   const label = modeLabel(room.mode);
-  const name = `Room ${room.id.toUpperCase()}`;
+  const name = room.live ? `Live ${label}` : `Room ${room.id.toUpperCase()}`;
   const openSeats = room.seats - room.players;
   const canJoin = room.phase === 'lobby' && openSeats > 0;
   const meta = room.phase === 'battle' ? `In progress · ${room.players} playing` : `${room.players} of ${room.seats} seats taken`;

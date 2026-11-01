@@ -1,13 +1,14 @@
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http';
 import { WebSocketServer } from 'ws';
-import { closePlayConnection, handlePlayMessage, openPlayConnection } from './playRooms';
+import { closePlayConnection, handlePlayMessage, openLiveRooms, openPlayConnection } from './playRooms';
 import { PLAY_WS_PATH } from '../src/net/play/playProtocol';
 import { BadRequestError, sendJson } from './httpUtil';
 import type { ApiErrorBody } from '../src/net/protocol';
 
 const PORT = Number(process.env.GAME_SERVER_PORT ?? 4311);
 // Play Mode's rooms live entirely on the WebSocket below (see playRooms.ts);
-// plain HTTP only answers health checks.
+// plain HTTP only answers health checks. The always-live rooms open now.
+openLiveRooms();
 
 function notFound(res: ServerResponse, message = 'not found'): void {
   sendJson(res, 404, { error: message } satisfies ApiErrorBody);

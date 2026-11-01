@@ -1,5 +1,13 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { closePlayConnection, handlePlayMessage, openPlayConnection, resetPlayRoomsForTests, type PlayConn } from './playRooms';
+import {
+  closePlayConnection,
+  handlePlayMessage,
+  LIVE_INTERMISSION_MS,
+  openLiveRooms,
+  openPlayConnection,
+  resetPlayRoomsForTests,
+  type PlayConn,
+} from './playRooms';
 import type { PlayRoomView, ServerMessage } from '../src/net/play/playProtocol';
 import { KANTO_IDS } from '../src/app/playMode';
 import type { ActionSnapshot } from '../src/sim/action/ActionEngine';
@@ -352,6 +360,53 @@ describe('online Play Mode rooms', () => {
       const { fan } = teamMatch('ffa');
       vi.advanceTimersByTime(25_000);
       expect(fan.inbox.filter((m) => m.t === 'calls').every((m) => m.t === 'calls' && m.current === null)).toBe(true);
+    });
+  });
+
+  describe('always-live rooms', () => {
+    it('opens 1v1, 2v2, 3v3 and FFA rooms already fighting, listed first, with no host', () => {
+      openLiveRooms();
+      const fan = connect('fan');
+      fan.say({ t: 'create', mode: 1, arena: { width: 900, height: 1950 } });
+      fan.say({ t: 'leave' });
+      fan.say({ t: 'list' });
+      const listed = fan.last('rooms')!.rooms;
+      expect(listed.slice(0, 4).map((r) => [r.id, r.mode, r.phase, r.live])).toEqual([
+        ['live1v1', 1, 'battle', true],
+        ['live2v2', 2, 'battle', true],
+        ['live3v3', 3, 'battle', true],
+        ['liveffa', 'ffa', 'battle', true],
+      ]);
+      fan.say({ t: 'join', roomId: 'live2v2' });
+      expect(fan.room()).toMatchObject({ live: true, phase: 'battle', you: null });
+      expect(fan.room().seats.every((s) => !s.host)).toBe(true);
+      expect(fan.last('start')!.you).toBeNull(); // arrived mid-match: watching
+    });
+
+    it('survives everyone leaving, then starts its next match on its own after the break', () => {
+      openLiveRooms();
+      const fan = connect('fan');
+      fan.say({ t: 'join', roomId: 'live1v1' });
+      closePlayConnection(fan.conn);
+
+      // Bots alone finish a match eventually; then a break, then a fresh one.
+      const watcher = connect('watcher');
+      watcher.say({ t: 'join', roomId: 'live1v1', watch: true });
+      const starts = () => watcher.inbox.filter((m) => m.t === 'start').length;
+      const before = starts();
+      for (let i = 0; i < 400 && watcher.room().phase === 'battle'; i++) vi.advanceTimersByTime(1000);
+      expect(watcher.room()).toMatchObject({ phase: 'lobby', live: true });
+      expect(watcher.room().startsInMs).toBeGreaterThan(LIVE_INTERMISSION_MS - 1000);
+
+      // A player who sits during the break but never picks still gets a Pokémon.
+      const player = connect('player');
+      player.say({ t: 'join', roomId: 'live1v1' });
+      expect(player.room().you).toBe(0);
+      vi.advanceTimersByTime(LIVE_INTERMISSION_MS);
+      expect(starts()).toBe(before + 1);
+      const start = player.last('start')!;
+      expect(start.you).toBe(`p0-${start.config.speciesIds[0]}`);
+      expect(player.room().phase).toBe('battle');
     });
   });
 });

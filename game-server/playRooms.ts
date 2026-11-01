@@ -48,6 +48,16 @@ import { adjustBalance, getBalance, MATCH_WATCHED_REWARD, touchWallet, walletStr
 
 /** Snapshots go out every second 60 Hz tick: 30 Hz (~730 B each, ~22 KB/s per player). */
 const SNAPSHOT_EVERY_TICKS = 2;
+/** Always-live rooms: one per mode, never deleted, a bot-filled match always
+ * running. Between matches a short break lets people take a seat and pick
+ * before the next one starts on its own. Ids are route-safe (#/play/<id>). */
+export const LIVE_ROOMS: readonly { id: string; mode: PlayModeKind }[] = [
+  { id: 'live1v1', mode: 1 },
+  { id: 'live2v2', mode: 2 },
+  { id: 'live3v3', mode: 3 },
+  { id: 'liveffa', mode: 'ffa' },
+];
+export const LIVE_INTERMISSION_MS = 15_000;
 const MAX_NAME_LENGTH = 24;
 /** While a Crowd Call is voting, its tally goes out every this many ticks (~4×/s). */
 const CALL_BROADCAST_EVERY_TICKS = 15;
@@ -115,6 +125,11 @@ interface PlayRoom {
   nextChatId: number;
   chatBuckets: Map<string, RateBucket>;
   itemBuckets: Map<string, RateBucket>;
+  /** One of LIVE_ROOMS: no host, never deleted, matches start themselves. */
+  live: boolean;
+  /** When a live room's next match starts (Date.now() ms), during its break. */
+  nextStartAtMs: number | null;
+  startTimer: ReturnType<typeof setTimeout> | null;
 }
 
 const rooms = new Map<string, PlayRoom>();
@@ -181,19 +196,21 @@ export function handlePlayMessage(conn: PlayConn, raw: unknown): void {
 }
 
 export function listPlayRooms(): PlayRoomSummary[] {
-  return [...rooms.values()].map((room) => ({
-    id: room.id,
-    mode: room.mode,
-    players: room.seats.filter((seat) => seat.conn).length,
-    seats: room.seats.length,
-    phase: room.battle ? 'battle' : 'lobby',
-  }));
+  return [...rooms.values()]
+    .map((room) => ({
+      id: room.id,
+      mode: room.mode,
+      players: room.seats.filter((seat) => seat.conn).length,
+      seats: room.seats.length,
+      phase: room.battle ? ('battle' as const) : ('lobby' as const),
+      live: room.live,
+    }))
+    .sort((a, b) => Number(b.live) - Number(a.live));
 }
 
-export function createPlayRoom(mode: PlayModeKind, arena: ArenaBounds): PlayRoom {
-  let id: string;
-  do id = Math.random().toString(36).slice(2, 7);
-  while (rooms.has(id));
+export function createPlayRoom(mode: PlayModeKind, arena: ArenaBounds, liveId?: string): PlayRoom {
+  let id = liveId ?? '';
+  while (!id || (!liveId && rooms.has(id))) id = Math.random().toString(36).slice(2, 7);
   const room: PlayRoom = {
     id,
     mode,
@@ -210,14 +227,28 @@ export function createPlayRoom(mode: PlayModeKind, arena: ArenaBounds): PlayRoom
     nextChatId: 1,
     chatBuckets: new Map(),
     itemBuckets: new Map(),
+    live: liveId !== undefined,
+    nextStartAtMs: null,
+    startTimer: null,
   };
   rooms.set(id, room);
   return room;
 }
 
+/** Opens the always-live rooms (server start), each straight into a bot match. */
+export function openLiveRooms(): void {
+  for (const { id, mode } of LIVE_ROOMS) {
+    if (rooms.has(id)) continue;
+    startBattle(createPlayRoom(mode, wideArena(), id));
+  }
+}
+
 /** Test hook: drop every room (and stop its match loop). */
 export function resetPlayRoomsForTests(): void {
-  for (const room of rooms.values()) if (room.battle) clearInterval(room.battle.timer);
+  for (const room of rooms.values()) {
+    if (room.battle) clearInterval(room.battle.timer);
+    if (room.startTimer) clearTimeout(room.startTimer);
+  }
   rooms.clear();
 }
 
@@ -255,7 +286,8 @@ function joinRoom(conn: PlayConn, roomId: string, watch = false): void {
     const seat = room.seats.find((s) => !s.conn);
     if (seat) Object.assign(seat, { conn, speciesId: null, moves: [], ready: false });
   }
-  room.host ??= conn;
+  // Live rooms have no host: nobody changes their mode or starts them.
+  if (!room.live) room.host ??= conn;
   broadcastRoom(room);
   // Arriving mid-match: watch it.
   if (room.battle) conn.send(startMessage(room.battle, conn));
@@ -283,7 +315,7 @@ function leaveRoom(conn: PlayConn): void {
     });
   }
   if (room.host === conn) room.host = room.seats.find((s) => s.conn)?.conn ?? [...room.conns][0] ?? null;
-  if (room.conns.size === 0) {
+  if (room.conns.size === 0 && !room.live) {
     if (room.battle) clearInterval(room.battle.timer);
     rooms.delete(room.id);
     return;
@@ -378,6 +410,17 @@ function handleBattleMessage(battle: Battle, conn: PlayConn, msg: Record<string,
 }
 
 function startBattle(room: PlayRoom): void {
+  if (room.live) {
+    // Nobody readies up in a live room: a seated player who hasn't picked gets a random Pokémon.
+    const taken = new Set(room.seats.flatMap((s) => (s.speciesId !== null ? [s.speciesId] : [])));
+    for (const seat of room.seats) {
+      if (!seat.conn || seat.speciesId !== null) continue;
+      const free = KANTO_IDS.filter((id) => !taken.has(id));
+      const speciesId = free[Math.floor(Math.random() * free.length)];
+      taken.add(speciesId);
+      Object.assign(seat, { speciesId, moves: rollMoves(speciesId) });
+    }
+  }
   const config = buildPlayMatchConfig(
     room.mode,
     room.seats.map((s) => (s.conn && s.speciesId !== null ? { speciesId: s.speciesId, moves: s.moves } : null)),
@@ -533,6 +576,14 @@ function endBattle(room: PlayRoom): void {
     if (seat.conn) seat.ready = false;
     else Object.assign(seat, { speciesId: null, moves: [], ready: false });
   }
+  if (room.live) {
+    room.nextStartAtMs = Date.now() + LIVE_INTERMISSION_MS;
+    room.startTimer = setTimeout(() => {
+      room.startTimer = null;
+      room.nextStartAtMs = null;
+      if (!room.battle) startBattle(room);
+    }, LIVE_INTERMISSION_MS);
+  }
   broadcastRoom(room);
 }
 
@@ -558,6 +609,8 @@ function sendRoom(room: PlayRoom, conn: PlayConn): void {
     phase: room.battle ? 'battle' : 'lobby',
     seats,
     you: youIndex >= 0 ? youIndex : null,
+    live: room.live,
+    startsInMs: room.nextStartAtMs !== null ? Math.max(0, room.nextStartAtMs - Date.now()) : null,
   };
   conn.send({ t: 'room', room: view });
 }
