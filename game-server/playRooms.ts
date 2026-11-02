@@ -1,5 +1,5 @@
 import {
-  KANTO_IDS,
+  PLAY_IDS,
   PLAY_LEVEL,
   buildPlayMatchConfig,
   isPlayModeKind,
@@ -55,6 +55,7 @@ export const LIVE_ROOMS: readonly { id: string; mode: PlayModeKind }[] = [
   { id: 'live1v1', mode: 1 },
   { id: 'live2v2', mode: 2 },
   { id: 'live3v3', mode: 3 },
+  { id: 'live4v4', mode: 4 },
   { id: 'liveffa', mode: 'ffa' },
 ];
 export const LIVE_INTERMISSION_MS = 15_000;
@@ -390,7 +391,7 @@ function handleLobbyMessage(room: PlayRoom, conn: PlayConn, msg: Record<string, 
     }
     case 'pick': {
       const id = msg.speciesId;
-      if (!seat || typeof id !== 'number' || !KANTO_IDS.includes(id)) return;
+      if (!seat || typeof id !== 'number' || !PLAY_IDS.includes(id)) return;
       if (room.seats.some((s) => s !== seat && s.speciesId === id))
         return conn.send({
           t: 'error',
@@ -454,7 +455,7 @@ function startBattle(room: PlayRoom): void {
     const taken = new Set(room.seats.flatMap((s) => (s.speciesId !== null ? [s.speciesId] : [])));
     for (const seat of room.seats) {
       if (!seat.conn || seat.speciesId !== null) continue;
-      const free = KANTO_IDS.filter((id) => !taken.has(id));
+      const free = PLAY_IDS.filter((id) => !taken.has(id));
       const speciesId = free[Math.floor(Math.random() * free.length)];
       taken.add(speciesId);
       Object.assign(seat, { speciesId, moves: rollMoves(speciesId) });

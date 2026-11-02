@@ -37,7 +37,7 @@ export const ENERGY = '#528bc5'; // energy bar
 export const OUTLINE = `3px solid ${INK}`; // message-box border
 
 /** Pixel face with real weights: headings, HUD, buttons, labels, message-box text. 18px and up. */
-export const FONT_UI = "'Pixelify Sans', 'Press Start 2P', monospace";
+export const FONT_UI = "'UI Digits', 'Pixelify Sans', 'Press Start 2P', monospace"; // UI Digits: see index.html
 /** Body copy, chat and long text — built for small-size legibility. */
 export const FONT_BODY = "'Atkinson Hyperlegible', system-ui, sans-serif";
 /** Tiny accents only: timers, key caps, HP/EN tags (matches the in-arena labels). */

@@ -1,4 +1,5 @@
 import type { MyBet, PredictionOptionSummary, PredictionSummary, WalletEventPayload } from '../../net/protocol';
+import { intl } from '../../i18n';
 import { teamColorCss } from '../teamColors';
 import { ACCENT, SECONDARY, TEXT_ACCENTS } from '../theme';
 
@@ -78,16 +79,45 @@ export function canBetOn(prediction: PredictionSummary, option: PredictionOption
 export function resultText(prediction: PredictionSummary, settled: WalletEventPayload['settled'] | null | undefined): string | null {
   if (prediction.status !== 'settled') return null;
   const winner = prediction.options.find((o) => o.id === prediction.winnerOptionId) ?? null;
-  const head = winner ? `${winner.label.toUpperCase()} WINS` : 'NO WINNER';
-  if (prediction.refunded) return prediction.pool > 0 ? `${head} · bets refunded` : head;
+  const head = winner
+    ? intl.formatMessage({ id: 'predictions.result.wins', defaultMessage: '{name} WINS' }, { name: winner.label.toUpperCase() })
+    : intl.formatMessage({
+        id: 'predictions.result.noWinner',
+        defaultMessage: 'NO WINNER',
+      });
+  if (prediction.refunded) {
+    return prediction.pool > 0
+      ? intl.formatMessage(
+          {
+            id: 'predictions.result.refunded',
+            defaultMessage: '{head} · bets refunded',
+          },
+          { head }
+        )
+      : head;
+  }
   if (!settled || settled.staked === 0) return head;
   const net = settled.returned - settled.staked;
-  return `${head} · you ${net >= 0 ? '+' : '-'}${formatDollars(Math.abs(net))}`;
+  return intl.formatMessage(
+    {
+      id: 'predictions.result.net',
+      defaultMessage: '{head} · you {sign}{amount}',
+    },
+    { head, sign: net >= 0 ? '+' : '-', amount: formatDollars(Math.abs(net)) }
+  );
 }
 
 /** "+$100 for watching", or null when this viewer earned nothing. */
 export function watchedText(settled: WalletEventPayload['settled'] | null | undefined): string | null {
-  return settled && settled.watched > 0 ? `+${formatDollars(settled.watched)} for watching` : null;
+  return settled && settled.watched > 0
+    ? intl.formatMessage(
+        {
+          id: 'predictions.result.watched',
+          defaultMessage: '+{amount} for watching',
+        },
+        { amount: formatDollars(settled.watched) }
+      )
+    : null;
 }
 
 /** An option's colour — its side's in a team room, boss/party accents, or
@@ -108,20 +138,44 @@ export function optionColor(option: PredictionOptionSummary): string {
 export function betErrorNotice(error: string): string {
   switch (error) {
     case 'closed':
-      return 'Betting is closed';
+      return intl.formatMessage({
+        id: 'predictions.error.closed',
+        defaultMessage: 'Betting is closed',
+      });
     case 'insufficient_funds':
-      return 'Not enough Pokémon Dollars';
+      return intl.formatMessage({
+        id: 'predictions.error.insufficientFunds',
+        defaultMessage: 'Not enough Pokémon Dollars',
+      });
     case 'option_locked':
-      return 'Already fainted';
+      return intl.formatMessage({
+        id: 'predictions.error.optionLocked',
+        defaultMessage: 'Already fainted',
+      });
     case 'cannot_switch':
-      return 'You already backed another';
+      return intl.formatMessage({
+        id: 'predictions.error.cannotSwitch',
+        defaultMessage: 'You already backed another',
+      });
     case 'no_prediction':
-      return 'No match to bet on';
+      return intl.formatMessage({
+        id: 'predictions.error.noPrediction',
+        defaultMessage: 'No match to bet on',
+      });
     case 'not_signed_up':
-      return 'Sign up to bet';
+      return intl.formatMessage({
+        id: 'predictions.error.notSignedUp',
+        defaultMessage: 'Sign up to bet',
+      });
     case 'fighters_cant':
-      return 'Fighters can’t bet';
+      return intl.formatMessage({
+        id: 'predictions.error.fightersCant',
+        defaultMessage: 'Fighters can’t bet',
+      });
     default:
-      return 'Couldn’t place bet';
+      return intl.formatMessage({
+        id: 'predictions.error.generic',
+        defaultMessage: 'Couldn’t place bet',
+      });
   }
 }

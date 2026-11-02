@@ -1,6 +1,7 @@
+import { FormattedMessage, useIntl } from 'react-intl';
 import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from 'react';
 import { resolveMatchArena } from '../../app/config';
-import { KANTO_IDS, PLAY_LEVEL, PLAY_MODES, type PlayModeKind } from '../../app/playMode';
+import { PLAY_IDS, PLAY_LEVEL, PLAY_MODES, type PlayModeKind } from '../../app/playMode';
 import { buildSpeciesMapForLevel, listAllSpecies, moveLookup } from '../../data/loader';
 import { PlayerController } from '../../sim/action/playerController';
 import { isMobileArena } from '../../sim/constants';
@@ -12,9 +13,11 @@ import { SPECTATOR_NAME_MAX_LENGTH } from '../../net/chat';
 import type { ItemId } from '../../net/shop';
 import { SESSION_ID } from '../../net/sessionIdentity';
 import { SPECTATOR_NAME } from '../../net/spectatorIdentity';
+import { intl as globalIntl } from '../../i18n';
 import { createSimStore, type SimStore } from '../state/simStore';
 import { SpeciesPicker } from '../components/SpeciesPicker';
 import { MoveCards } from '../components/MoveCards';
+import { SpeciesSprite } from '../components/SpeciesSprite';
 import { ActionMatchScreen } from './ActionMatchScreen';
 import { ChatPanel, type ChatPanelProps } from '../chat/ChatPanel';
 import { ChatSidebar } from '../chat/ChatSidebar';
@@ -25,15 +28,11 @@ import type { ShopPanelProps } from '../shop/ShopPanel';
 import { useMediaQuery } from '../hooks/useMediaQuery';
 import { initialLockOn } from '../playModeSettings';
 import { TEAM_A_COLOR_CSS, TEAM_B_COLOR_CSS } from '../teamColors';
-import { typeColorCss, typeTextCss } from '../typeColorCss';
 import {
   ACTION,
   CROWD_TINT,
   FONT_BODY,
-  FONT_PIXEL,
   FONT_UI,
-  FRAME,
-  GROUND,
   GROUND_ROUTE,
   HP_GREEN,
   HP_RED,
@@ -51,9 +50,10 @@ import {
 import type { CrowdCallPanelProps } from '../crowd/CrowdCallPanel';
 import { createCrowdCallsStore, isCrowdSide } from '../crowd/crowdModel';
 import { chip, hoennButton, hoennButtonSm, teamMarker } from '../crowd/hoenn';
+import { TopBar, backButton, bodyText, cardStyle, chosenPreview, columnStyle, headingStyle, pageStyle, pickerSection, topBarStyle } from './playLayout';
 
-const KANTO_SPECIES = listAllSpecies().filter((s) => KANTO_IDS.includes(s.id));
-const SPECIES_NAME = new Map(KANTO_SPECIES.map((s) => [s.id, s.name]));
+const PLAY_SPECIES = listAllSpecies().filter((s) => PLAY_IDS.includes(s.id));
+const SPECIES_NAME = new Map(PLAY_SPECIES.map((s) => [s.id, s.name]));
 const MODE_LABEL = new Map(PLAY_MODES.map((m) => [m.value, m.label]));
 const ROOM_LIST_POLL_MS = 3000;
 const NAME_STORAGE_KEY = 'pokeclash.play.name';
@@ -93,11 +93,19 @@ interface OnlineMatch {
 /** One line for Results: what the viewer's bet did, plus the watch reward. */
 function betResultText(settled: WalletEventPayload['settled'] | null): string | null {
   if (!settled) return null;
-  const watched = settled.watched > 0 ? `+$${settled.watched} for watching` : '';
+  const watched =
+    settled.watched > 0
+      ? globalIntl.formatMessage({ id: 'play.bet.watchReward', defaultMessage: '+${amount} for watching' }, { amount: settled.watched })
+      : '';
   if (settled.staked <= 0) return watched || null;
   const net = settled.returned - settled.staked;
-  const bet = net > 0 ? `Won $${net}` : net === 0 ? `Refunded $${settled.staked}` : `Lost $${settled.staked}`;
-  return watched ? `${bet} · ${watched}` : bet;
+  const bet =
+    net > 0
+      ? globalIntl.formatMessage({ id: 'play.bet.won', defaultMessage: 'Won ${amount}' }, { amount: net })
+      : net === 0
+        ? globalIntl.formatMessage({ id: 'play.bet.refunded', defaultMessage: 'Refunded ${amount}' }, { amount: settled.staked })
+        : globalIntl.formatMessage({ id: 'play.bet.lost', defaultMessage: 'Lost ${amount}' }, { amount: settled.staked });
+  return watched ? globalIntl.formatMessage({ id: 'play.bet.joined', defaultMessage: '{bet} · {watched}' }, { bet, watched }) : bet;
 }
 
 /** Online Play Mode: #/play lists and creates rooms, #/play/<id> is one room's
@@ -111,10 +119,12 @@ export function PlayOnlineScreen({
   /** Join `roomId` as a spectator (the `?watch` link). */
   watch?: boolean;
 }) {
+  const intl = useIntl();
   const [conn, setConn] = useState<PlayConnection | null>(null);
   const [rooms, setRooms] = useState<PlayRoomSummary[]>([]);
   const [room, setRoom] = useState<PlayRoomView | null>(null);
   const [match, setMatch] = useState<OnlineMatch | null>(null);
+  const nextMatchIn = useStartsIn(room);
   const [error, setError] = useState<string | null>(null);
   const [closed, setClosed] = useState(false);
   const [me, setMe] = useState<Me | null>(null);
@@ -222,9 +232,11 @@ export function PlayOnlineScreen({
   if (closed) {
     return (
       <div style={{ ...pageStyle, justifyContent: 'center' }}>
-        <p style={{ fontFamily: FONT_UI, fontSize: 22 }}>Lost the connection to the game server.</p>
+        <p style={{ fontFamily: FONT_UI, fontSize: 22 }}>
+          {intl.formatMessage({ id: 'play.closed.message', defaultMessage: 'Lost the connection to the game server.' })}
+        </p>
         <button onClick={() => window.location.reload()} style={hoennButton('primary', true, 'lg')}>
-          Reconnect
+          {intl.formatMessage({ id: 'play.closed.reconnect', defaultMessage: 'Reconnect' })}
         </button>
       </div>
     );
@@ -236,7 +248,7 @@ export function PlayOnlineScreen({
     mySpectatorName: me?.name ?? HELLO_NAME,
     canSend: me?.name != null || room?.you != null,
     onSend: (text) => conn.request({ t: 'chat', text }),
-    disabledPlaceholder: 'Sign up to chat',
+    disabledPlaceholder: intl.formatMessage({ id: 'play.chat.signUpToChat', defaultMessage: 'Sign up to chat' }),
   };
   const predictions: PredictionsPanelProps = {
     prediction: market.prediction,
@@ -270,7 +282,7 @@ export function PlayOnlineScreen({
     );
     const signUp = spectator && (
       <>
-        <SignUpForm me={me} conn={conn} error={error} prompt="Join the crowd to vote, chat and bet" variant="crowd" />
+        <SignUpForm me={me} conn={conn} error={error} prompt={intl.formatMessage({ id: 'play.signUp.crowdPrompt', defaultMessage: 'Join the crowd to vote, chat and bet' })} variant="crowd" />
         {joinNext}
       </>
     );
@@ -293,14 +305,16 @@ export function PlayOnlineScreen({
             engine={match.engine}
             controller={match.controller}
             names={match.names}
-            playAgainLabel="BACK TO LOBBY"
-            exitLabel="LEAVE ROOM"
+            playAgainLabel={intl.formatMessage({ id: 'play.match.backToLobby', defaultMessage: 'BACK TO LOBBY' })}
+            exitLabel={intl.formatMessage({ id: 'play.match.leaveRoom', defaultMessage: 'LEAVE ROOM' })}
             onPlayAgain={() => setMatch(null)}
             onExit={() => {
               setMatch(null);
               window.location.hash = '#/play';
             }}
-            netInfo={() => (conn.rttMs !== null ? `${conn.rttMs} ms` : null)}
+            // Only worth showing when it explains lag.
+            netInfo={() => (conn.rttMs !== null && conn.rttMs >= 150 ? `${conn.rttMs} ms` : null)}
+            nextMatchIn={nextMatchIn}
             crowd={{ calls, side: me?.side ?? null, betResult: spectator ? betResultText(settled) : null }}
           />
           {/* On a phone the drawer would sit on a fighter's joystick, so only spectators get it there. */}
@@ -341,21 +355,40 @@ function JoinNextMatch({
   freeSeats: number;
   onToggle: () => void;
 }) {
+  const intl = useIntl();
   const gettingIn = myPlace !== null && myPlace <= freeSeats;
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
       <button onClick={onToggle} aria-pressed={queued} style={hoennButton(queued ? 'secondary' : 'primary')}>
-        {queued ? '✓ In line · cancel' : '▶ Join next match'}
+        {queued ? intl.formatMessage({ id: 'play.joinNext.cancel', defaultMessage: '✓ In line · cancel' }) : intl.formatMessage({ id: 'play.joinNext.join', defaultMessage: '▶ Join next match' })}
       </button>
       <span style={{ fontSize: 12, color: INK_MUTED, textAlign: 'center' }}>
         {!queued
-          ? `Fight in the next match instead of watching · ${freeSeats} ${freeSeats === 1 ? 'seat' : 'seats'} open`
+          ? intl.formatMessage(
+              {
+                id: 'play.joinNext.hint',
+                defaultMessage: 'Fight in the next match instead of watching · {freeSeats, plural, one {# seat} other {# seats}} open',
+              },
+              { freeSeats }
+            )
           : gettingIn
-            ? `You’re #${myPlace} — you get a seat when this one ends. Pick a Pokémon in the break, or get a random one.`
-            : `You’re #${myPlace} for ${freeSeats} ${freeSeats === 1 ? 'seat' : 'seats'} — if it fills up, you keep watching.`}
+            ? intl.formatMessage(
+                {
+                  id: 'play.joinNext.gettingIn',
+                  defaultMessage: 'You’re #{place} — you get a seat when this one ends. Pick a Pokémon in the break, or get a random one.',
+                },
+                { place: myPlace }
+              )
+            : intl.formatMessage(
+                {
+                  id: 'play.joinNext.waiting',
+                  defaultMessage: 'You’re #{place} for {freeSeats, plural, one {# seat} other {# seats}} — if it fills up, you keep watching.',
+                },
+                { place: myPlace, freeSeats }
+              )}
       </span>
       {queue.length > 0 && (
-        <ol aria-label="Next match queue" style={queueListStyle}>
+        <ol aria-label={intl.formatMessage({ id: 'play.joinNext.queueLabel', defaultMessage: 'Next match queue' })} style={queueListStyle}>
           {queue.map((name, i) => (
             <li key={`${i}-${name}`} style={{ ...queueRowStyle, opacity: i < freeSeats ? 1 : 0.6 }}>
               <span style={{ fontFamily: FONT_UI, minWidth: 22 }}>{i + 1}.</span>
@@ -369,10 +402,9 @@ function JoinNextMatch({
                   fontWeight: i + 1 === myPlace ? 700 : 400,
                 }}
               >
-                {name}
-                {i + 1 === myPlace ? ' (you)' : ''}
+                {i + 1 === myPlace ? intl.formatMessage({ id: 'play.joinNext.you', defaultMessage: '{name} (you)' }, { name }) : name}
               </span>
-              <span style={{ fontSize: 12, color: INK_MUTED }}>{i < freeSeats ? 'gets a seat' : 'waiting'}</span>
+              <span style={{ fontSize: 12, color: INK_MUTED }}>{i < freeSeats ? intl.formatMessage({ id: 'play.joinNext.getsSeat', defaultMessage: 'gets a seat' }) : intl.formatMessage({ id: 'play.joinNext.waitingLabel', defaultMessage: 'waiting' })}</span>
             </li>
           ))}
         </ol>
@@ -412,6 +444,7 @@ function SignUpForm({
   /** 'crowd': the mock's green "Join the crowd" card. */
   variant?: 'plain' | 'crowd';
 }) {
+  const intl = useIntl();
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState(me?.name ?? storedName() ?? '');
   const crowd = variant === 'crowd';
@@ -419,11 +452,15 @@ function SignUpForm({
     return (
       <div style={{ ...signUpBox, ...(crowd ? signUpBoxCompact : null), flexDirection: 'row', alignItems: 'center', background: INFO_BOX }}>
         <span style={{ flex: 1, fontSize: crowd ? 13 : 15 }}>
-          Signed up as <b>{me.name}</b>
+          <FormattedMessage
+            id="play.signUp.signedUpAs"
+            defaultMessage="Signed up as <b>{name}</b>"
+            values={{ name: me.name, b: (c) => <b>{c}</b> }}
+          />
         </span>
         <span style={chip(ACTION)}>${me.balance.toLocaleString()}</span>
         <button onClick={() => setEditing(true)} style={crowd ? hoennButtonSm('secondary', true, false) : hoennButton('secondary')}>
-          Change name
+          {intl.formatMessage({ id: 'play.signUp.changeName', defaultMessage: 'Change name' })}
         </button>
       </div>
     );
@@ -444,20 +481,22 @@ function SignUpForm({
     >
       {prompt && <strong style={{ fontFamily: FONT_UI, fontSize: 20 }}>{prompt}</strong>}
       <label style={{ display: 'flex', flexDirection: 'column', gap: 4, fontSize: 14, fontWeight: 700 }}>
-        Display name
+        {intl.formatMessage({ id: 'play.signUp.displayName', defaultMessage: 'Display name' })}
         <input
           value={draft}
           onChange={(e) => setDraft(e.target.value)}
           maxLength={SPECTATOR_NAME_MAX_LENGTH}
-          placeholder="Pick a name"
+          placeholder={intl.formatMessage({ id: 'play.signUp.namePlaceholder', defaultMessage: 'Pick a name' })}
           style={nameInput}
         />
       </label>
       <button type="submit" disabled={!ready} style={hoennButton(crowd ? 'crowd' : 'primary', ready)}>
-        {crowd ? 'Join the crowd' : 'Sign up'}
+        {crowd ? intl.formatMessage({ id: 'play.signUp.joinCrowd', defaultMessage: 'Join the crowd' }) : intl.formatMessage({ id: 'play.signUp.continue', defaultMessage: 'Continue' })}
       </button>
       <span style={{ fontSize: 13 }}>
-        No account. {crowd ? 'Your side locks once you vote or bet this match.' : 'Chat, bet, buy items and vote in Crowd Calls.'}
+        {crowd
+          ? intl.formatMessage({ id: 'play.signUp.noAccountNeededCrowd', defaultMessage: 'No account needed. Your side locks once you vote or bet this match.' })
+          : intl.formatMessage({ id: 'play.signUp.noAccountNeeded', defaultMessage: 'No account needed. Chat, bet, buy items and vote in Crowd Calls.' })}
       </span>
       {error && (
         <span role="alert" style={errorStyle}>
@@ -481,21 +520,29 @@ function RoomList({
   me: Me | null;
   onWatch: (roomId: string) => void;
 }) {
+  const intl = useIntl();
   const create = (mode: PlayModeKind) => conn.send({ t: 'create', mode, arena: resolveMatchArena(true) });
   return (
     <div style={pageStyle}>
-      <TopBar backHref="#/" title="Play online" subtitle="Real players, real time. Empty seats are filled with bots." />
+      <TopBar
+        backHref="#/"
+        title={intl.formatMessage({ id: 'play.rooms.title', defaultMessage: 'Play online' })}
+        subtitle={intl.formatMessage({ id: 'play.rooms.subtitle', defaultMessage: 'Real players, real time. Empty seats are filled with bots.' })}
+      />
       <div style={columnStyle}>
         <section style={{ ...cardStyle, background: CROWD_TINT }}>
-          <h2 style={{ ...headingStyle, color: CROWD_TEXT }}>Watch &amp; vote</h2>
+          <h2 style={{ ...headingStyle, color: CROWD_TEXT }}>{intl.formatMessage({ id: 'play.rooms.watchHeading', defaultMessage: 'Watch & vote' })}</h2>
           <p style={bodyText}>
-            Not playing? Hit <b>WATCH</b> on any room. In team matches the crowd votes in <b>Crowd Calls</b> — speed bursts, shields, energy
-            and supply drops for the side you cheer for. You can chat, bet and send potions too.
+            <FormattedMessage
+              id="play.rooms.watchBody"
+              defaultMessage="Not playing? Hit <b>WATCH</b> on any room. In team matches the crowd votes in <b>Crowd Calls</b> — speed bursts, shields, energy and supply drops for the side you cheer for. You can chat, bet and send potions too."
+              values={{ b: (c) => <b>{c}</b> }}
+            />
           </p>
         </section>
         <SignUpForm me={me} conn={conn} error={error} />
         <section style={cardStyle}>
-          <h2 style={headingStyle}>Create a room</h2>
+          <h2 style={headingStyle}>{intl.formatMessage({ id: 'play.rooms.create', defaultMessage: 'Create a room' })}</h2>
           <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
             {PLAY_MODES.map((m) => (
               <button key={m.label} onClick={() => create(m.value)} style={hoennButton('secondary')}>
@@ -505,36 +552,38 @@ function RoomList({
           </div>
         </section>
         <section style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-          <h2 style={headingStyle}>Open rooms</h2>
-          {rooms.length === 0 && <p style={{ ...bodyText, color: INK_MUTED }}>None yet — create one and share the link.</p>}
+          <h2 style={headingStyle}>{intl.formatMessage({ id: 'play.rooms.open', defaultMessage: 'Open rooms' })}</h2>
+          {rooms.length === 0 && <p style={{ ...bodyText, color: INK_MUTED }}>{intl.formatMessage({ id: 'play.rooms.none', defaultMessage: 'None yet — create one and share the link.' })}</p>}
           {rooms.map((r) => (
             <div key={r.id} style={roomCard}>
-              <div style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', gap: 4 }}>
+              {/* 220px basis: on a phone the buttons wrap below instead of crushing the title. */}
+              <div style={{ flex: '1 1 220px', minWidth: 0, display: 'flex', flexDirection: 'column', gap: 4 }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
                   <strong style={{ fontFamily: FONT_UI, fontSize: 20 }}>{roomTitle(r)}</strong>
-                  {r.live ? (
-                    <span style={chip(CROWD_TINT)}>ALWAYS LIVE</span>
-                  ) : (
-                    <span style={chip(GROUND_ROUTE)}>{MODE_LABEL.get(r.mode)}</span>
-                  )}
+                  {!r.live && <span style={chip(GROUND_ROUTE)}>{MODE_LABEL.get(r.mode)}</span>}
                   {r.phase === 'battle' ? (
                     <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5, fontFamily: FONT_UI, fontSize: 16 }}>
                       <span style={{ width: 9, height: 9, borderRadius: '50%', background: HP_RED }} />
-                      LIVE
+                      {intl.formatMessage({ id: 'play.rooms.live', defaultMessage: 'LIVE' })}
                     </span>
                   ) : (
-                    <span style={{ fontSize: 14, color: INK_MUTED }}>In lobby</span>
+                    <span style={{ fontSize: 14, color: INK_MUTED }}>{intl.formatMessage({ id: 'play.rooms.inLobby', defaultMessage: 'In lobby' })}</span>
                   )}
                 </div>
                 <span style={{ fontSize: 14, color: INK_MUTED }}>
-                  {r.players}/{r.seats} players{r.mode !== 'ffa' ? ' · Crowd Calls on' : ''}
+                  {r.mode !== 'ffa'
+                    ? intl.formatMessage(
+                        { id: 'play.rooms.playersCrowd', defaultMessage: '{players}/{seats} players · Crowd Calls on' },
+                        { players: r.players, seats: r.seats }
+                      )
+                    : intl.formatMessage({ id: 'play.rooms.players', defaultMessage: '{players}/{seats} players' }, { players: r.players, seats: r.seats })}
                 </span>
               </div>
-              <button onClick={() => onWatch(r.id)} style={hoennButton('crowd')}>
-                {r.mode !== 'ffa' ? 'WATCH & VOTE' : 'WATCH'}
+              <button onClick={() => onWatch(r.id)} style={hoennButton('secondary')}>
+                {intl.formatMessage({ id: 'play.rooms.watchAction', defaultMessage: 'Watch' })}
               </button>
               <a href={`#/play/${r.id}`} style={hoennButton('primary')}>
-                JOIN
+                {intl.formatMessage({ id: 'play.rooms.joinAction', defaultMessage: 'Join' })}
               </a>
             </div>
           ))}
@@ -546,12 +595,14 @@ function RoomList({
 
 /** Always-live rooms go by their mode; others by their code. */
 function roomTitle(room: { id: string; mode: PlayModeKind; live: boolean }): string {
-  return room.live ? `Live ${MODE_LABEL.get(room.mode)}` : `Room ${room.id.toUpperCase()}`;
+  return room.live
+    ? globalIntl.formatMessage({ id: 'play.room.liveTitle', defaultMessage: 'Live {mode}' }, { mode: MODE_LABEL.get(room.mode) })
+    : globalIntl.formatMessage({ id: 'play.room.title', defaultMessage: 'Room {code}' }, { code: room.id.toUpperCase() });
 }
 
 /** Whole seconds until a live room's next match, counting down locally from the last room update. */
-function useStartsIn(room: PlayRoomView): number | null {
-  const deadline = useMemo(() => (room.startsInMs !== null ? performance.now() + room.startsInMs : null), [room]);
+function useStartsIn(room: PlayRoomView | null): number | null {
+  const deadline = useMemo(() => (room?.startsInMs != null ? performance.now() + room.startsInMs : null), [room]);
   const [now, setNow] = useState(() => performance.now());
   useEffect(() => {
     if (deadline === null) return;
@@ -576,58 +627,74 @@ function Lobby({
   chatProps: ChatPanelProps;
   wide: boolean;
 }) {
+  const intl = useIntl();
   const [copied, setCopied] = useState(false);
   const you = room.you !== null ? room.seats[room.you] : null;
   const taken = room.seats.filter((s) => s.index !== room.you && s.speciesId !== null).map((s) => s.speciesId!);
   const seated = room.seats.filter((s) => s.name !== null);
   const canStart = seated.length > 0 && seated.every((s) => s.ready);
+  const waiting = seated.filter((s) => !s.ready).length;
   const startsIn = useStartsIn(room);
   const copyLink = () => {
     void navigator.clipboard?.writeText(window.location.href).then(() => setCopied(true));
   };
   const teams: { key: string; title: string; seats: SeatView[] }[] =
     room.mode === 'ffa'
-      ? [{ key: 'ffa', title: 'Free-for-all', seats: room.seats }]
+      ? [{ key: 'ffa', title: intl.formatMessage({ id: 'play.lobby.brawl', defaultMessage: 'Brawl' }), seats: room.seats }]
       : [
-          { key: 'teamA', title: 'Team Ruby', seats: room.seats.filter((s) => s.team === 'teamA') },
-          { key: 'teamB', title: 'Team Sapphire', seats: room.seats.filter((s) => s.team === 'teamB') },
+          { key: 'teamA', title: intl.formatMessage({ id: 'play.lobby.teamRuby', defaultMessage: 'Team Ruby' }), seats: room.seats.filter((s) => s.team === 'teamA') },
+          { key: 'teamB', title: intl.formatMessage({ id: 'play.lobby.teamSapphire', defaultMessage: 'Team Sapphire' }), seats: room.seats.filter((s) => s.team === 'teamB') },
         ];
   const lobby = room.phase === 'lobby';
 
   return (
     <div style={pageStyle}>
       <header style={topBarStyle}>
-        <a href="#/play" aria-label="Back to rooms" style={backButton}>
+        <a href="#/play" aria-label={intl.formatMessage({ id: 'play.lobby.backToRooms', defaultMessage: 'Back to rooms' })} style={backButton}>
           ◀
         </a>
         <div style={{ display: 'flex', flexDirection: 'column', gap: 1, minWidth: 0 }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
             <h1 style={{ margin: 0, fontFamily: FONT_UI, fontWeight: 700, fontSize: 28 }}>{roomTitle(room)}</h1>
-            <span style={chip(GROUND_ROUTE)}>{room.mode === 'ffa' ? MODE_LABEL.get(room.mode) : `${MODE_LABEL.get(room.mode)} TEAMS`}</span>
+            <span style={chip(GROUND_ROUTE)}>{room.mode === 'ffa'
+                ? MODE_LABEL.get(room.mode)
+                : intl.formatMessage({ id: 'play.lobby.modeTeams', defaultMessage: '{mode} TEAMS' }, { mode: MODE_LABEL.get(room.mode) })}</span>
           </div>
           <span style={{ fontSize: 14, color: INK_MUTED }}>
-            {you ? (you.host ? 'You are host' : 'You are playing') : 'Watching'} ·{' '}
-            {lobby ? (startsIn !== null ? `Next match in ${startsIn}s` : 'Lobby') : 'Match in progress'} ·{' '}
-            {isMobileArena(room.arena) ? 'Portrait arena' : 'Wide arena'}
+            {you
+              ? you.host
+                ? intl.formatMessage({ id: 'play.lobby.youAreHost', defaultMessage: 'You are host' })
+                : intl.formatMessage({ id: 'play.lobby.youArePlaying', defaultMessage: 'You are playing' })
+              : intl.formatMessage({ id: 'play.lobby.watching', defaultMessage: 'Watching' })}{' '}
+            ·{' '}
+            {lobby
+              ? startsIn !== null
+                ? intl.formatMessage({ id: 'play.lobby.nextMatchIn', defaultMessage: 'Next match in {seconds}s' }, { seconds: startsIn })
+                : intl.formatMessage({ id: 'play.lobby.lobby', defaultMessage: 'Lobby' })
+              : intl.formatMessage({ id: 'play.lobby.inProgress', defaultMessage: 'Match in progress' })}{' '}
+            ·{' '}
+            {isMobileArena(room.arena)
+              ? intl.formatMessage({ id: 'play.lobby.portraitArena', defaultMessage: 'Portrait arena' })
+              : intl.formatMessage({ id: 'play.lobby.wideArena', defaultMessage: 'Wide arena' })}
           </span>
         </div>
         <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
           <button onClick={copyLink} style={hoennButton('secondary')}>
-            {copied ? '✓ Link copied' : 'Copy invite link'}
+            {copied ? intl.formatMessage({ id: 'play.lobby.linkCopied', defaultMessage: '✓ Link copied' }) : intl.formatMessage({ id: 'play.lobby.copyLink', defaultMessage: 'Copy invite link' })}
           </button>
           <a href="#/play" style={leaveLink}>
-            Leave room
+            {intl.formatMessage({ id: 'play.lobby.leaveRoom', defaultMessage: 'Leave room' })}
           </a>
         </div>
       </header>
 
       <div style={{ ...lobbyBody, flexDirection: wide ? 'row' : 'column' }}>
         <main style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', gap: 18 }}>
-          {!lobby && <p style={noticeStyle}>A match is in progress — you’ll get a seat when it ends.</p>}
+          {!lobby && <p style={noticeStyle}>{intl.formatMessage({ id: 'play.lobby.matchInProgress', defaultMessage: 'A match is in progress — you’ll get a seat when it ends.' })}</p>}
 
           {you?.host && lobby && (
-            <div role="group" aria-label="Mode" style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
-              <span style={{ fontWeight: 700 }}>Mode</span>
+            <div role="group" aria-label={intl.formatMessage({ id: 'play.lobby.modeLabel', defaultMessage: 'Mode' })} style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+              <span style={{ fontWeight: 700 }}>{intl.formatMessage({ id: 'play.lobby.modeLabel', defaultMessage: 'Mode' })}</span>
               {PLAY_MODES.map((m) => (
                 <button
                   key={m.label}
@@ -642,15 +709,19 @@ function Lobby({
             </div>
           )}
 
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: 16 }}>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: 16, alignItems: 'start' }}>
             {teams.map((t) => (
               <section key={t.key} aria-label={t.title} style={teamSection}>
                 <div style={teamHeader(t.key)}>
                   {t.key !== 'ffa' && <span style={{ ...teamMarker(t.key, 16), borderColor: t.key === 'teamA' ? PANEL : INK }} />}
                   <h2 style={{ margin: 0, fontFamily: FONT_UI, fontWeight: 700, fontSize: 22 }}>{t.title}</h2>
                   <span style={{ marginLeft: 'auto', fontFamily: FONT_UI, fontSize: 17 }}>
-                    {t.seats.filter((s) => s.name !== null).length}/{t.seats.length}
-                    {t.seats.some((s) => s.name === null) ? ` · ${t.seats.filter((s) => s.name === null).length} bot` : ''}
+                    {intl.formatMessage(
+                      t.seats.some((s) => s.name === null)
+                        ? { id: 'play.lobby.seatCountBots', defaultMessage: '{taken}/{total} · {bots} bot' }
+                        : { id: 'play.lobby.seatCount', defaultMessage: '{taken}/{total}' },
+                      { taken: t.seats.filter((s) => s.name !== null).length, total: t.seats.length, bots: t.seats.filter((s) => s.name === null).length }
+                    )}
                   </span>
                 </div>
                 <div style={{ padding: 10, display: 'flex', flexDirection: 'column', gap: 8 }}>
@@ -671,22 +742,45 @@ function Lobby({
 
           {you && lobby && (
             <>
-              <section aria-label="Pick your Pokémon" style={pickerSection}>
+              <section aria-label={intl.formatMessage({ id: 'play.lobby.pickTitle', defaultMessage: 'Pick your Pokémon' })} style={pickerSection}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
-                  <h2 style={{ margin: 0, fontFamily: FONT_UI, fontWeight: 700, fontSize: 24 }}>Pick your Pokémon</h2>
-                  {you.speciesId !== null && <span style={chosenChip}>▶ {SPECIES_NAME.get(you.speciesId)}</span>}
+                  <h2 style={{ margin: 0, fontFamily: FONT_UI, fontWeight: 700, fontSize: 24 }}>{intl.formatMessage({ id: 'play.lobby.pickTitle', defaultMessage: 'Pick your Pokémon' })}</h2>
                 </div>
+                {you.speciesId !== null && (
+                  <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap', alignItems: 'center' }}>
+                    <div style={chosenPreview}>
+                      <SpeciesSprite speciesId={you.speciesId} size={96} animate name={SPECIES_NAME.get(you.speciesId)} />
+                      <strong style={{ fontFamily: FONT_UI, fontSize: 24, textTransform: 'uppercase' }}>{SPECIES_NAME.get(you.speciesId)}</strong>
+                    </div>
+                    {you.moves.length > 0 && (
+                      <div style={{ flex: '1 1 320px', minWidth: 0 }}>
+                        <MoveCards moveIds={you.moves} />
+                      </div>
+                    )}
+                  </div>
+                )}
                 <SpeciesPicker
-                  allSpecies={KANTO_SPECIES}
-                  excludeSpeciesIds={[...taken, ...(you.speciesId !== null ? [you.speciesId] : [])]}
+                  allSpecies={PLAY_SPECIES}
+                  takenSpeciesIds={taken}
+                  selectedSpeciesId={you.speciesId}
                   onPick={(id) => conn.send({ t: 'pick', speciesId: id })}
                 />
-                {you.moves.length > 0 && <MoveCards moveIds={you.moves} />}
-                <span style={{ fontSize: 14, color: INK_MUTED }}>Original 151 · no duplicates in a room</span>
+                <span style={{ fontSize: 14, color: INK_MUTED }}>{intl.formatMessage({ id: 'play.lobby.pickHint', defaultMessage: 'Gens 1–4 · no duplicates in a room' })}</span>
               </section>
               {room.live ? (
                 <p style={{ ...bodyText, fontFamily: FONT_UI, fontSize: 20 }}>
-                  ▶ You’re in the next match{startsIn !== null ? ` — it starts in ${startsIn}s` : ''}. No pick? You get a random Pokémon.
+                  {startsIn !== null
+                    ? intl.formatMessage(
+                        {
+                          id: 'play.lobby.inNextMatchStarts',
+                          defaultMessage: '▶ You’re in the next match — it starts in {seconds}s. No pick? You get a random Pokémon.',
+                        },
+                        { seconds: startsIn }
+                      )
+                    : intl.formatMessage({
+                        id: 'play.lobby.inNextMatch',
+                        defaultMessage: '▶ You’re in the next match. No pick? You get a random Pokémon.',
+                      })}
                 </p>
               ) : (
                 <>
@@ -697,10 +791,17 @@ function Lobby({
                       aria-pressed={you.ready}
                       style={hoennButton(you.ready ? 'primary' : 'secondary', you.speciesId !== null, 'lg')}
                     >
-                      {you.ready ? '✓ Ready' : 'I’m ready'}
+                      {you.ready ? intl.formatMessage({ id: 'play.lobby.ready', defaultMessage: '✓ Ready' }) : intl.formatMessage({ id: 'play.lobby.imReady', defaultMessage: 'I’m ready' })}
                     </button>
                     <span style={{ fontSize: 15, color: INK_MUTED }}>
-                      {seated.filter((s) => s.ready).length} of {seated.length} humans ready · bots are always ready
+                      {you.speciesId === null
+                        ? intl.formatMessage({ id: 'play.lobby.pickFirst', defaultMessage: 'Pick a Pokémon to get ready' })
+                        : waiting > 0
+                          ? intl.formatMessage(
+                              { id: 'play.lobby.waitingFor', defaultMessage: 'Waiting for {count, plural, one {# player} other {# players}}' },
+                              { count: waiting }
+                            )
+                          : intl.formatMessage({ id: 'play.lobby.allReady', defaultMessage: 'Everyone’s ready' })}
                     </span>
                     {you.host && (
                       <button
@@ -708,11 +809,11 @@ function Lobby({
                         disabled={!canStart}
                         style={{ ...hoennButton('primary', canStart, 'lg'), marginLeft: 'auto' }}
                       >
-                        ▶ Start match
+                        {intl.formatMessage({ id: 'play.lobby.startMatch', defaultMessage: '▶ Start match' })}
                       </button>
                     )}
                   </div>
-                  {!you.host && <p style={{ ...bodyText, color: INK_MUTED }}>The host starts the match once everyone is ready.</p>}
+                  {!you.host && <p style={{ ...bodyText, color: INK_MUTED }}>{intl.formatMessage({ id: 'play.lobby.hostStarts', defaultMessage: 'The host starts the match once everyone is ready.' })}</p>}
                 </>
               )}
             </>
@@ -720,24 +821,36 @@ function Lobby({
           {!you && lobby && (
             <p style={noticeStyle}>
               {room.seats.some((s) => s.name === null)
-                ? 'You’re watching — take an open seat to play, or stay in the crowd.'
-                : 'All seats are taken — you’re in the crowd. Take a seat when one frees up.'}
+                ? intl.formatMessage({
+                    id: 'play.lobby.watchingOpenSeat',
+                    defaultMessage: 'You’re watching — take an open seat to play, or stay in the crowd.',
+                  })
+                : intl.formatMessage({
+                    id: 'play.lobby.watchingFull',
+                    defaultMessage: 'All seats are taken — you’re in the crowd. Take a seat when one frees up.',
+                  })}
             </p>
           )}
         </main>
 
-        <aside aria-label="Crowd and chat" style={{ ...asideStyle, width: wide ? 340 : '100%' }}>
+        <aside aria-label={intl.formatMessage({ id: 'play.lobby.asideLabel', defaultMessage: 'Crowd and chat' })} style={{ ...asideStyle, width: wide ? 340 : '100%' }}>
           <div style={crowdBox}>
-            <strong style={{ fontFamily: FONT_UI, fontSize: 22, color: CROWD_TEXT }}>The crowd</strong>
+            <strong style={{ fontFamily: FONT_UI, fontSize: 22, color: CROWD_TEXT }}>{intl.formatMessage({ id: 'play.lobby.crowdTitle', defaultMessage: 'The crowd' })}</strong>
             <span style={{ fontSize: 14, lineHeight: 1.45 }}>
               {room.mode === 'ffa'
-                ? 'Crowd Calls are team modes only. Watchers can still chat, bet and send potions.'
-                : 'First Crowd Call opens 20 s in, then every 30 s. Fighters chat, the crowd votes.'}
+                ? intl.formatMessage({
+                    id: 'play.lobby.crowdFfa',
+                    defaultMessage: 'Crowd Calls are team modes only. Watchers can still chat, bet and send potions.',
+                  })
+                : intl.formatMessage({
+                    id: 'play.lobby.crowdTeams',
+                    defaultMessage: 'First Crowd Call opens 20 s in, then every 30 s. Fighters chat, the crowd votes.',
+                  })}
             </span>
           </div>
           {!you && (
             <div style={{ padding: 12, borderBottom: OUTLINE }}>
-              <SignUpForm me={me} conn={conn} error={error} prompt={me?.name ? undefined : 'Join the crowd'} variant="crowd" />
+              <SignUpForm me={me} conn={conn} error={error} prompt={me?.name ? undefined : intl.formatMessage({ id: 'play.signUp.joinCrowd', defaultMessage: 'Join the crowd' })} variant="crowd" />
             </div>
           )}
           <div style={{ flex: 1, minHeight: wide ? 0 : 320, display: 'flex', flexDirection: 'column', padding: 12 }}>
@@ -762,120 +875,50 @@ function SeatRow({
   onTake: () => void;
   onReroll?: () => void;
 }) {
+  const intl = useIntl();
   if (seat.name === null) {
     return (
       <div style={{ ...seatCard, border: `3px dashed ${INK}`, background: 'transparent' }}>
-        <div style={{ ...spriteTile, background: GROUND_ROUTE, fontFamily: FONT_PIXEL, fontSize: 10 }}>BOT</div>
-        <div style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column' }}>
-          <strong style={{ fontFamily: FONT_UI, fontSize: 20 }}>Open seat</strong>
-          <span style={{ fontSize: 14, color: INK_MUTED }}>A bot plays here if nobody joins</span>
+        <div aria-hidden style={{ ...spriteTile, background: 'transparent', border: `3px dashed ${INK_MUTED}`, color: INK_MUTED, fontFamily: FONT_UI, fontSize: 26 }}>
+          ?
         </div>
-        <button onClick={onTake} style={hoennButton('primary')}>
-          {seatedElsewhere ? 'Switch here' : 'Take seat'}
+        <div style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column' }}>
+          <strong style={{ fontFamily: FONT_UI, fontSize: 20 }}>{intl.formatMessage({ id: 'play.seat.open', defaultMessage: 'Open seat' })}</strong>
+          <span style={{ fontSize: 14, color: INK_MUTED }}>{intl.formatMessage({ id: 'play.seat.botFills', defaultMessage: 'Bot fills this seat' })}</span>
+        </div>
+        <button onClick={onTake} style={hoennButton(seatedElsewhere ? 'secondary' : 'primary')}>
+          {seatedElsewhere ? intl.formatMessage({ id: 'play.seat.move', defaultMessage: 'Move here' }) : intl.formatMessage({ id: 'play.seat.take', defaultMessage: 'Take seat' })}
         </button>
       </div>
     );
   }
   const species = seat.speciesId !== null ? SPECIES_NAME.get(seat.speciesId) : null;
   return (
-    <div style={{ ...seatCard, background: you ? primaryAlpha(0.25) : PANEL, paddingLeft: you ? 10 : 34 }}>
-      {you && (
-        <span aria-hidden style={{ fontSize: 14 }}>
-          ▶
-        </span>
-      )}
-      <div style={spriteTile}>{seat.host ? '★' : ''}</div>
+    <div style={{ ...seatCard, background: you ? primaryAlpha(0.25) : PANEL }}>
+      <div aria-hidden style={spriteTile}>
+        {seat.speciesId !== null ? <SpeciesSprite speciesId={seat.speciesId} size={SPRITE_TILE - 6} name={species ?? undefined} /> : '?'}
+      </div>
       <div style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', gap: 4 }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
-          <strong style={{ fontFamily: FONT_UI, fontSize: 20, textTransform: 'uppercase' }}>{species ?? 'Picking…'}</strong>
-          {you && <span style={chip(ACTION)}>YOU</span>}
+          <strong style={{ fontFamily: FONT_UI, fontSize: 20, textTransform: 'uppercase' }}>{species ?? intl.formatMessage({ id: 'play.seat.picking', defaultMessage: 'Picking…' })}</strong>
+          {you && <span style={chip(ACTION)}>{intl.formatMessage({ id: 'play.seat.you', defaultMessage: 'YOU' })}</span>}
         </div>
         <span style={{ fontSize: 14, color: INK_MUTED, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-          {seat.name}
-          {seat.host ? ' · host' : ''}
+          {seat.host ? intl.formatMessage({ id: 'play.seat.nameHost', defaultMessage: '{name} · host' }, { name: seat.name }) : seat.name}
         </span>
-        {you && seat.moves.length > 0 && (
-          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4 }}>
-            {seat.moves.map((id) => {
-              const move = moveLookup(id);
-              return move ? (
-                <span key={id} style={{ ...chip(typeColorCss(move.type), typeTextCss(move.type)), fontSize: 14 }}>
-                  {move.name}
-                </span>
-              ) : null;
-            })}
-          </div>
-        )}
       </div>
-      {you && onReroll && seat.speciesId !== null ? (
+      {/* Rerolling un-readies you on the server, so it's hidden while you're ready. */}
+      {you && onReroll && seat.speciesId !== null && !seat.ready ? (
         <button onClick={onReroll} style={hoennButton('secondary')}>
-          Reroll moves
+          {intl.formatMessage({ id: 'play.seat.reroll', defaultMessage: 'Reroll moves' })}
         </button>
       ) : (
-        <span style={{ ...chip(seat.ready ? HP_GREEN : SUNK), minHeight: 32, fontSize: 17 }}>{seat.ready ? 'READY' : 'PICKING'}</span>
+        <span style={{ ...chip(seat.ready ? HP_GREEN : SUNK), minHeight: 32, fontSize: 17 }}>{seat.ready ? intl.formatMessage({ id: 'play.seat.ready', defaultMessage: 'READY' }) : intl.formatMessage({ id: 'play.seat.pickingBadge', defaultMessage: 'PICKING' })}</span>
       )}
     </div>
   );
 }
 
-function TopBar({ title, subtitle, backHref }: { title: string; subtitle?: string; backHref: string }) {
-  return (
-    <header style={topBarStyle}>
-      <a href={backHref} aria-label="Back" style={backButton}>
-        ◀
-      </a>
-      <div style={{ display: 'flex', flexDirection: 'column' }}>
-        <h1 style={{ margin: 0, fontFamily: FONT_UI, fontWeight: 700, fontSize: 28 }}>{title}</h1>
-        {subtitle && <span style={{ fontSize: 14, color: INK_MUTED }}>{subtitle}</span>}
-      </div>
-    </header>
-  );
-}
-
-const pageStyle: CSSProperties = {
-  width: '100%',
-  minHeight: '100%',
-  display: 'flex',
-  flexDirection: 'column',
-  alignItems: 'center',
-  gap: 18,
-  boxSizing: 'border-box',
-  fontFamily: FONT_BODY,
-  color: INK,
-  background: GROUND,
-  paddingBottom: 24,
-};
-const topBarStyle: CSSProperties = {
-  width: '100%',
-  boxSizing: 'border-box',
-  display: 'flex',
-  alignItems: 'center',
-  gap: 14,
-  flexWrap: 'wrap',
-  padding: '10px 16px',
-  background: PANEL,
-  borderBottom: OUTLINE,
-};
-const columnStyle: CSSProperties = {
-  width: '100%',
-  maxWidth: 640,
-  padding: '0 16px',
-  boxSizing: 'border-box',
-  display: 'flex',
-  flexDirection: 'column',
-  gap: 16,
-};
-const cardStyle: CSSProperties = {
-  borderRadius: 8,
-  border: OUTLINE,
-  background: PANEL,
-  padding: 16,
-  display: 'flex',
-  flexDirection: 'column',
-  gap: 10,
-};
-const headingStyle: CSSProperties = { margin: 0, fontFamily: FONT_UI, fontWeight: 700, fontSize: 22 };
-const bodyText: CSSProperties = { margin: 0, fontSize: 15, lineHeight: 1.45 };
 const errorStyle: CSSProperties = { fontSize: 14, fontWeight: 700, color: RUBY };
 const signUpBox: CSSProperties = {
   display: 'flex',
@@ -930,19 +973,6 @@ const roomCard: CSSProperties = {
   border: OUTLINE,
   background: PANEL,
 };
-const backButton: CSSProperties = {
-  width: 46,
-  height: 46,
-  flex: 'none',
-  display: 'grid',
-  placeItems: 'center',
-  borderRadius: 8,
-  border: OUTLINE,
-  boxSizing: 'border-box',
-  color: INK,
-  textDecoration: 'none',
-  fontSize: 16,
-};
 const leaveLink: CSSProperties = {
   minHeight: 46,
   display: 'inline-flex',
@@ -988,9 +1018,10 @@ const seatCard: CSSProperties = {
   border: OUTLINE,
   boxSizing: 'border-box',
 };
+const SPRITE_TILE = 64;
 const spriteTile: CSSProperties = {
-  width: 52,
-  height: 52,
+  width: SPRITE_TILE,
+  height: SPRITE_TILE,
   flex: 'none',
   borderRadius: 6,
   background: INFO_BOX,
@@ -999,23 +1030,6 @@ const spriteTile: CSSProperties = {
   display: 'grid',
   placeItems: 'center',
   fontSize: 18,
-};
-const pickerSection: CSSProperties = {
-  borderRadius: 8,
-  background: PANEL,
-  border: OUTLINE,
-  boxShadow: `inset 0 0 0 3px ${PANEL}, inset 0 0 0 6px ${FRAME}`,
-  padding: 18,
-  display: 'flex',
-  flexDirection: 'column',
-  gap: 12,
-};
-const chosenChip: CSSProperties = {
-  ...chip(ACTION),
-  minHeight: 40,
-  fontSize: 20,
-  fontWeight: 700,
-  textTransform: 'uppercase',
 };
 const asideStyle: CSSProperties = {
   flex: 'none',

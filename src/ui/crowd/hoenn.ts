@@ -1,5 +1,5 @@
 import type { CSSProperties } from 'react';
-import { ACTION, ACTION_BEVEL, CROWD, CROWD_BEVEL, FONT_UI, FRAME, INK, OUTLINE, PANEL, RUBY, SAPPHIRE, SUNK } from '../theme';
+import { ACTION, ACTION_BEVEL, CROWD, CROWD_BEVEL, FONT_UI, FRAME, INK, INK_MUTED, OUTLINE, PANEL, RUBY, SAPPHIRE, SUNK } from '../theme';
 
 // "Hoenn Handheld" style pieces shared by the crowd UI and the Play Mode
 // screens (lobby, match HUD, results), so they draw the same bars and buttons.
@@ -59,9 +59,10 @@ export function hoennButton(kind: ButtonKind, enabled = true, size: 'md' | 'lg' 
     justifyContent: 'center',
     gap: 8,
     borderRadius: 8,
-    border: `3px solid ${INK}`,
+    // Disabled: dashed, muted and flat, so it can't pass for a pale clickable button.
+    border: enabled ? `3px solid ${INK}` : `3px dashed ${INK_MUTED}`,
     background: enabled ? fill : SUNK,
-    color: enabled && kind === 'crowd' ? PANEL : INK,
+    color: !enabled ? INK_MUTED : kind === 'crowd' ? PANEL : INK,
     boxShadow: enabled ? `inset 0 -4px 0 ${bevel}` : 'none',
     fontFamily: FONT_UI,
     fontWeight: 700,

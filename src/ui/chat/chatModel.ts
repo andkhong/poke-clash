@@ -1,3 +1,4 @@
+import { intl } from '../../i18n';
 import type { ChatMessage } from '../../net/protocol';
 import { CHAT_LOG_LIMIT } from '../../net/chat';
 import { teamColorCss } from '../teamColors';
@@ -50,9 +51,9 @@ export function isSystemMessage(message: ChatMessage): boolean {
  * wallet balance snapshotted at send time — "Brock ($100)". The viewer's own
  * messages get a " (You)" suffix. */
 export function chatSenderLabel(message: ChatMessage, mySpectatorName: string | null): string {
-  const name = withBalance(message.spectatorName ?? message.speciesName ?? 'Spectator', message.balance);
+  const name = withBalance(message.spectatorName ?? message.speciesName ?? intl.formatMessage({ id: 'chat.sender.spectator', defaultMessage: 'Spectator' }), message.balance);
   const isSelf = mySpectatorName !== null && message.spectatorName === mySpectatorName;
-  return isSelf ? `${name} (You)` : name;
+  return isSelf ? intl.formatMessage({ id: 'chat.sender.you', defaultMessage: '{name} (You)' }, { name }) : name;
 }
 
 // Eight text-safe hues on the white chat panel — one per seat, Twitch

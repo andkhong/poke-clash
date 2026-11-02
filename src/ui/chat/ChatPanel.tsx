@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState, type CSSProperties } from 'react';
+import { useIntl } from 'react-intl';
 import type { ChatMessage } from '../../net/protocol';
 import { CHAT_MAX_LENGTH, normalizeChatText, QUICK_REACTIONS } from '../../net/chat';
 import { containsBlockedLanguage } from '../../net/chatFilter';
@@ -30,7 +31,6 @@ export interface ChatPanelProps {
 }
 
 const STATUS_NOTICE_MS = 2000;
-const BLOCKED_NOTICE = 'Keep it clean — that message wasn’t sent';
 // "Near enough" to the bottom that a new message should auto-scroll — a
 // reader who has scrolled up to re-read keeps their place instead.
 const NEAR_BOTTOM_PX = 40;
@@ -45,9 +45,11 @@ export function ChatPanel({
   onSend,
   listHeight = 'flex',
   showTimestamps = false,
-  disabledPlaceholder = 'Join the room to chat',
+  disabledPlaceholder,
   dense = false,
 }: ChatPanelProps) {
+  const intl = useIntl();
+  const blockedNotice = intl.formatMessage({ id: 'chat.panel.blocked', defaultMessage: 'Keep it clean — that message wasn’t sent' });
   const control = tapHeight(dense);
   const [draft, setDraft] = useState('');
   const [sending, setSending] = useState(false);
@@ -98,7 +100,7 @@ export function ChatPanel({
     // sender is told immediately and the line never leaves the device. The
     // draft is left in the box to be edited rather than wiped.
     if (containsBlockedLanguage(text)) {
-      flashNotice(BLOCKED_NOTICE);
+      flashNotice(blockedNotice);
       return;
     }
     setSending(true);
@@ -112,14 +114,14 @@ export function ChatPanel({
     }
     flashNotice(
       error === 'rate_limited'
-        ? 'Slow down'
+        ? intl.formatMessage({ id: 'chat.panel.slowDown', defaultMessage: 'Slow down' })
         : error === 'not_in_room'
-          ? 'Join the room to chat'
+          ? intl.formatMessage({ id: 'chat.panel.joinToChat', defaultMessage: 'Join the room to chat' })
           : error === 'not_signed_up'
-            ? 'Sign up to chat'
+            ? intl.formatMessage({ id: 'chat.panel.signUpToChat', defaultMessage: 'Sign up to chat' })
             : error === 'blocked_language'
-              ? BLOCKED_NOTICE
-              : 'Couldn’t send'
+              ? blockedNotice
+              : intl.formatMessage({ id: 'chat.panel.sendFailed', defaultMessage: 'Couldn’t send' })
     );
   };
 
@@ -130,7 +132,7 @@ export function ChatPanel({
     <div style={listHeight === 'flex' ? { ...panelStyle, flex: 1, minHeight: 0 } : panelStyle}>
       <div style={listWrapStyle}>
         <div ref={listRef} onScroll={handleScroll} style={listStyle}>
-          {messages.length === 0 && <p style={emptyStyle}>No messages yet.</p>}
+          {messages.length === 0 && <p style={emptyStyle}>{intl.formatMessage({ id: 'chat.panel.empty', defaultMessage: 'No messages yet.' })}</p>}
           {messages.map((message) =>
             isSystemMessage(message) ? (
               // No sender, no colon — see isSystemMessage.
@@ -152,7 +154,7 @@ export function ChatPanel({
         </div>
         {newBelow && (
           <button type="button" onClick={scrollToBottom} style={newBelowStyle}>
-            ↓ New messages
+            {intl.formatMessage({ id: 'chat.panel.newMessages', defaultMessage: '↓ New messages' })}
           </button>
         )}
       </div>
@@ -166,7 +168,7 @@ export function ChatPanel({
             type="button"
             onClick={() => void send(reaction)}
             disabled={!canSend || sending}
-            aria-label={`Send ${reaction}`}
+            aria-label={intl.formatMessage({ id: 'chat.panel.sendReaction', defaultMessage: 'Send {reaction}' }, { reaction })}
             style={{ ...chipStyle, ...(dense ? denseChipStyle : null), opacity: canSend ? 1 : 0.4 }}
           >
             {reaction}
@@ -188,13 +190,17 @@ export function ChatPanel({
           // always pan back — nothing on these screens ever scrolls the
           // window, so 0 is always the right place to return to.
           onBlur={() => window.scrollTo(0, 0)}
-          placeholder={canSend ? 'Send a message' : disabledPlaceholder}
+          placeholder={
+            canSend
+              ? intl.formatMessage({ id: 'chat.panel.placeholder', defaultMessage: 'Send a message' })
+              : (disabledPlaceholder ?? intl.formatMessage({ id: 'chat.panel.joinToChat', defaultMessage: 'Join the room to chat' }))
+          }
           disabled={!canSend}
           maxLength={CHAT_MAX_LENGTH}
           enterKeyHint="send"
           autoComplete="off"
           autoCapitalize="sentences"
-          aria-label="Chat message"
+          aria-label={intl.formatMessage({ id: 'chat.panel.inputLabel', defaultMessage: 'Chat message' })}
           style={{ ...inputStyle, minHeight: control }}
         />
         <button
@@ -202,7 +208,7 @@ export function ChatPanel({
           disabled={!canSend || sending || normalizeChatText(draft) === null}
           style={{ ...sendButtonStyle, minHeight: control, ...(dense ? denseSendStyle : null) }}
         >
-          SEND
+          {intl.formatMessage({ id: 'chat.panel.send', defaultMessage: 'SEND' })}
         </button>
       </form>
     </div>

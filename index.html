@@ -7,7 +7,7 @@
     <!-- Share/SEO metadata. Reddit reads these once, when a post is created,
          and never re-fetches, so deploy changes here before posting a link.
          Image URLs must be absolute. -->
-    <meta name="description" content="Control a Pokémon in real-time brawls in your browser: move, dodge, aim four moves, one KO and you're out. Play solo vs bots or online, 1v1 to 4v4 or FFA up to 8, while the crowd votes on what lands next. Free, no account." />
+    <meta name="description" content="Control a Pokémon in real-time brawls in your browser: move, dodge, aim four moves, one KO and you're out. Play solo vs bots or online, 1v1 to 4v4 or an 8-player Brawl, while the crowd votes on what lands next. Free, no account." />
     <meta name="theme-color" content="#dee6ee" />
     <meta name="color-scheme" content="light" />
     <link rel="canonical" href="https://pokemonbrawl.com/" />
@@ -48,17 +48,35 @@
     <!-- Matches src/ui/theme.ts's BG — avoids a flash of the browser's
          default white before the first screen mounts and paints its own. -->
     <style>
+      /* Pixelify Sans draws 2, 3 and 5 like 8 and S, and a capital C like O, so
+         FONT_UI takes its digits and C from Press Start 2P (the same file the
+         page already loads), scaled to Pixelify's cap height. */
+      @font-face {
+        font-family: 'UI Digits';
+        src: url(https://fonts.gstatic.com/s/pressstart2p/v16/e3t4euO8T-267oIAQAu6jDQyK3nVivNm4I81.woff2) format('woff2');
+        unicode-range: U+0030-0039, U+0043;
+        size-adjust: 70%;
+        font-display: swap;
+      }
       html,
       body {
         margin: 0;
         background: #dee6ee;
       }
+      /* Pixelify's "fi" ligature draws as an "A" ("You fight" read "You Aght").
+         On every element and !important because the `font:` shorthand, used all
+         over the landing CSS and inline styles, resets font-feature-settings. */
+      *,
+      *::before,
+      *::after {
+        font-feature-settings: 'liga' 0, 'clig' 0 !important;
+      }
       /* App-wide focus ring (Hoenn Handheld): an INK outline with a gold
          ACTION halo, visible on both the pale ground and gold buttons. */
       :focus-visible {
-        outline: 3px solid #283038;
+        outline: 3px solid #29315a;
         outline-offset: 2px;
-        box-shadow: 0 0 0 8px #f8c840;
+        box-shadow: 0 0 0 8px #ffc55a;
       }
     </style>
     <!-- Cloudflare Web Analytics -->

@@ -1,4 +1,6 @@
 import { useSyncExternalStore } from 'react';
+import { defineMessages } from 'react-intl';
+import { intl } from '../../i18n';
 import {
   CROWD_CALL_EVERY_MS,
   CROWD_CALL_FIRST_MS,
@@ -13,14 +15,36 @@ import {
 // Crowd Calls' pure helpers: card wording, vote percentages and the
 // countdowns the panel, the message box and the results timeline share.
 
-export const CROWD_CARDS: Record<CrowdCardId, { label: string; name: string; desc: string }> = {
-  speed: { label: 'SPEED BURST', name: 'Speed Burst', desc: '+30% move speed for 4 s' },
-  shield: { label: 'SHIELD', name: 'Shield', desc: 'Blocks the next hit, up to 3 s' },
-  energy: { label: 'ENERGY REFILL', name: 'Energy Refill', desc: 'Full energy, right now' },
-  supply: { label: 'SUPPLY DROP', name: 'Supply Drop', desc: 'A crate on their half heals +25%' },
-};
+const CARD_MESSAGES = defineMessages({
+  speedLabel: { id: 'crowd.card.speed.label', defaultMessage: 'SPEED BURST' },
+  speedName: { id: 'crowd.card.speed.name', defaultMessage: 'Speed Burst' },
+  speedDesc: { id: 'crowd.card.speed.desc', defaultMessage: '+30% move speed for 4 s' },
+  shieldLabel: { id: 'crowd.card.shield.label', defaultMessage: 'SHIELD' },
+  shieldName: { id: 'crowd.card.shield.name', defaultMessage: 'Shield' },
+  shieldDesc: { id: 'crowd.card.shield.desc', defaultMessage: 'Blocks the next hit, up to 3 s' },
+  energyLabel: { id: 'crowd.card.energy.label', defaultMessage: 'ENERGY REFILL' },
+  energyName: { id: 'crowd.card.energy.name', defaultMessage: 'Energy Refill' },
+  energyDesc: { id: 'crowd.card.energy.desc', defaultMessage: 'Full energy, right now' },
+  supplyLabel: { id: 'crowd.card.supply.label', defaultMessage: 'SUPPLY DROP' },
+  supplyName: { id: 'crowd.card.supply.name', defaultMessage: 'Supply Drop' },
+  supplyDesc: { id: 'crowd.card.supply.desc', defaultMessage: 'A crate on their half heals +25%' },
+});
 
-export const SIDE_NAME: Record<CrowdSide, string> = { teamA: 'Ruby', teamB: 'Sapphire' };
+/** A card's wording in the active language (call at render time). */
+export function cardText(id: CrowdCardId): { label: string; name: string; desc: string } {
+  return {
+    label: intl.formatMessage(CARD_MESSAGES[`${id}Label`]),
+    name: intl.formatMessage(CARD_MESSAGES[`${id}Name`]),
+    desc: intl.formatMessage(CARD_MESSAGES[`${id}Desc`]),
+  };
+}
+
+const SIDE_MESSAGES = defineMessages({
+  teamA: { id: 'crowd.side.teamA', defaultMessage: 'Ruby' },
+  teamB: { id: 'crowd.side.teamB', defaultMessage: 'Sapphire' },
+});
+
+export const sideName = (side: CrowdSide): string => intl.formatMessage(SIDE_MESSAGES[side]);
 export const CROWD_SIDES: CrowdSide[] = ['teamA', 'teamB'];
 
 export const otherSide = (side: CrowdSide): CrowdSide => (side === 'teamA' ? 'teamB' : 'teamA');
@@ -93,26 +117,29 @@ export function callStatus(current: CrowdCallView | null, nowMs: number): CallSt
 /** A side's result as the timeline shows it: "Shield", or "House pick: Shield". */
 export function winnerLabel(side: CrowdCallSide): string | null {
   if (!side.winner) return null;
-  return side.housePick ? `House pick: ${CROWD_CARDS[side.winner].name}` : CROWD_CARDS[side.winner].name;
+  const { name } = cardText(side.winner);
+  return side.housePick ? intl.formatMessage({ id: 'crowd.winner.housePick', defaultMessage: 'House pick: {card}' }, { card: name }) : name;
 }
 
 /** Wording for the vote request's error codes. */
 export function voteErrorText(code: string, side: CrowdSide | null): string {
   switch (code) {
     case 'side_locked':
-      return side ? `You're cheering for ${SIDE_NAME[side]} this match` : 'Your side is locked for this match';
+      return side
+        ? intl.formatMessage({ id: 'crowd.voteError.sideLockedTo', defaultMessage: "You're cheering for {side} this match" }, { side: sideName(side) })
+        : intl.formatMessage({ id: 'crowd.voteError.sideLocked', defaultMessage: 'Your side is locked for this match' });
     case 'fighters_cant':
-      return "Fighters can't vote — your crowd votes for you";
+      return intl.formatMessage({ id: 'crowd.voteError.fightersCant', defaultMessage: "Fighters can't vote — your crowd votes for you" });
     case 'not_signed_up':
-      return 'Sign up to vote';
+      return intl.formatMessage({ id: 'crowd.voteError.notSignedUp', defaultMessage: 'Sign up to vote' });
     case 'no_call':
-      return 'Voting has closed';
+      return intl.formatMessage({ id: 'crowd.voteError.noCall', defaultMessage: 'Voting has closed' });
     case 'bad_card':
-      return "That card isn't on offer";
+      return intl.formatMessage({ id: 'crowd.voteError.badCard', defaultMessage: "That card isn't on offer" });
     case 'rate_limited':
-      return 'Too fast — try again in a moment';
+      return intl.formatMessage({ id: 'crowd.voteError.rateLimited', defaultMessage: 'Too fast — try again in a moment' });
     default:
-      return "Couldn't send your vote";
+      return intl.formatMessage({ id: 'crowd.voteError.generic', defaultMessage: "Couldn't send your vote" });
   }
 }
 

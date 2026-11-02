@@ -22,6 +22,7 @@ import {
   RUBY,
   SAPPHIRE,
   SAPPHIRE_DEEP,
+  STAGE_BG,
   SUNK,
   textAlpha,
 } from '../theme';
@@ -112,12 +113,28 @@ export const LANDING_CSS = `
 .lp-menu-btn{display:none;align-items:center;justify-content:center;width:46px;height:46px;padding:0;border:${OUTLINE};border-radius:8px;
   background:${PANEL};color:${INK};cursor:pointer}
 .lp-menu{display:none}
+.lp-nav-end{display:flex;align-items:center;gap:6px}
+.lp-lang{position:relative}
+.lp-lang-btn{display:inline-flex;align-items:center;gap:8px;min-height:44px;padding:0 12px;border:${OUTLINE};border-radius:8px;background:${PANEL};
+  box-shadow:inset 0 -3px 0 ${SUNK};color:${INK};font:700 15px/1 ${FONT_BODY};cursor:pointer}
+.lp-lang-btn[aria-expanded="true"] svg:last-child{transform:rotate(180deg)}
+/* The Hoenn message box as a menu: ink outline, hard ink drop shadow, gold on the current language. */
+.lp-lang-menu{position:absolute;right:0;top:calc(100% + 8px);z-index:40;display:flex;flex-direction:column;gap:2px;min-width:180px;padding:6px;
+  background:${PANEL};border:${OUTLINE};border-radius:8px;box-shadow:0 4px 0 ${INK}}
+.lp-lang-item{display:flex;align-items:center;justify-content:space-between;gap:12px;min-height:44px;padding:0 12px;border:0;border-radius:6px;
+  background:none;color:${INK};font:700 16px/1 ${FONT_BODY};text-align:left;cursor:pointer}
+@media (hover:hover) and (pointer:fine){.lp-lang-item:hover{background:${GROUND}}}
+.lp-lang-item[aria-checked="true"]{background:${ACTION}}
+.lp-menu .lp-lang-menu{left:0;right:auto}
 @media (max-width:899px){
   .lp-nav-links{display:none}.lp-menu-btn{display:inline-flex}
   .lp-menu{display:flex;flex-direction:column;padding:4px var(--lp-gutter-r) 12px var(--lp-gutter-l);border-top:2px solid ${SUNK}}
   .lp-menu-item{display:flex;align-items:center;min-height:48px;padding:0;border:0;background:none;color:${INK};
     font:700 18px/1 ${FONT_BODY};text-align:left;text-decoration:none;cursor:pointer}
 }
+/* Phones: no room beside the brand, so the picker moves into the menu. */
+.lp-menu .lp-lang{display:none;align-self:flex-start;margin-top:8px}
+@media (max-width:599px){.lp-nav-end>.lp-lang{display:none}.lp-menu .lp-lang{display:block}}
 @media (max-width:599px){.lp-nav-inner{padding-block:6px}.lp-wordmark{font-size:24px}.lp-brand img{width:28px;height:28px}}
 
 /* ---------- hero ---------- */
@@ -176,15 +193,14 @@ ${HERO_FIGHTER_CSS}
   .lp-band .lp-section-sub{display:block}}
 
 /* ---------- rooms ---------- */
-.lp-room-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(280px,100%),1fr));gap:22px;margin:0;padding:0;list-style:none}
-.lp-room-grid>li{display:flex}
-.lp-room-grid{grid-auto-flow:row dense}
-.lp-room-wide{grid-column:span 2;grid-row:span 2}
-.lp-room-wide .lp-seats{inset:40px 24px 14px}
-.lp-room-wide .lp-mini{width:72px;height:60px}
-.lp-room-wide .lp-mini .lp-sprite{transform:scale(1.6);transform-origin:50% 100%;margin-bottom:-10px}
-.lp-room-wide .lp-mini-mark{width:40px;height:12px;bottom:4px}
-.lp-room-wide .lp-seat-col:has(.lp-mini){gap:6px}
+.lp-room-grid{display:grid;grid-auto-flow:column;grid-auto-columns:max(280px,calc((100% - 66px) / 3.25));gap:22px;margin:0;padding:0 0 4px;list-style:none;
+  overflow-x:auto;overscroll-behavior-x:contain;scroll-snap-type:x mandatory;scrollbar-width:none}
+.lp-room-grid::-webkit-scrollbar{display:none}
+.lp-room-grid>li{display:flex;scroll-snap-align:start}
+.lp-section-actions{display:flex;align-items:center;gap:10px}
+.lp-carousel-btn{width:50px;min-height:50px;padding:0}
+.lp-carousel-prev svg{transform:rotate(90deg)}.lp-carousel-next svg{transform:rotate(-90deg)}
+.lp-carousel-btn:disabled{opacity:.4;cursor:default;transform:none}
 .lp-room{flex:1;display:flex;flex-direction:column;overflow:hidden;border-radius:8px;background:${PANEL};border:${OUTLINE}}
 .lp-room-thumb{position:relative;aspect-ratio:16/9;background:${COURT};border-bottom:${OUTLINE}}
 .lp-court-inset{position:absolute;inset:10px;border:2px solid ${PANEL};border-radius:3px}
@@ -195,6 +211,8 @@ ${HERO_FIGHTER_CSS}
 .lp-seat-ruby{background:${RUBY}}
 .lp-seat-sapphire{border-radius:3px;transform:rotate(45deg);background:${SAPPHIRE};width:18px;height:18px}
 .lp-seat-col:has(.lp-mini){gap:0}
+/* Four a side (4v4) don't fit one column: each team stands two by two. */
+.lp-seat-col:has(>:nth-child(4)){display:grid;grid-template-columns:repeat(2,auto);gap:4px 8px}
 .lp-mini{position:relative;display:flex;align-items:flex-end;justify-content:center;width:44px;height:36px}
 .lp-mini .lp-sprite{position:relative;z-index:1;margin-bottom:-6px}
 .lp-mini-mark{position:absolute;bottom:2px;left:50%;width:26px;height:8px;box-sizing:border-box;border-radius:50%;border:2px solid ${INK};transform:translateX(-50%)}
@@ -210,22 +228,17 @@ ${HERO_FIGHTER_CSS}
 .lp-chip{display:inline-flex;align-items:center;min-height:28px;box-sizing:border-box;padding:0 10px;border-radius:4px;background:${GROUND_ROUTE};
   border:2px solid ${INK};font:400 15px/1 ${FONT_UI}}
 .lp-room-meta{margin:0;font:400 15px/1.4 ${FONT_BODY};color:${INK_MUTED}}
-.lp-room-new{border-style:dashed}
-.lp-room-thumb-new{display:flex;align-items:center;justify-content:center;background:${GROUND_ROUTE};border-bottom-style:dashed;color:${INK}}
 @media (max-width:599px){
-  .lp-room-grid{grid-template-columns:1fr;gap:14px}
+  /* Phones: the row runs to the screen edges so the next card peeks in, inviting a swipe. */
+  .lp-room-grid{grid-auto-columns:85%;gap:12px;margin-inline:calc(-1 * var(--lp-gutter-l)) calc(-1 * var(--lp-gutter-r));
+    padding-inline:var(--lp-gutter-l) var(--lp-gutter-r);scroll-padding-inline:var(--lp-gutter-l)}
   .lp-room{flex-direction:row;align-items:center;gap:12px;padding:10px}
   .lp-room-thumb{flex:none;width:90px;height:60px;aspect-ratio:auto;border:2px solid ${INK};border-radius:4px;overflow:hidden}
   .lp-court-inset{inset:5px}.lp-seats{inset:6px}.lp-seat-col{gap:4px}.lp-seats-ffa{gap:2px 0}
+  .lp-seat-col:has(>:nth-child(4)){gap:0 2px}.lp-seat-col:has(>:nth-child(4)) .lp-mini{width:22px;height:22px}
   .lp-seat{width:12px;height:12px;border-width:2px}.lp-seat-sapphire{width:10px;height:10px}
   .lp-mini{width:30px;height:26px}.lp-mini .lp-sprite{transform:scale(.65);transform-origin:50% 100%;margin-bottom:-4px}.lp-mini-mark{width:18px;height:6px;border-width:1px}
   .lp-room-body{display:grid;grid-template-columns:minmax(0,1fr) auto;column-gap:12px;row-gap:3px;padding:0}
-  .lp-room-wide{grid-column:auto;grid-row:auto}
-  .lp-room-wide .lp-room{flex-direction:column;align-items:stretch}
-  .lp-room-wide .lp-room-thumb{width:auto;height:auto;aspect-ratio:16/9}
-  .lp-room-wide .lp-seats{inset:22px 10px 6px}
-  .lp-room-wide .lp-mini{width:44px;height:36px}.lp-room-wide .lp-mini .lp-sprite{transform:scale(1);margin-bottom:-6px}
-  .lp-room-wide .lp-mini-mark{width:26px;height:8px;bottom:2px}.lp-room-wide .lp-seat-col:has(.lp-mini){gap:0}
   .lp-room-title{justify-content:flex-start;gap:6px;min-width:0}
   .lp-room-name{font-size:16px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
   .lp-chip{min-height:0;padding:1px 6px;font-size:14px}
@@ -245,7 +258,8 @@ ${HERO_FIGHTER_CSS}
 .lp-step-text{display:flex;flex-direction:column;gap:12px}
 .lp-step-body{margin:0;font:400 16px/1.55 ${FONT_BODY};color:${INK_MUTED}}
 .lp-rules{display:flex;flex-wrap:wrap;gap:12px;margin:0;padding:0;list-style:none}
-.lp-rule{padding:10px 14px;border-radius:6px;background:${PANEL};border:${OUTLINE};font:700 15px/1.4 ${FONT_BODY}}
+/* Plain text, not pills: bordered bold pills read as buttons. */
+.lp-rule{padding:0;border:0;background:none;font:400 15px/1.4 ${FONT_BODY};color:${INK_MUTED}}
 @media (max-width:599px){
   .lp-band-inner{gap:16px;padding-top:32px;padding-bottom:32px}
   .lp-band .lp-h2{font-size:34px;line-height:1.08}
@@ -334,9 +348,39 @@ html:has(.lp-modal[open]){overflow:hidden}
 @media (hover:hover) and (pointer:fine){.lp-modal-option:hover{transform:translateY(-2px)}.lp-modal-close:hover{background:${GROUND}}}
 @media (max-width:599px){.lp-modal-body{gap:14px;padding:20px 16px}}
 
+/* ---------- live brawl: the always-live room, embedded ---------- */
+.lp-featured-wrap{padding-top:32px;padding-bottom:32px}
+.lp-featured{background:${PANEL};border:${OUTLINE};border-radius:8px;overflow:hidden}
+/* Desktop: the whole player (16:9 frame + caption) fits one screen under the sticky nav; ~220px is nav, padding and caption. */
+@media (min-width:600px){.lp-featured{width:100%;max-width:max(560px,calc((100dvh - 220px) * 16 / 9));margin-inline:auto}}
+.lp-featured-frame{position:relative;aspect-ratio:16/9;background:${STAGE_BG}}
+.lp-featured-embed{position:absolute;inset:0}
+.lp-featured-overlay{position:absolute;inset:0;z-index:1;display:block}
+.lp-root .lp-featured-overlay:focus-visible{outline-offset:-6px;box-shadow:none}
+.lp-featured-caption{display:flex;align-items:center;justify-content:space-between;gap:16px;padding:14px 18px;border-top:${OUTLINE}}
+.lp-featured-caption-text{display:flex;flex-direction:column;gap:4px;min-width:0}
+.lp-frame-state{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:12px;
+  color:${PANEL};font:700 18px/1.3 ${FONT_UI};text-align:center}
+.lp-frame-state p{margin:0}
+.lp-frame-state img{image-rendering:pixelated}
+.lp-bob{animation:lp-bob 900ms ${EASE_OUT} infinite alternate}
+@keyframes lp-bob{to{transform:translateY(-10px)}}
+/* Over the frame, above its link; margin (not transform) centres them so the buttons' hover lift still works. */
+.lp-featured-arrow{position:absolute;top:50%;z-index:2;margin-top:-25px}
+.lp-featured-arrow.lp-carousel-prev{left:12px}.lp-featured-arrow.lp-carousel-next{right:12px}
+.lp-featured-caption{flex-wrap:wrap}
+.lp-featured-tabs{display:flex;flex-wrap:wrap;gap:6px;margin-left:auto}
+.lp-featured-tab{min-height:44px;padding:0 14px;border:2px solid ${INK};border-radius:6px;background:${PANEL};color:${INK};
+  box-shadow:inset 0 -3px 0 ${SUNK};font:400 17px/1 ${FONT_UI};cursor:pointer}
+.lp-featured-tab[aria-pressed="true"]{background:${ACTION};box-shadow:inset 0 -3px 0 ${ACTION_BEVEL}}
+@media (max-width:599px){.lp-featured-wrap{padding-top:16px}.lp-featured-caption{padding:12px 14px}
+  .lp-featured-arrow{width:44px;min-height:44px;margin-top:-22px}.lp-featured-arrow.lp-carousel-prev{left:8px}.lp-featured-arrow.lp-carousel-next{right:8px}
+  .lp-featured-tabs{order:3;width:100%;margin:0}.lp-featured-tab{flex:1;padding:0 6px}}
+
 /* ---------- reduced motion (keep last) ---------- */
 @media (prefers-reduced-motion:reduce){
   .lp-sprite{animation:none}
+  .lp-bob{animation:none}
   .lp-modal[open]{animation:none}
   .lp-btn,.lp-mode,.lp-modal-option{transition:none}
   .lp-btn:hover,.lp-btn:active,.lp-mode:hover,.lp-modal-option:hover{transform:none}

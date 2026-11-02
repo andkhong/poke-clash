@@ -1,3 +1,4 @@
+import { defineMessages, useIntl, type IntlShape } from 'react-intl';
 import { lazy, memo, Suspense, useMemo, useRef, useState, type CSSProperties, type PointerEvent } from 'react';
 import type { StageRect } from '../../render/PhaserGame';
 import type { ActionEngine } from '../../sim/action/ActionEngine';
@@ -41,6 +42,60 @@ import { barFill, barTrack, chip, hoennButton, messageBox, teamMarker } from '..
 // Memoized: its props are stable for a match, so the 10 Hz HUD tick skips it.
 const PhaserGame = lazy(() => import('../../render/PhaserGame').then((m) => ({ default: memo(m.PhaserGame) })));
 
+const M = defineMessages({
+  playAgain: { id: 'match.hud.playAgain', defaultMessage: 'PLAY AGAIN' },
+  back: { id: 'match.hud.back', defaultMessage: 'BACK' },
+  quit: { id: 'match.hud.quit', defaultMessage: 'QUIT' },
+  dash: { id: 'match.hud.dash', defaultMessage: 'DASH' },
+  lockOn: { id: 'match.hud.lockOn', defaultMessage: 'LOCK-ON' },
+  freeAim: { id: 'match.hud.freeAim', defaultMessage: 'FREE AIM' },
+  target: { id: 'match.hud.target', defaultMessage: 'target' },
+  hp: { id: 'match.hud.hp', defaultMessage: 'HP', description: 'Hit points, abbreviated bar label' },
+  energy: { id: 'match.hud.energy', defaultMessage: 'EN', description: 'Energy, abbreviated bar label' },
+  energyCost: { id: 'match.hud.energyCost', defaultMessage: '{cost} EN', description: 'Energy cost of a move' },
+  needEnergy: { id: 'match.hud.needEnergy', defaultMessage: 'Need energy' },
+  cooldownSeconds: { id: 'match.hud.cooldownSeconds', defaultMessage: '{seconds} s' },
+  dashesLeft: { id: 'match.hud.dashesLeft', defaultMessage: '{count, plural, one {# dash} other {# dashes}}' },
+  speedBurst: { id: 'match.hud.speedBurst', defaultMessage: 'Speed Burst' },
+  speedTag: { id: 'match.hud.speedTag', defaultMessage: 'SPD', description: 'Short badge for the Speed Burst buff' },
+  shield: { id: 'match.hud.shield', defaultMessage: 'Shield' },
+  shieldTag: { id: 'match.hud.shieldTag', defaultMessage: 'SHD', description: 'Short badge for the Shield buff' },
+  freeForAll: { id: 'match.hud.brawl', defaultMessage: 'BRAWL' },
+  koCount: { id: 'match.hud.koCount', defaultMessage: '{count} KO', description: 'Knock-out count' },
+  out: { id: 'match.hud.out', defaultMessage: 'OUT', description: 'Fighter has been knocked out' },
+  you: { id: 'match.hud.you', defaultMessage: '(you)' },
+  getReady: { id: 'match.banner.getReady', defaultMessage: 'GET READY' },
+  fainted: { id: 'match.banner.fainted', defaultMessage: 'FAINTED' },
+  faintedTeam: {
+    id: 'match.banner.faintedTeam',
+    defaultMessage: 'You’re out — your team can still win (or a Revive from the crowd)',
+  },
+  faintedSolo: { id: 'match.banner.faintedSolo', defaultMessage: 'You’re out — a Revive from the crowd could bring you back' },
+  dragToMove: { id: 'match.touch.dragToMove', defaultMessage: 'drag to move' },
+  teamRuby: { id: 'match.team.ruby', defaultMessage: 'Ruby' },
+  teamSapphire: { id: 'match.team.sapphire', defaultMessage: 'Sapphire' },
+  teamHeader: { id: 'match.hud.teamHeader', defaultMessage: 'TEAM {team}' },
+  chipRuby: { id: 'match.hud.chipRuby', defaultMessage: 'RUBY {count}' },
+  chipSapphire: { id: 'match.hud.chipSapphire', defaultMessage: '{count} SAPPHIRE' },
+  teamLeft: { id: 'match.hud.teamLeft', defaultMessage: '{standing}/{total} left' },
+  draw: { id: 'match.results.draw', defaultMessage: 'Draw!' },
+  yourTeamWins: { id: 'match.results.yourTeamWins', defaultMessage: 'Your team wins!' },
+  youWin: { id: 'match.results.youWin', defaultMessage: 'You win!' },
+  teamWins: { id: 'match.results.teamWins', defaultMessage: 'Team {team} wins!' },
+  youLost: { id: 'match.results.youLost', defaultMessage: 'You lost. {winner} wins.' },
+  teamLabel: { id: 'match.results.teamLabel', defaultMessage: 'Team {team}' },
+  nameWins: { id: 'match.results.nameWins', defaultMessage: '{name} wins!' },
+  standing: { id: 'match.results.standing', defaultMessage: '{teamA} {countA} standing · {teamB} {countB}' },
+  fighters: { id: 'match.results.fighters', defaultMessage: 'Fighters' },
+  colPokemon: { id: 'match.results.colPokemon', defaultMessage: 'POKÉMON' },
+  colKo: { id: 'match.results.colKo', defaultMessage: 'KO', description: 'Column header: knock-outs' },
+  colDamage: { id: 'match.results.colDamage', defaultMessage: 'DMG', description: 'Column header: damage dealt' },
+  colOut: { id: 'match.results.colOut', defaultMessage: 'OUT', description: 'Column header: fighter is out' },
+  yourBet: { id: 'match.results.yourBet', defaultMessage: 'Your bet' },
+  nextMatchIn: { id: 'match.results.nextMatchIn', defaultMessage: 'Next match in {seconds}s' },
+  nextMatchStarting: { id: 'match.results.nextMatchStarting', defaultMessage: 'Next match starting…' },
+});
+
 const JOYSTICK_RADIUS = 56;
 const DRAG_AIM_THRESHOLD = 18;
 /** Below this stage width the HUD stacks at the top (phones, narrow windows). */
@@ -70,6 +125,10 @@ interface ActionMatchScreenProps {
   netInfo?: () => string | null;
   /** Online team matches: Crowd Call message box and the results timeline. Solo omits it. */
   crowd?: ActionMatchCrowd;
+  /** Online live rooms: whole seconds until the next match starts, shown on the results card. */
+  nextMatchIn?: number | null;
+  /** The landing page's live embed: view-only, so no quit or results buttons. */
+  preview?: boolean;
 }
 
 /** Play Mode's in-match screen: the ActionScene canvas plus a Gen III
@@ -83,11 +142,14 @@ export function ActionMatchScreen({
   onPlayAgain,
   onExit,
   names,
-  playAgainLabel = 'PLAY AGAIN',
-  exitLabel = 'BACK',
+  playAgainLabel,
+  exitLabel,
   netInfo,
   crowd,
+  nextMatchIn,
+  preview = false,
 }: ActionMatchScreenProps) {
+  const intl = useIntl();
   const state = useSimSnapshot(store);
   const [stageRect, setStageRect] = useState<StageRect | null>(null);
   /** The desktop bar's tallest height so far: the bar never shrinks below it, and once the match ends a spacer this tall keeps the arena where it was. */
@@ -133,9 +195,9 @@ export function ActionMatchScreen({
   const ping = netInfo?.();
   const meta = (
     <div style={metaRowStyle}>
-      {playing && (
+      {playing && !preview && (
         <button onClick={onExit} style={quitButton}>
-          ✕ QUIT
+          ✕ {intl.formatMessage(M.quit)}
         </button>
       )}
       {ping && <span style={pingStyle}>{ping}</span>}
@@ -165,7 +227,12 @@ export function ActionMatchScreen({
                 <div style={stackStyle}>
                   <TopHud state={state} engine={engine} compact />
                   {meta}
-                  {controller && playing && <InfoBox state={state} controller={controller} />}
+                  {/* Wrapped: in this column the box's desktop flex-basis would become a 320px height. */}
+                  {controller && playing && (
+                    <div>
+                      <InfoBox state={state} controller={controller} />
+                    </div>
+                  )}
                   {banner}
                   {!state.teams && <Standings state={state} engine={engine} />}
                 </div>
@@ -180,7 +247,7 @@ export function ActionMatchScreen({
                   )}
                 </>
               )}
-              {state.phase === 'intro' && <Banner title="GET READY" />}
+              {state.phase === 'intro' && <Banner title={intl.formatMessage(M.getReady)} />}
               {controller && state.phase === 'battle' && !engine.isAlive(playerId) && <DeathBanner state={state} />}
               {controller && playing && touch && <TouchControls controller={controller} moves={moves} onToggleLock={toggleLock} />}
               {!desktop && bottomRow}
@@ -194,11 +261,13 @@ export function ActionMatchScreen({
                   state={state}
                   engine={engine}
                   names={names}
-                  labels={[playAgainLabel, exitLabel]}
+                  labels={[playAgainLabel ?? intl.formatMessage(M.playAgain), exitLabel ?? intl.formatMessage(M.back)]}
                   onPlayAgain={onPlayAgain}
                   onExit={onExit}
                   crowd={crowd && state.teams ? { history: calls?.history ?? [], betResult: crowd.betResult } : undefined}
                   stacked={stacked}
+                  nextMatchIn={nextMatchIn}
+                  preview={preview}
                 />
               )}
             </div>
@@ -214,7 +283,7 @@ export function ActionMatchScreen({
 const hpFraction = (state: SimState, engine: ActionEngine, id: string) =>
   engine.isAlive(id) ? state.pokemon[id].currentHp / state.pokemon[id].maxHp : 0;
 const hpColor = (hp: number) => (hp > 0.5 ? HP_GREEN : hp > 0.2 ? HP_YELLOW : HP_RED);
-const teamName = (team: string) => (team === 'teamA' ? 'Ruby' : 'Sapphire');
+const teamName = (intl: IntlShape, team: string) => intl.formatMessage(team === 'teamA' ? M.teamRuby : M.teamSapphire);
 
 function clockText(state: SimState) {
   const remaining = Math.max(0, ACTION_MATCH_LIMIT_MS - state.elapsedMs);
@@ -223,6 +292,7 @@ function clockText(state: SimState) {
 
 /** Team info boxes (or, stacked, one-line chips) either side of the clock. */
 function TopHud({ state, engine, compact }: { state: SimState; engine: ActionEngine; compact: boolean }) {
+  const intl = useIntl();
   const clock = <div style={compact ? clockCompact : clockStyle}>{clockText(state)}</div>;
   if (!state.teams)
     return compact ? <div style={{ display: 'flex', justifyContent: 'center' }}>{clock}</div> : <div style={clockWrap}>{clock}</div>;
@@ -234,11 +304,11 @@ function TopHud({ state, engine, compact }: { state: SimState; engine: ActionEng
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 6 }}>
         <span style={{ ...teamChip, color: TEAM_A_COLOR_CSS }}>
           <span style={teamMarker('teamA', 10)} />
-          RUBY {standing('teamA')}
+          {intl.formatMessage(M.chipRuby, { count: standing('teamA') })}
         </span>
         {clock}
         <span style={{ ...teamChip, color: TEAM_B_COLOR_CSS }}>
-          {standing('teamB')} SAPPHIRE
+          {intl.formatMessage(M.chipSapphire, { count: standing('teamB') })}
           <span style={teamMarker('teamB', 10)} />
         </span>
       </div>
@@ -255,10 +325,10 @@ function TopHud({ state, engine, compact }: { state: SimState; engine: ActionEng
       <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
         <span style={teamMarker(team)} />
         <strong style={{ fontFamily: FONT_UI, fontSize: 20, color: team === 'teamA' ? TEAM_A_COLOR_CSS : TEAM_B_COLOR_CSS }}>
-          TEAM {teamName(team).toUpperCase()}
+          {intl.formatMessage(M.teamHeader, { team: teamName(intl, team).toUpperCase() })}
         </strong>
         <span style={{ marginLeft: 'auto', fontFamily: FONT_UI, fontSize: 17 }}>
-          {standing(team)}/{ids(team).length} left
+          {intl.formatMessage(M.teamLeft, { standing: standing(team), total: ids(team).length })}
         </span>
       </div>
       {ids(team).map((id) => {
@@ -300,17 +370,18 @@ function TopHud({ state, engine, compact }: { state: SimState; engine: ActionEng
 
 /** Crowd Call buffs on a fighter: a speed burst and/or an unused shield. */
 function Buffs({ speedMs, shieldMs }: { speedMs: number; shieldMs: number }) {
+  const intl = useIntl();
   if (speedMs <= 0 && shieldMs <= 0) return null;
   return (
     <span style={{ display: 'flex', gap: 3 }}>
       {speedMs > 0 && (
-        <span title="Speed Burst" style={buffTag}>
-          SPD
+        <span title={intl.formatMessage(M.speedBurst)} style={buffTag}>
+          {intl.formatMessage(M.speedTag)}
         </span>
       )}
       {shieldMs > 0 && (
-        <span title="Shield" style={buffTag}>
-          SHD
+        <span title={intl.formatMessage(M.shield)} style={buffTag}>
+          {intl.formatMessage(M.shieldTag)}
         </span>
       )}
     </span>
@@ -318,12 +389,13 @@ function Buffs({ speedMs, shieldMs }: { speedMs: number; shieldMs: number }) {
 }
 
 function Standings({ state, engine }: { state: SimState; engine: ActionEngine }) {
+  const intl = useIntl();
   const standings = [...state.allInstanceIds].sort(
     (a, b) => Number(engine.isAlive(b)) - Number(engine.isAlive(a)) || engine.getFighter(b).kos - engine.getFighter(a).kos
   );
   return (
     <div style={{ ...standingsStyle, alignSelf: 'flex-end' }}>
-      <strong style={{ fontFamily: FONT_UI, fontSize: 18 }}>FREE-FOR-ALL</strong>
+      <strong style={{ fontFamily: FONT_UI, fontSize: 18 }}>{intl.formatMessage(M.freeForAll)}</strong>
       {standings.map((id) => (
         <div
           key={id}
@@ -338,7 +410,7 @@ function Standings({ state, engine }: { state: SimState; engine: ActionEngine })
             {id === engine.playerId ? '▶ ' : ''}
             {state.pokemon[id].name}
           </span>
-          <span>{engine.isAlive(id) ? `${engine.getFighter(id).kos} KO` : 'OUT'}</span>
+          <span>{engine.isAlive(id) ? intl.formatMessage(M.koCount, { count: engine.getFighter(id).kos }) : intl.formatMessage(M.out)}</span>
         </div>
       ))}
     </div>
@@ -347,6 +419,7 @@ function Standings({ state, engine }: { state: SimState; engine: ActionEngine })
 
 /** Your fighter's info box: HP (with a draining trail), energy and dash charges. */
 function InfoBox({ state, controller }: { state: SimState; controller: PlayerController }) {
+  const intl = useIntl();
   const me = state.pokemon[controller.playerId];
   const fighter = controller.engine.getFighter(controller.playerId);
   const hp = controller.engine.isAlive(controller.playerId) ? me.currentHp / me.maxHp : 0;
@@ -362,7 +435,7 @@ function InfoBox({ state, controller }: { state: SimState; controller: PlayerCon
         </span>
       </div>
       <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-        <span style={{ ...barTag, color: ACTION }}>HP</span>
+        <span style={{ ...barTag, color: ACTION }}>{intl.formatMessage(M.hp)}</span>
         <div style={{ ...barTrack(10, 3), flex: 1 }}>
           {/* The white trail drains after a beat, so a big hit reads at a glance. */}
           <div style={{ ...barFill(PANEL, hp), transition: 'width 400ms ease 300ms' }} />
@@ -370,15 +443,15 @@ function InfoBox({ state, controller }: { state: SimState; controller: PlayerCon
         </div>
       </div>
       <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-        <span style={{ ...barTag, color: PANEL }}>EN</span>
+        <span style={{ ...barTag, color: PANEL }}>{intl.formatMessage(M.energy)}</span>
         <div style={{ ...barTrack(5, 3), flex: 1 }}>
           <div style={barFill(ENERGY, fighter.energy / ENERGY_MAX)} />
         </div>
         <span style={{ fontFamily: FONT_UI, fontSize: 15, minWidth: 26, textAlign: 'right' }}>{Math.floor(fighter.energy)}</span>
       </div>
       <div style={{ display: 'flex', justifyContent: 'space-between', fontFamily: FONT_UI, fontSize: 16 }}>
-        <span style={{ display: 'flex', alignItems: 'center', gap: 5 }} aria-label={`${fighter.dashCharges} dashes`}>
-          DASH
+        <span style={{ display: 'flex', alignItems: 'center', gap: 5 }} aria-label={intl.formatMessage(M.dashesLeft, { count: fighter.dashCharges })}>
+          {intl.formatMessage(M.dash)}
           {Array.from({ length: DASH_CHARGES }, (_, i) => (
             <span key={i} style={{ ...pip(10, 2), width: 20, background: i < fighter.dashCharges ? ENERGY : 'transparent' }} />
           ))}
@@ -396,6 +469,7 @@ interface ControlsProps {
 
 /** Desktop: the 2×2 type-coloured fight menu, with dash/lock above it. */
 function FightMenu({ controller, moves, onToggleLock }: ControlsProps) {
+  const intl = useIntl();
   const fighter = controller.engine.getFighter(controller.playerId);
   return (
     <div style={{ flex: '0 1 420px', minWidth: 300, display: 'flex', flexDirection: 'column', gap: 6 }}>
@@ -403,7 +477,7 @@ function FightMenu({ controller, moves, onToggleLock }: ControlsProps) {
         <button onClick={() => controller.dash()} style={smallKey(fighter.dashCharges > 0)}>
           <div style={sweepBar(dashSweep(fighter.dashCharges, fighter.dashRechargeMs))} />
           <span style={{ position: 'relative' }}>
-            <span style={keyCap}>␣</span> DASH {pips(fighter.dashCharges)}
+            <span style={keyCap}>␣</span> {intl.formatMessage(M.dash)} {pips(fighter.dashCharges)}
           </span>
         </button>
         <button
@@ -411,10 +485,10 @@ function FightMenu({ controller, moves, onToggleLock }: ControlsProps) {
           aria-pressed={controller.lockOn}
           style={{ ...smallKey(true), background: controller.lockOn ? ACTION : PANEL }}
         >
-          <span style={keyCap}>L</span> {controller.lockOn ? '◎ LOCK-ON' : '✛ FREE AIM'}
+          <span style={keyCap}>L</span> {controller.lockOn ? `◎ ${intl.formatMessage(M.lockOn)}` : `✛ ${intl.formatMessage(M.freeAim)}`}
         </button>
         <span style={{ ...smallKey(true), cursor: 'default' }}>
-          <span style={keyCap}>Tab</span> target
+          <span style={keyCap}>Tab</span> {intl.formatMessage(M.target)}
         </span>
       </div>
       <div style={fightMenuStyle}>
@@ -439,7 +513,11 @@ function FightMenu({ controller, moves, onToggleLock }: ControlsProps) {
                 <span style={{ fontFamily: FONT_PIXEL, fontSize: 10 }}>{slot + 1}</span> {move.name}
               </span>
               <span style={{ position: 'relative', fontSize: 14, color: broke ? RUBY : undefined }}>
-                {cdMs > 0 ? `${(cdMs / 1000).toFixed(1)} s` : broke ? 'Need energy' : `${cost} EN`}
+                {cdMs > 0
+                  ? intl.formatMessage(M.cooldownSeconds, { seconds: (cdMs / 1000).toFixed(1) })
+                  : broke
+                    ? intl.formatMessage(M.needEnergy)
+                    : intl.formatMessage(M.energyCost, { cost })}
               </span>
             </button>
           );
@@ -458,6 +536,7 @@ const TOUCH_SLOTS: { right: number; bottom: number; size: number }[] = [
 ];
 
 function TouchControls({ controller, moves, onToggleLock }: ControlsProps) {
+  const intl = useIntl();
   const fighter = controller.engine.getFighter(controller.playerId);
   return (
     <>
@@ -484,11 +563,11 @@ function TouchControls({ controller, moves, onToggleLock }: ControlsProps) {
         }}
       >
         <div style={sweep(dashSweep(fighter.dashCharges, fighter.dashRechargeMs))} />
-        <span style={{ position: 'relative', fontSize: 14 }}>DASH</span>
+        <span style={{ position: 'relative', fontSize: 14 }}>{intl.formatMessage(M.dash)}</span>
         <span style={{ position: 'absolute', bottom: 5, fontSize: 11 }}>{pips(fighter.dashCharges)}</span>
       </button>
       <button onClick={onToggleLock} aria-pressed={controller.lockOn} style={{ ...lockPill(controller.lockOn), right: 12, bottom: 178 }}>
-        {controller.lockOn ? '◎ LOCK-ON' : '✛ FREE AIM'}
+        {controller.lockOn ? `◎ ${intl.formatMessage(M.lockOn)}` : `✛ ${intl.formatMessage(M.freeAim)}`}
       </button>
     </>
   );
@@ -509,6 +588,7 @@ function TouchMoveButton({
   cooldown: number;
   disabled: boolean;
 }) {
+  const intl = useIntl();
   const start = useRef<{ x: number; y: number } | null>(null);
   const layout = TOUCH_SLOTS[slot];
   const onDown = (e: PointerEvent) => {
@@ -547,21 +627,23 @@ function TouchMoveButton({
       <span
         style={{
           position: 'relative',
-          fontSize: layout.size > 70 ? 13 : 11,
+          fontSize: (layout.size > 70 ? 13 : 11) - (move.name.length > 9 ? 2 : 0),
           lineHeight: 1.05,
           padding: '0 6px',
-          overflowWrap: 'anywhere',
+          marginBottom: 12, // clears the energy cost pinned at bottom: 5
+          overflowWrap: 'normal',
         }}
       >
         {move.name}
       </span>
-      <span style={{ position: 'absolute', bottom: 5, fontSize: 11 }}>{moveEnergyCost(move.pp)} EN</span>
+      <span style={{ position: 'absolute', bottom: 5, fontSize: 11 }}>{intl.formatMessage(M.energyCost, { cost: moveEnergyCost(move.pp) })}</span>
     </button>
   );
 }
 
 /** Floating stick: it centres wherever the thumb lands in the left half. */
 function Joystick({ controller }: { controller: PlayerController }) {
+  const intl = useIntl();
   const [origin, setOrigin] = useState<{ x: number; y: number } | null>(null);
   const [knob, setKnob] = useState({ x: 0, y: 0 });
   const zone = useRef<HTMLDivElement>(null);
@@ -607,19 +689,18 @@ function Joystick({ controller }: { controller: PlayerController }) {
           />
         </div>
       )}
-      {!origin && <span style={joystickHint}>drag to move</span>}
+      {!origin && <span style={joystickHint}>{intl.formatMessage(M.dragToMove)}</span>}
     </div>
   );
 }
 
 function DeathBanner({ state }: { state: SimState }) {
+  const intl = useIntl();
   return (
     <Banner
-      title="FAINTED"
+      title={intl.formatMessage(M.fainted)}
       subtitle={
-        state.teams
-          ? 'You’re out — your team can still win (or a Revive from the crowd)'
-          : 'You’re out — a Revive from the crowd could bring you back'
+        intl.formatMessage(state.teams ? M.faintedTeam : M.faintedSolo)
       }
     />
   );
@@ -643,6 +724,8 @@ function Results({
   onExit,
   crowd,
   stacked,
+  nextMatchIn,
+  preview,
 }: {
   state: SimState;
   engine: ActionEngine;
@@ -652,21 +735,26 @@ function Results({
   onExit: () => void;
   crowd?: { history: Parameters<typeof CrowdCallsTimeline>[0]['history']; betResult?: string | null };
   stacked: boolean;
+  nextMatchIn?: number | null;
+  preview: boolean;
 }) {
+  const intl = useIntl();
   const winners = new Set(state.winnerInstanceIds);
   const iWon = winners.has(engine.playerId);
   const someWinner = state.winnerInstanceIds[0];
   const winTeam = someWinner ? state.pokemon[someWinner].team : undefined;
   const title =
     winners.size === 0
-      ? 'Draw!'
+      ? intl.formatMessage(M.draw)
       : iWon
-        ? state.teams
-          ? 'Your team wins!'
-          : 'You win!'
-        : state.teams
-          ? `Team ${teamName(winTeam ?? '')} wins!`
-          : `${state.pokemon[someWinner].name} wins!`;
+        ? intl.formatMessage(state.teams ? M.yourTeamWins : M.youWin)
+        : engine.playerId in state.pokemon
+          ? intl.formatMessage(M.youLost, {
+              winner: state.teams ? intl.formatMessage(M.teamLabel, { team: teamName(intl, winTeam ?? '') }) : state.pokemon[someWinner].name,
+            })
+          : state.teams
+            ? intl.formatMessage(M.teamWins, { team: teamName(intl, winTeam ?? '') })
+            : intl.formatMessage(M.nameWins, { name: state.pokemon[someWinner].name });
   const rows = [...state.allInstanceIds].sort(
     (a, b) =>
       Number(winners.has(b)) - Number(winners.has(a)) ||
@@ -685,17 +773,22 @@ function Results({
         </h2>
         {state.teams && (
           <span style={{ fontSize: 15, color: INK_MUTED }}>
-            Ruby {standingOf('teamA')} standing · Sapphire {standingOf('teamB')}
+            {intl.formatMessage(M.standing, {
+              teamA: teamName(intl, 'teamA'),
+              countA: standingOf('teamA'),
+              teamB: teamName(intl, 'teamB'),
+              countB: standingOf('teamB'),
+            })}
           </span>
         )}
       </div>
       <div style={{ display: 'grid', gridTemplateColumns: twoCol ? 'minmax(0, 1fr) minmax(0, 1fr)' : 'minmax(0, 1fr)', gap: 16 }}>
-        <section aria-label="Fighters" style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+        <section aria-label={intl.formatMessage(M.fighters)} style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
           <div style={{ ...resultRow, background: 'transparent', border: 'none', color: INK_MUTED, fontSize: 14 }}>
-            <span>POKÉMON</span>
-            <span>KO</span>
-            <span>DMG</span>
-            <span>OUT</span>
+            <span>{intl.formatMessage(M.colPokemon)}</span>
+            <span>{intl.formatMessage(M.colKo)}</span>
+            <span>{intl.formatMessage(M.colDamage)}</span>
+            <span>{intl.formatMessage(M.colOut)}</span>
           </div>
           {rows.map((id) => {
             const f = engine.getFighter(id);
@@ -707,7 +800,7 @@ function Results({
                   <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                     {winners.has(id) ? '🏆 ' : ''}
                     {p.name}
-                    {id === engine.playerId ? ' (you)' : ''}
+                    {id === engine.playerId ? ` ${intl.formatMessage(M.you)}` : ''}
                     {names?.[id] && <span style={{ fontFamily: FONT_BODY, fontSize: 13, color: INK_MUTED }}> {names[id]}</span>}
                   </span>
                 </span>
@@ -719,21 +812,28 @@ function Results({
           })}
           {crowd?.betResult && (
             <div style={betBox}>
-              <span style={{ fontFamily: FONT_UI, fontSize: 17 }}>Your bet</span>
+              <span style={{ fontFamily: FONT_UI, fontSize: 17 }}>{intl.formatMessage(M.yourBet)}</span>
               <span style={{ fontSize: 15 }}>{crowd.betResult}</span>
             </div>
           )}
         </section>
         {crowd && <CrowdCallsTimeline history={crowd.history} />}
       </div>
-      <div style={{ display: 'flex', gap: 10, justifyContent: 'center', flexWrap: 'wrap' }}>
-        <button onClick={onExit} style={hoennButton('secondary')}>
-          {labels[1]}
-        </button>
-        <button onClick={onPlayAgain} style={hoennButton('primary')}>
-          ▶ {labels[0]}
-        </button>
-      </div>
+      {nextMatchIn != null && (
+        <div role="timer" style={{ textAlign: 'center', fontFamily: FONT_UI, fontSize: 20 }}>
+          {nextMatchIn > 0 ? intl.formatMessage(M.nextMatchIn, { seconds: nextMatchIn }) : intl.formatMessage(M.nextMatchStarting)}
+        </div>
+      )}
+      {!preview && (
+        <div style={{ display: 'flex', gap: 10, justifyContent: 'center', flexWrap: 'wrap' }}>
+          <button onClick={onExit} style={hoennButton('secondary')}>
+            {labels[1]}
+          </button>
+          <button onClick={onPlayAgain} style={hoennButton('primary')}>
+            ▶ {labels[0]}
+          </button>
+        </div>
+      )}
     </div>
   );
 }
@@ -911,7 +1011,7 @@ const infoBoxStyle: CSSProperties = {
   flexDirection: 'column',
   gap: 6,
 };
-const barTag: CSSProperties = { fontFamily: FONT_PIXEL, fontSize: 9, background: INK, padding: '3px 5px', borderRadius: 3 };
+const barTag: CSSProperties = { fontFamily: FONT_PIXEL, fontSize: 10, background: INK, padding: '3px 5px', borderRadius: 3 };
 function pip(size: number, radius: number | string): CSSProperties {
   return { width: size, height: size, borderRadius: radius, border: `2px solid ${INK}`, boxSizing: 'border-box', display: 'inline-block' };
 }

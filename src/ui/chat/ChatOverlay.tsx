@@ -1,4 +1,5 @@
 import { memo, useEffect, useRef, useState, type CSSProperties } from 'react';
+import { useIntl } from 'react-intl';
 import type { ChatMessage } from '../../net/protocol';
 import { ChatPanel, type ChatPanelProps } from './ChatPanel';
 import { useKeyboardInset } from '../hooks/useKeyboardInset';
@@ -51,6 +52,7 @@ interface TickerEntry {
  * without this the whole message list was re-rendered ten times a second.
  */
 export const ChatOverlay = memo(function ChatOverlay({ vote, predictions, shop, ...props }: ChatOverlayProps) {
+  const intl = useIntl();
   const { messages } = props;
   // Which drawer tab is showing, or null while the drawer is closed.
   const [openTab, setOpenTab] = useState<DrawerTab | null>(null);
@@ -98,6 +100,7 @@ export const ChatOverlay = memo(function ChatOverlay({ vote, predictions, shop, 
     if (open) setLastSeenId(latestChatId(messages));
   }, [open, messages]);
 
+  const closeLabel = intl.formatMessage({ id: 'chat.overlay.close', defaultMessage: 'Close' });
   if (openTab !== null) {
     return (
       <div style={{ ...drawerStyle, bottom: keyboardInset, maxHeight: `calc(100% - ${keyboardInset}px)` }}>
@@ -111,7 +114,7 @@ export const ChatOverlay = memo(function ChatOverlay({ vote, predictions, shop, 
                 onClick={() => setOpenTab('vote')}
                 style={tabStyle(openTab === 'vote', true)}
               >
-                Vote
+                {intl.formatMessage({ id: 'chat.overlay.tab.vote', defaultMessage: 'Vote' })}
               </button>
             )}
             <button
@@ -121,7 +124,7 @@ export const ChatOverlay = memo(function ChatOverlay({ vote, predictions, shop, 
               onClick={() => setOpenTab('chat')}
               style={tabStyle(openTab === 'chat')}
             >
-              Chat
+              {intl.formatMessage({ id: 'chat.overlay.tab.chat', defaultMessage: 'Chat' })}
             </button>
             {predictions && (
               <button
@@ -131,7 +134,7 @@ export const ChatOverlay = memo(function ChatOverlay({ vote, predictions, shop, 
                 onClick={() => setOpenTab('bets')}
                 style={tabStyle(openTab === 'bets')}
               >
-                Bet
+                {intl.formatMessage({ id: 'chat.overlay.tab.bet', defaultMessage: 'Bet' })}
               </button>
             )}
             {shop && (
@@ -142,11 +145,11 @@ export const ChatOverlay = memo(function ChatOverlay({ vote, predictions, shop, 
                 onClick={() => setOpenTab('shop')}
                 style={tabStyle(openTab === 'shop')}
               >
-                Items
+                {intl.formatMessage({ id: 'chat.overlay.tab.items', defaultMessage: 'Items' })}
               </button>
             )}
           </div>
-          <button type="button" onClick={() => setOpenTab(null)} title="Close" aria-label="Close" style={closeButtonStyle}>
+          <button type="button" onClick={() => setOpenTab(null)} title={closeLabel} aria-label={closeLabel} style={closeButtonStyle}>
             ▾
           </button>
         </div>
@@ -180,6 +183,10 @@ export const ChatOverlay = memo(function ChatOverlay({ vote, predictions, shop, 
    * bottom-right LEAVE ROOM control. With all three present they drop to
    * icons (and the bet badge to a dot), which is how a phone toolbar reads
    * anyway; with only two, the labels stay exactly as they were. */
+  const voteLabel = intl.formatMessage({ id: 'chat.overlay.voteLabel', defaultMessage: 'Crowd Call vote' });
+  const chatLabel = intl.formatMessage({ id: 'chat.overlay.chatLabel', defaultMessage: 'Chat' });
+  const betsLabel = intl.formatMessage({ id: 'chat.overlay.betsLabel', defaultMessage: 'Predictions' });
+  const shopLabel = intl.formatMessage({ id: 'chat.overlay.shopLabel', defaultMessage: 'Item shop' });
   const compact = [vote, predictions, shop].filter((panel) => panel !== undefined).length >= 2;
 
   return (
@@ -209,26 +216,26 @@ export const ChatOverlay = memo(function ChatOverlay({ vote, predictions, shop, 
           <button
             type="button"
             onClick={() => setOpenTab('vote')}
-            title="Crowd Call vote"
-            aria-label="Crowd Call vote"
+            title={voteLabel}
+            aria-label={voteLabel}
             style={{ ...chatButtonStyle, color: PANEL, background: CROWD }}
           >
-            VOTE
+            {intl.formatMessage({ id: 'chat.overlay.voteButton', defaultMessage: 'VOTE' })}
             <VotingDot calls={vote.calls} />
           </button>
         )}
-        <button type="button" onClick={() => setOpenTab('chat')} title="Chat" aria-label="Chat" style={chatButtonStyle}>
-          {compact ? '💬' : '💬 CHAT'}
+        <button type="button" onClick={() => setOpenTab('chat')} title={chatLabel} aria-label={chatLabel} style={chatButtonStyle}>
+          {compact ? '💬' : `💬 ${intl.formatMessage({ id: 'chat.overlay.chatButton', defaultMessage: 'CHAT' })}`}
           {unread > 0 && <span style={badgeStyle}>{unread > 99 ? '99+' : unread}</span>}
         </button>
         {predictions && (
-          <button type="button" onClick={() => setOpenTab('bets')} title="Predictions" aria-label="Predictions" style={chatButtonStyle}>
-            {compact ? '🔮' : '🔮 BET'}
-            {betStatus === 'open' && (compact ? <span style={dotStyle} aria-hidden /> : <span style={badgeStyle}>OPEN</span>)}
+          <button type="button" onClick={() => setOpenTab('bets')} title={betsLabel} aria-label={betsLabel} style={chatButtonStyle}>
+            {compact ? '🔮' : `🔮 ${intl.formatMessage({ id: 'chat.overlay.betButton', defaultMessage: 'BET' })}`}
+            {betStatus === 'open' && (compact ? <span style={dotStyle} aria-hidden /> : <span style={badgeStyle}>{intl.formatMessage({ id: 'chat.overlay.betOpen', defaultMessage: 'OPEN' })}</span>)}
           </button>
         )}
         {shop && (
-          <button type="button" onClick={() => setOpenTab('shop')} title="Item shop" aria-label="Item shop" style={chatButtonStyle}>
+          <button type="button" onClick={() => setOpenTab('shop')} title={shopLabel} aria-label={shopLabel} style={chatButtonStyle}>
             🎒
             {shopHasStock && <span style={dotStyle} aria-hidden />}
           </button>

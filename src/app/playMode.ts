@@ -11,7 +11,7 @@ export const PLAY_MODES: { value: PlayModeKind; label: string }[] = [
   { value: 2, label: '2v2' },
   { value: 3, label: '3v3' },
   { value: 4, label: '4v4' },
-  { value: 'ffa', label: 'FFA · 8' },
+  { value: 'ffa', label: 'Brawl · 8' },
 ];
 
 export const PLAY_LEVEL = 50;
@@ -22,12 +22,15 @@ function canDealDamage(moveId: number): boolean {
   return !!move && (move.power ?? 0) > 0 && !move.userFaints;
 }
 
-/** Play Mode starts with the original 151 only — minus the few (Ditto,
- * Metapod, Kakuna) whose level-50 pool has no damaging move, which a player
- * could pick and then never attack with. */
-export const KANTO_IDS: readonly number[] = listAllSpecies()
+/** Last national dex id Play Mode offers: Gens 1–4 end at Arceus. */
+export const MAX_PLAY_ID = 493;
+
+/** Play Mode's roster: Gens 1–4 — minus the few (Ditto, Kakuna, Smeargle…)
+ * whose level-50 pool has no damaging move, which a player could pick and
+ * then never attack with. */
+export const PLAY_IDS: readonly number[] = listAllSpecies()
   .map((s) => s.id)
-  .filter((id) => id <= 151 && hasPmdSprite(id) && (buildSpeciesDataForLevel(id, PLAY_LEVEL)?.movePool ?? []).some(canDealDamage));
+  .filter((id) => id <= MAX_PLAY_ID && hasPmdSprite(id) && (buildSpeciesDataForLevel(id, PLAY_LEVEL)?.movePool ?? []).some(canDealDamage));
 
 export function isPlayModeKind(value: unknown): value is PlayModeKind {
   return value === 1 || value === 2 || value === 3 || value === 4 || value === 'ffa';
@@ -70,7 +73,7 @@ export function buildPlayMatchConfig(
   arena: ArenaBounds
 ): MatchConfig {
   const taken = seats.flatMap((seat) => (seat ? [seat.speciesId] : []));
-  const botSpecies = pickRandomSpeciesIds(seats.filter((seat) => !seat).length, taken, KANTO_IDS);
+  const botSpecies = pickRandomSpeciesIds(seats.filter((seat) => !seat).length, taken, PLAY_IDS);
   const filled = seats.map((seat) => seat ?? { speciesId: botSpecies.shift()!, moves: [] });
   return {
     level: PLAY_LEVEL,

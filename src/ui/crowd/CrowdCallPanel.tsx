@@ -1,4 +1,5 @@
 import { memo, useEffect, useReducer, useState, type CSSProperties, type ReactNode } from 'react';
+import { FormattedMessage, useIntl } from 'react-intl';
 import type { CrowdCardId, CrowdSide } from '../../net/play/playProtocol';
 import { ACTION_MATCH_LIMIT_MS } from '../../sim/action/rules';
 import type { SimStore } from '../state/simStore';
@@ -20,8 +21,8 @@ import {
 } from '../theme';
 import { TEAM_A_COLOR_CSS, TEAM_B_COLOR_CSS } from '../teamColors';
 import {
-  CROWD_CARDS,
-  SIDE_NAME,
+  cardText,
+  sideName,
   callStatus,
   callsPerMatch,
   formatClock,
@@ -77,6 +78,7 @@ export const CrowdCallPanel = memo(function CrowdCallPanel({
   const [pending, setPending] = useState<CrowdCardId | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [, tick] = useReducer((n: number) => n + 1, 0);
+  const intl = useIntl();
 
   useEffect(() => {
     if (!store) return;
@@ -90,7 +92,15 @@ export const CrowdCallPanel = memo(function CrowdCallPanel({
     return () => clearTimeout(timer);
   }, [error]);
 
-  if (!teams) return <p style={{ ...noteStyle, padding: 16 }}>Crowd Calls are team modes only.</p>;
+  // No calls in a Brawl, but this tab is still where watchers sign up and queue for the next match.
+  if (!teams) {
+    return (
+      <div style={wrapStyle}>
+        {!fighter && signUp}
+        <p style={{ ...noteStyle, padding: '6px 6px 0' }}>{intl.formatMessage({ id: 'crowd.panel.teamsOnly', defaultMessage: 'Crowd Calls are team modes only.' })}</p>
+      </div>
+    );
+  }
 
   const viewSide = side ?? picked;
   const nowMs = store?.getEngine().getState().elapsedMs ?? 0;
@@ -98,6 +108,16 @@ export const CrowdCallPanel = memo(function CrowdCallPanel({
   const callSide = current?.sides[viewSide] ?? null;
   const tally = callSide ? tallySide(callSide) : null;
   const voting = status.kind === 'voting';
+  const callValues = callSide?.winner
+    ? {
+        side: sideName(viewSide),
+        card: cardText(callSide.winner).label,
+        phase: status.kind,
+        seconds: status.kind === 'landing' ? status.landsInS : 0,
+        b: (c: ReactNode) => <strong style={{ color: CROWD_TEXT }}>{c}</strong>,
+      }
+    : null;
+  const cheerFor = intl.formatMessage({ id: 'crowd.panel.cheerFor', defaultMessage: 'Cheer for' });
 
   const vote = (card: CrowdCardId) => {
     if (pending) return;
@@ -114,18 +134,31 @@ export const CrowdCallPanel = memo(function CrowdCallPanel({
       {!fighter && !signedUp && signUp}
       <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
         <span style={chip(CROWD_TEXT, PANEL)}>
-          {current ? `CROWD CALL ${current.index}/${Math.max(CALLS_PER_MATCH, current.index)}` : 'CROWD CALL'}
+          {current
+            ? intl.formatMessage(
+                { id: 'crowd.panel.callCounter', defaultMessage: 'CROWD CALL {index}/{total}' },
+                { index: current.index, total: Math.max(CALLS_PER_MATCH, current.index) }
+              )
+            : intl.formatMessage({ id: 'crowd.panel.call', defaultMessage: 'CROWD CALL' })}
         </span>
         <span style={{ fontSize: 13, color: INK_MUTED }}>
-          {SIDE_NAME[viewSide]} crowd{tally ? ` · ${tally.total} vote${tally.total === 1 ? '' : 's'}` : ''}
+          {tally
+            ? intl.formatMessage(
+                {
+                  id: 'crowd.panel.crowdVotes',
+                  defaultMessage: '{side} crowd · {total, plural, one {# vote} other {# votes}}',
+                },
+                { side: sideName(viewSide), total: tally.total }
+              )
+            : intl.formatMessage({ id: 'crowd.panel.crowd', defaultMessage: '{side} crowd' }, { side: sideName(viewSide) })}
         </span>
         <span style={clockStyle}>
           {status.kind === 'voting'
             ? formatClock(status.closesInS * 1000)
             : status.kind === 'landing'
-              ? `lands ${status.landsInS}`
+              ? intl.formatMessage({ id: 'crowd.panel.clockLands', defaultMessage: 'lands {seconds}' }, { seconds: status.landsInS })
               : store
-                ? `next ${formatClock(status.nextInMs)}`
+                ? intl.formatMessage({ id: 'crowd.panel.clockNext', defaultMessage: 'next {clock}' }, { clock: formatClock(status.nextInMs) })
                 : ''}
         </span>
       </div>
@@ -136,24 +169,37 @@ export const CrowdCallPanel = memo(function CrowdCallPanel({
       )}
 
       {fighter ? (
-        <p style={noteStyle}>Fighters can’t vote — {side ? `the ${SIDE_NAME[side]} crowd` : 'your crowd'} votes for you.</p>
+        <p style={noteStyle}>
+          {side
+            ? intl.formatMessage(
+                { id: 'crowd.panel.fightersCantSide', defaultMessage: 'Fighters can’t vote — the {side} crowd votes for you.' },
+                { side: sideName(side) }
+              )
+            : intl.formatMessage({ id: 'crowd.panel.fightersCant', defaultMessage: 'Fighters can’t vote — your crowd votes for you.' })}
+        </p>
       ) : side ? (
         <div style={lockedRowStyle}>
           <span style={dot(side)} />
           <span>
-            Cheering <strong style={{ color: side === 'teamA' ? TEAM_A_COLOR_CSS : TEAM_B_COLOR_CSS }}>{SIDE_NAME[side]}</strong> · locked
-            for this match
+            <FormattedMessage
+              id="crowd.panel.cheering"
+              defaultMessage="Cheering <b>{side}</b> · locked for this match"
+              values={{
+                side: sideName(side),
+                b: (c) => <strong style={{ color: side === 'teamA' ? TEAM_A_COLOR_CSS : TEAM_B_COLOR_CSS }}>{c}</strong>,
+              }}
+            />
           </span>
         </div>
       ) : (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
           <div
             role="group"
-            aria-label="Cheer for"
+            aria-label={cheerFor}
             style={{ display: 'grid', gridTemplateColumns: 'auto 1fr 1fr', alignItems: 'center', gap: 6 }}
           >
             <span style={labelStyle} aria-hidden>
-              Cheer for
+              {cheerFor}
             </span>
             {(['teamA', 'teamB'] as const).map((s) => (
               <button
@@ -163,38 +209,67 @@ export const CrowdCallPanel = memo(function CrowdCallPanel({
                 onClick={() => setPicked(s)}
                 style={sideButton(s, picked === s, dense)}
               >
-                {SIDE_NAME[s]}
+                {sideName(s)}
               </button>
             ))}
           </div>
-          <span style={noteStyle}>Your side locks once you vote or bet this match.</span>
+          <span style={noteStyle}>{intl.formatMessage({ id: 'crowd.panel.sideLocks', defaultMessage: 'Your side locks once you vote or bet this match.' })}</span>
         </div>
       )}
 
       {!current || !callSide || !tally ? (
         <p style={noteStyle}>
           {store
-            ? `Next Crowd Call opens in ${formatClock(status.kind === 'waiting' ? status.nextInMs : 0)}.`
-            : 'First Crowd Call opens 20 s into the match, then every 30 s. Voting stays open 10 s.'}
+            ? intl.formatMessage(
+                { id: 'crowd.panel.nextOpens', defaultMessage: 'Next Crowd Call opens in {clock}.' },
+                { clock: formatClock(status.kind === 'waiting' ? status.nextInMs : 0) }
+              )
+            : intl.formatMessage({
+                id: 'crowd.panel.schedule',
+                defaultMessage: 'First Crowd Call opens 20 s into the match, then every 30 s. Voting stays open 10 s.',
+              })}
         </p>
       ) : (
         <>
-          {!voting && callSide.winner && (
+          {!voting && callSide.winner && callValues && (
             <p style={{ margin: 0, fontFamily: FONT_UI, fontSize: 15 }}>
-              {callSide.housePick ? 'House pick: ' : `${SIDE_NAME[viewSide]}'s crowd called `}
-              <strong style={{ color: CROWD_TEXT }}>{CROWD_CARDS[callSide.winner].label}</strong>
-              {status.kind === 'landing' ? ` — lands in ${status.landsInS}` : ' — landed'}
+              {callSide.housePick ? (
+                <FormattedMessage
+                  id="crowd.panel.housePicked"
+                  defaultMessage="House pick: <b>{card}</b>{phase, select, landing { — lands in {seconds}} other { — landed}}"
+                  values={callValues}
+                />
+              ) : (
+                <FormattedMessage
+                  id="crowd.panel.crowdCalled"
+                  defaultMessage="{side}'s crowd called <b>{card}</b>{phase, select, landing { — lands in {seconds}} other { — landed}}"
+                  values={callValues}
+                />
+              )}
             </p>
           )}
           {voting && !fighter && (
-            <span style={noteStyle}>{!signedUp ? 'Sign up to vote.' : myVote ? 'Tap another card to switch.' : 'Tap a card to vote.'}</span>
+            <span style={noteStyle}>{!signedUp
+                ? intl.formatMessage({ id: 'crowd.panel.signUpToVote', defaultMessage: 'Sign up to vote.' })
+                : myVote
+                  ? intl.formatMessage({ id: 'crowd.panel.tapToSwitch', defaultMessage: 'Tap another card to switch.' })
+                  : intl.formatMessage({ id: 'crowd.panel.tapToVote', defaultMessage: 'Tap a card to vote.' })}</span>
           )}
           {tally.cards.map((card) => {
             const mine = myVote === card.id; // stays set through landing
             const won = !voting && callSide.winner === card.id;
             const canVote = voting && signedUp && !fighter && !pending;
-            const tag = pending === card.id ? 'SENDING' : won ? (callSide.housePick ? 'HOUSE' : 'WIN') : mine ? 'YOUR VOTE' : '';
-            const { label, desc } = CROWD_CARDS[card.id];
+            const tag =
+              pending === card.id
+                ? intl.formatMessage({ id: 'crowd.panel.tag.sending', defaultMessage: 'SENDING' })
+                : won
+                  ? callSide.housePick
+                    ? intl.formatMessage({ id: 'crowd.panel.tag.house', defaultMessage: 'HOUSE' })
+                    : intl.formatMessage({ id: 'crowd.panel.tag.win', defaultMessage: 'WIN' })
+                  : mine
+                    ? intl.formatMessage({ id: 'crowd.panel.tag.yourVote', defaultMessage: 'YOUR VOTE' })
+                    : '';
+            const { label, desc } = cardText(card.id);
             return (
               <button
                 key={card.id}
@@ -202,7 +277,14 @@ export const CrowdCallPanel = memo(function CrowdCallPanel({
                 aria-pressed={mine}
                 disabled={!canVote}
                 onClick={() => vote(card.id)}
-                aria-label={`${label}: ${desc}. ${card.pct}%${tag ? `, ${tag.toLowerCase()}` : ''}`}
+                aria-label={
+                  tag
+                    ? intl.formatMessage(
+                        { id: 'crowd.panel.cardAriaTagged', defaultMessage: '{label}: {desc}. {pct}%, {tag}' },
+                        { label, desc, pct: card.pct, tag: tag.toLocaleLowerCase(intl.locale) }
+                      )
+                    : intl.formatMessage({ id: 'crowd.panel.cardAria', defaultMessage: '{label}: {desc}. {pct}%' }, { label, desc, pct: card.pct })
+                }
                 title={desc}
                 style={cardStyle(mine || won, canVote, dense)}
               >
@@ -231,7 +313,11 @@ export const CrowdCallPanel = memo(function CrowdCallPanel({
           {error}
         </p>
       )}
-      <span style={noteStyle}>Winner hits every {SIDE_NAME[viewSide]} fighter 2 s after voting. No votes → house pick.</span>
+      <span style={noteStyle}>{intl.formatMessage(
+          { id: 'crowd.panel.winnerHits', defaultMessage: 'Winner hits every {side} fighter 2 s after voting. No votes → house pick.' },
+          { side: sideName(viewSide) }
+        )}
+      </span>
       {!fighter && signedUp && signUp}
     </div>
   );

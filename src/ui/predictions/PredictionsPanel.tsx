@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState, type CSSProperties } from 'react';
+import { FormattedMessage, useIntl } from 'react-intl';
 import type { MyBet, PredictionOptionSummary, PredictionSummary, WalletEventPayload } from '../../net/protocol';
 import { STAKE_CHIPS } from '../../net/predictions';
 import { useCountdown } from '../../net/useCountdown';
@@ -59,6 +60,7 @@ const CHIPS: readonly StakeChip[] = [...STAKE_CHIPS, 'all'];
  * and the window's countdown. Layout-agnostic — the web sidebar stacks it
  * above chat, the mobile drawer shows it on its own tab. */
 export function PredictionsPanel({ prediction, balance, myBet, settled, canBet, onBet, dense = false }: PredictionsPanelProps) {
+  const intl = useIntl();
   const [chip, setChip] = useState<StakeChip>(STAKE_CHIPS[0]);
   const [placing, setPlacing] = useState(false);
   const [notice, setNotice] = useState<string | null>(null);
@@ -96,32 +98,64 @@ export function PredictionsPanel({ prediction, balance, myBet, settled, canBet, 
   const status = !prediction
     ? null
     : prediction.status === 'open'
-      ? `🔒 Closes in ${formatCloseCountdown(remainingMs)}`
+      ? `🔒 ${intl.formatMessage({ id: 'predictions.status.closesIn', defaultMessage: 'Closes in {time}' }, { time: formatCloseCountdown(remainingMs) })}`
       : prediction.status === 'closed'
-        ? '🔒 CLOSED'
-        : 'SETTLED';
+        ? `🔒 ${intl.formatMessage({ id: 'predictions.status.closed', defaultMessage: 'CLOSED' })}`
+        : intl.formatMessage({
+            id: 'predictions.status.settled',
+            defaultMessage: 'SETTLED',
+          });
   const result = prediction ? resultText(prediction, settled) : null;
   const watched = prediction?.status === 'settled' ? watchedText(settled) : null;
 
   return (
-    <section style={panelStyle} aria-label="Predictions">
+    <section
+      style={panelStyle}
+      aria-label={intl.formatMessage({
+        id: 'predictions.panel.label',
+        defaultMessage: 'Predictions',
+      })}
+    >
       <header style={headerStyle}>
-        <span style={titleStyle}>🔮 PREDICTIONS</span>
+        <span style={titleStyle}>
+          🔮{' '}
+          {intl.formatMessage({
+            id: 'predictions.panel.title',
+            defaultMessage: 'PREDICTIONS',
+          })}
+        </span>
         {status && <span style={{ ...statusStyle, color: open ? SAPPHIRE_DEEP : INK_MUTED }}>{status}</span>}
       </header>
 
       {balance !== null && (
         <div style={walletRowStyle}>
-          <span style={walletLabelStyle}>YOUR BALANCE</span>
+          <span style={walletLabelStyle}>
+            {intl.formatMessage({
+              id: 'predictions.wallet.balance',
+              defaultMessage: 'YOUR BALANCE',
+            })}
+          </span>
           <span style={walletValueStyle}>{formatDollars(balance)}</span>
         </div>
       )}
 
-      {!prediction && <p style={emptyStyle}>Betting opens when the next battle starts.</p>}
+      {!prediction && (
+        <p style={emptyStyle}>
+          {intl.formatMessage({
+            id: 'predictions.empty',
+            defaultMessage: 'Betting opens when the next battle starts.',
+          })}
+        </p>
+      )}
 
       {prediction && (
         <>
-          <p style={questionStyle}>WHO WILL WIN?</p>
+          <p style={questionStyle}>
+            {intl.formatMessage({
+              id: 'predictions.question',
+              defaultMessage: 'WHO WILL WIN?',
+            })}
+          </p>
 
           {open && canBet && (
             <div style={chipRowStyle}>
@@ -141,7 +175,12 @@ export function PredictionsPanel({ prediction, balance, myBet, settled, canBet, 
                       opacity: affordable ? 1 : 0.4,
                     }}
                   >
-                    {c === 'all' ? 'ALL IN' : `$${c}`}
+                    {c === 'all'
+                      ? intl.formatMessage({
+                          id: 'predictions.chip.allIn',
+                          defaultMessage: 'ALL IN',
+                        })
+                      : `$${c}`}
                   </button>
                 );
               })}
@@ -161,7 +200,13 @@ export function PredictionsPanel({ prediction, balance, myBet, settled, canBet, 
                   type="button"
                   onClick={() => void bet(option)}
                   disabled={!clickable}
-                  aria-label={`Bet ${formatDollars(stake)} on ${option.label}`}
+                  aria-label={intl.formatMessage(
+                    {
+                      id: 'predictions.option.betLabel',
+                      defaultMessage: 'Bet {amount} on {name}',
+                    },
+                    { amount: formatDollars(stake), name: option.label }
+                  )}
                   style={{
                     ...optionStyle,
                     borderColor: winner ? SUCCESS : option.id === favourite && !mine ? color : INK,
@@ -172,10 +217,36 @@ export function PredictionsPanel({ prediction, balance, myBet, settled, canBet, 
                   }}
                 >
                   <div style={optionTopStyle}>
-                    <span style={{ ...optionNameStyle, color, textDecoration: option.alive ? 'none' : 'line-through' }}>
+                    <span
+                      style={{
+                        ...optionNameStyle,
+                        color,
+                        textDecoration: option.alive ? 'none' : 'line-through',
+                      }}
+                    >
                       {option.label}
-                      {option.id === favourite && <span style={favTagStyle}>FAV</span>}
-                      {winner && <span style={{ ...favTagStyle, color: SUCCESS, borderColor: SUCCESS }}>WIN</span>}
+                      {option.id === favourite && (
+                        <span style={favTagStyle}>
+                          {intl.formatMessage({
+                            id: 'predictions.option.fav',
+                            defaultMessage: 'FAV',
+                          })}
+                        </span>
+                      )}
+                      {winner && (
+                        <span
+                          style={{
+                            ...favTagStyle,
+                            color: SUCCESS,
+                            borderColor: SUCCESS,
+                          }}
+                        >
+                          {intl.formatMessage({
+                            id: 'predictions.option.win',
+                            defaultMessage: 'WIN',
+                          })}
+                        </span>
+                      )}
                     </span>
                     <span style={oddsStyle}>{percentLabel(option.odds)}</span>
                   </div>
@@ -191,10 +262,29 @@ export function PredictionsPanel({ prediction, balance, myBet, settled, canBet, 
                   </div>
                   <div style={optionBottomStyle}>
                     <span>
-                      {formatDollars(option.total)} · {option.bettors} {option.bettors === 1 ? 'bet' : 'bets'} ·{' '}
-                      {impliedMultiplier(prediction.pool, option.total)}
+                      {intl.formatMessage(
+                        {
+                          id: 'predictions.option.stats',
+                          defaultMessage: '{total} · {bettors, plural, one {# bet} other {# bets}} · {multiplier}',
+                        },
+                        {
+                          total: formatDollars(option.total),
+                          bettors: option.bettors,
+                          multiplier: impliedMultiplier(prediction.pool, option.total),
+                        }
+                      )}
                     </span>
-                    {mine && <span style={mineStyle}>YOU {formatDollars(myBet.amount)}</span>}
+                    {mine && (
+                      <span style={mineStyle}>
+                        {intl.formatMessage(
+                          {
+                            id: 'predictions.option.mine',
+                            defaultMessage: 'YOU {amount}',
+                          },
+                          { amount: formatDollars(myBet.amount) }
+                        )}
+                      </span>
+                    )}
                   </div>
                 </button>
               );
@@ -205,9 +295,26 @@ export function PredictionsPanel({ prediction, balance, myBet, settled, canBet, 
 
           <div style={footerStyle}>
             <span>
-              Pool: <strong>{formatAmount(prediction.pool)}</strong> 🪙
+              <FormattedMessage
+                id="predictions.pool"
+                defaultMessage="Pool: {amount}"
+                values={{
+                  amount: <strong>{formatAmount(prediction.pool)}</strong>,
+                }}
+              />{' '}
+              🪙
             </span>
-            {open && canBet && balance !== null && <span style={{ color: INK_MUTED }}>Tap a fighter to stake {formatDollars(stake)}</span>}
+            {open && canBet && balance !== null && (
+              <span style={{ color: INK_MUTED }}>
+                {intl.formatMessage(
+                  {
+                    id: 'predictions.tapToStake',
+                    defaultMessage: 'Tap a fighter to stake {amount}',
+                  },
+                  { amount: formatDollars(stake) }
+                )}
+              </span>
+            )}
           </div>
 
           {result && (

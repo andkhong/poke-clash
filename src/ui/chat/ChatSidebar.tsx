@@ -1,10 +1,17 @@
 import { memo, useEffect, useState, type CSSProperties } from 'react';
+import { defineMessages, useIntl } from 'react-intl';
 import { ChatPanel, type ChatPanelProps } from './ChatPanel';
 import { CHAT_SIDEBAR_WIDTH, countUnread, latestChatId } from './chatModel';
 import { PredictionsPanel, type PredictionsPanelProps } from '../predictions/PredictionsPanel';
 import { ShopPanel, type ShopPanelProps } from '../shop/ShopPanel';
 import { CrowdCallPanel, type CrowdCallPanelProps } from '../crowd/CrowdCallPanel';
 import { BG_ALT, CROWD, FONT_BODY, FONT_UI, INFO_BOX, INK, PRIMARY, PRIMARY_TEXT, SUCCESS, TEXT, textAlpha } from '../theme';
+
+const TAB_LABELS = defineMessages({
+  vote: { id: 'chat.sidebar.tab.vote', defaultMessage: 'VOTE' },
+  bets: { id: 'chat.sidebar.tab.bets', defaultMessage: 'BETS' },
+  shop: { id: 'chat.sidebar.tab.items', defaultMessage: 'ITEMS' },
+});
 
 // Memoized here (ChatPanel itself isn't) so a vote/bet update re-rendering the sidebar leaves the chat list alone.
 const MemoChatPanel = memo(ChatPanel);
@@ -51,6 +58,7 @@ type TopTab = 'vote' | 'bets' | 'shop';
  * top, chat below. Collapsible to a narrow strip that keeps an unread badge,
  * like a stream page's "hide chat". */
 export function ChatSidebar({ vote, predictions, shop, width = CHAT_SIDEBAR_WIDTH, ...props }: ChatSidebarProps) {
+  const intl = useIntl();
   const { messages } = props;
   const [collapsed, setCollapsed] = useState(readCollapsed);
   const [lastSeenId, setLastSeenId] = useState(() => latestChatId(messages));
@@ -68,11 +76,13 @@ export function ChatSidebar({ vote, predictions, shop, width = CHAT_SIDEBAR_WIDT
     });
   };
 
+  const showLabel = intl.formatMessage({ id: 'chat.sidebar.show', defaultMessage: 'Show chat' });
+  const hideLabel = intl.formatMessage({ id: 'chat.sidebar.hide', defaultMessage: 'Hide chat' });
   if (collapsed) {
     const unread = countUnread(messages, lastSeenId);
     return (
       <aside style={stripStyle}>
-        <button type="button" onClick={toggle} title="Show chat" aria-label="Show chat" style={stripButtonStyle}>
+        <button type="button" onClick={toggle} title={showLabel} aria-label={showLabel} style={stripButtonStyle}>
           💬
           {unread > 0 && <span style={badgeStyle}>{unread > 99 ? '99+' : unread}</span>}
         </button>
@@ -84,9 +94,9 @@ export function ChatSidebar({ vote, predictions, shop, width = CHAT_SIDEBAR_WIDT
   // simply fills the region.
   const tabs = (
     [
-      ['vote', vote, 'VOTE'],
-      ['bets', predictions, 'BETS'],
-      ['shop', shop, 'ITEMS'],
+      ['vote', vote, TAB_LABELS.vote],
+      ['bets', predictions, TAB_LABELS.bets],
+      ['shop', shop, TAB_LABELS.shop],
     ] as const
   ).filter(([, panel]) => panel !== undefined);
   const shown = tabs.some(([id]) => id === topTab) ? topTab : tabs[0]?.[0];
@@ -107,7 +117,7 @@ export function ChatSidebar({ vote, predictions, shop, width = CHAT_SIDEBAR_WIDT
                   onClick={() => setTopTab(id)}
                   style={topTabStyle(shown === id, id === 'vote')}
                 >
-                  {label}
+                  {intl.formatMessage(label)}
                   {id === 'shop' && shopHasStock && <span style={dotStyle} aria-hidden />}
                 </button>
               ))}
@@ -125,10 +135,10 @@ export function ChatSidebar({ vote, predictions, shop, width = CHAT_SIDEBAR_WIDT
         </div>
       )}
       <header style={headerStyle}>
-        <button type="button" onClick={toggle} title="Hide chat" aria-label="Hide chat" style={headerButtonStyle}>
+        <button type="button" onClick={toggle} title={hideLabel} aria-label={hideLabel} style={headerButtonStyle}>
           ⇥
         </button>
-        <span style={titleStyle}>CHAT</span>
+        <span style={titleStyle}>{intl.formatMessage({ id: 'chat.sidebar.title', defaultMessage: 'CHAT' })}</span>
       </header>
       <div style={bodyStyle}>
         <MemoChatPanel {...props} listHeight="flex" showTimestamps dense />

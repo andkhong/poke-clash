@@ -1,5 +1,7 @@
 import { StrictMode } from 'react';
 import { createRoot } from 'react-dom/client';
+import { RawIntlProvider } from 'react-intl';
+import { initIntl } from './i18n';
 import { Root } from './Root';
 
 // Kick off the move-label pixel font fetch as early as possible so it's
@@ -9,8 +11,12 @@ void document.fonts.load('13px "Press Start 2P"');
 const rootEl = document.getElementById('root');
 if (!rootEl) throw new Error('#root element not found');
 
-createRoot(rootEl).render(
-  <StrictMode>
-    <Root />
-  </StrictMode>
+void initIntl().then((intl) =>
+  createRoot(rootEl).render(
+    <StrictMode>
+      <RawIntlProvider value={intl}>
+        <Root />
+      </RawIntlProvider>
+    </StrictMode>
+  )
 );

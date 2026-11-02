@@ -1,6 +1,7 @@
 import type { ItemUse, ShopSummary } from '../../net/protocol';
 import type { PokemonInstance, SimState } from '../../sim/types';
 import { getItem, isShopOpenForPhase, ITEMS, MATCH_ITEM_LIMIT_PER_SESSION, MAX_HEALS_PER_TARGET, type ShopItem } from '../../net/shop';
+import { intl } from '../../i18n';
 import { formatDollars } from '../predictions/predictionModel';
 import { DESTRUCTIVE, HP_GREEN, HP_RED, HP_YELLOW, YELLOW } from '../theme';
 
@@ -101,7 +102,12 @@ export function stockLeft(shop: ShopSummary, item: ShopItem): number {
 /** "3 left" / "SOLD OUT" — the shelf line under an item. */
 export function stockLabel(shop: ShopSummary, item: ShopItem): string {
   const left = stockLeft(shop, item);
-  return left <= 0 ? 'SOLD OUT' : `${left} left`;
+  return left <= 0
+    ? intl.formatMessage({
+        id: 'shop.stock.soldOut',
+        defaultMessage: 'SOLD OUT',
+      })
+    : intl.formatMessage({ id: 'shop.stock.left', defaultMessage: '{count} left' }, { count: left });
 }
 
 /** Red once the shelf is bare, amber on the last one, plain otherwise —
@@ -115,9 +121,25 @@ export function stockColor(shop: ShopSummary, item: ShopItem): string | null {
 
 /** "+25% HP · $40" — an item's headline terms. */
 export function itemTerms(item: ShopItem): string {
+  const values = {
+    percent: Math.round(item.healFraction * 100),
+    price: formatDollars(item.price),
+  };
   return item.effect === 'revive'
-    ? `REVIVE ${Math.round(item.healFraction * 100)}% HP · ${formatDollars(item.price)}`
-    : `+${Math.round(item.healFraction * 100)}% HP · ${formatDollars(item.price)}`;
+    ? intl.formatMessage(
+        {
+          id: 'shop.item.terms.revive',
+          defaultMessage: 'REVIVE {percent}% HP · {price}',
+        },
+        values
+      )
+    : intl.formatMessage(
+        {
+          id: 'shop.item.terms.heal',
+          defaultMessage: '+{percent}% HP · {price}',
+        },
+        values
+      );
 }
 
 /** Why the panel can't be used at all right now, as one line — or null when
@@ -125,22 +147,58 @@ export function itemTerms(item: ShopItem): string {
  * trading → have I already bought → is there anything left → can I afford it. */
 export function shopNotice(state: SimState, shop: ShopSummary, balance: number, myItemUses: number, canBuy: boolean): string | null {
   if (!canBuy) return null;
-  if (state.phase === 'intro') return 'Shop opens when the battle starts';
-  if (state.phase === 'complete') return 'Shop closed — match over';
+  if (state.phase === 'intro')
+    return intl.formatMessage({
+      id: 'shop.notice.intro',
+      defaultMessage: 'Shop opens when the battle starts',
+    });
+  if (state.phase === 'complete')
+    return intl.formatMessage({
+      id: 'shop.notice.complete',
+      defaultMessage: 'Shop closed — match over',
+    });
   if (myItemUses >= MATCH_ITEM_LIMIT_PER_SESSION) {
-    return MATCH_ITEM_LIMIT_PER_SESSION === 1 ? 'One item per match — yours is spent' : 'You have used all your items this match';
+    return MATCH_ITEM_LIMIT_PER_SESSION === 1
+      ? intl.formatMessage({
+          id: 'shop.notice.spentOne',
+          defaultMessage: 'One item per match — yours is spent',
+        })
+      : intl.formatMessage({
+          id: 'shop.notice.spentAll',
+          defaultMessage: 'You have used all your items this match',
+        });
   }
   const inStock = ITEMS.filter((item) => stockLeft(shop, item) > 0);
-  if (inStock.length === 0) return 'Everything is sold out this match';
-  if (balance < Math.min(...inStock.map((item) => item.price))) return 'Not enough Pokémon Dollars';
+  if (inStock.length === 0)
+    return intl.formatMessage({
+      id: 'shop.notice.soldOutAll',
+      defaultMessage: 'Everything is sold out this match',
+    });
+  if (balance < Math.min(...inStock.map((item) => item.price)))
+    return intl.formatMessage({
+      id: 'shop.error.insufficientFunds',
+      defaultMessage: 'Not enough Pokémon Dollars',
+    });
   return null;
 }
 
 /** "Slowpoke482 → Piplup +87" — one line of the activity log. */
 export function itemUseText(use: ItemUse): string {
   return use.effect === 'revive'
-    ? `${use.buyerName} revived ${use.targetName} (${use.amount} HP)`
-    : `${use.buyerName} → ${use.targetName} +${use.amount}`;
+    ? intl.formatMessage(
+        {
+          id: 'shop.log.revived',
+          defaultMessage: '{buyer} revived {target} ({amount} HP)',
+        },
+        { buyer: use.buyerName, target: use.targetName, amount: use.amount }
+      )
+    : intl.formatMessage(
+        {
+          id: 'shop.log.healed',
+          defaultMessage: '{buyer} → {target} +{amount}',
+        },
+        { buyer: use.buyerName, target: use.targetName, amount: use.amount }
+      );
 }
 
 /** The emoji for a logged use, looked up from the catalog. */
@@ -154,37 +212,78 @@ export function itemUseEmoji(use: ItemUse): string {
 export function itemErrorNotice(error: string): string {
   switch (error) {
     case 'closed':
-      return 'Shop is closed';
+      return intl.formatMessage({
+        id: 'shop.error.closed',
+        defaultMessage: 'Shop is closed',
+      });
     case 'out_of_stock':
-      return 'Just sold out';
+      return intl.formatMessage({
+        id: 'shop.error.outOfStock',
+        defaultMessage: 'Just sold out',
+      });
     case 'session_limit':
-      return 'One item per match';
+      return intl.formatMessage({
+        id: 'shop.error.sessionLimit',
+        defaultMessage: 'One item per match',
+      });
     case 'target_fainted':
-      return 'That one already fainted';
+      return intl.formatMessage({
+        id: 'shop.error.targetFainted',
+        defaultMessage: 'That one already fainted',
+      });
     case 'target_not_fainted':
-      return 'Revive needs a fainted fighter';
+      return intl.formatMessage({
+        id: 'shop.error.targetNotFainted',
+        defaultMessage: 'Revive needs a fainted fighter',
+      });
     case 'target_full_hp':
-      return 'Already at full HP';
+      return intl.formatMessage({
+        id: 'shop.error.targetFullHp',
+        defaultMessage: 'Already at full HP',
+      });
     case 'target_limit':
-      return 'That one has had enough';
+      return intl.formatMessage({
+        id: 'shop.error.targetLimit',
+        defaultMessage: 'That one has had enough',
+      });
     case 'insufficient_funds':
-      return 'Not enough Pokémon Dollars';
+      return intl.formatMessage({
+        id: 'shop.error.insufficientFunds',
+        defaultMessage: 'Not enough Pokémon Dollars',
+      });
     case 'rate_limited':
-      return 'Slow down a moment';
+      return intl.formatMessage({
+        id: 'shop.error.rateLimited',
+        defaultMessage: 'Slow down a moment',
+      });
     case 'no_shop':
-      return 'No match to shop in';
+      return intl.formatMessage({
+        id: 'shop.error.noShop',
+        defaultMessage: 'No match to shop in',
+      });
     case 'not_signed_up':
-      return 'Sign up to buy';
+      return intl.formatMessage({
+        id: 'shop.error.notSignedUp',
+        defaultMessage: 'Sign up to buy',
+      });
     case 'fighters_cant':
-      return 'Fighters can’t buy items';
+      return intl.formatMessage({
+        id: 'shop.error.fightersCant',
+        defaultMessage: 'Fighters can’t buy items',
+      });
     default:
-      return 'Couldn’t buy that';
+      return intl.formatMessage({
+        id: 'shop.error.generic',
+        defaultMessage: 'Couldn’t buy that',
+      });
   }
 }
 
 /** Why a target row is disabled, as a short tag shown in place of its heal. */
 export function targetBlockedLabel(reason: TargetBlockReason): string {
-  return reason === 'full_hp' ? 'FULL' : 'MAXED';
+  return reason === 'full_hp'
+    ? intl.formatMessage({ id: 'shop.target.full', defaultMessage: 'FULL' })
+    : intl.formatMessage({ id: 'shop.target.maxed', defaultMessage: 'MAXED' });
 }
 
 /** HP-bar colour, matching the roster HUD's thresholds so a fighter reads the

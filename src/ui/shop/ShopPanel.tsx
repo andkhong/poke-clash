@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState, type CSSProperties } from 'react';
+import { useIntl } from 'react-intl';
 import type { ItemUse, ShopSummary } from '../../net/protocol';
 import { ITEMS, MATCH_ITEM_LIMIT_PER_SESSION, type ItemId, type ShopItem } from '../../net/shop';
 import type { SimStore } from '../state/simStore';
@@ -55,13 +56,31 @@ const NOTICE_MS = 2000;
  * hook can't be called conditionally. Unmounting the body then also drops a
  * half-made pick, which is what should happen when a match ends anyway. */
 export function ShopPanel({ shop, store, dense = false, ...rest }: ShopPanelProps) {
+  const intl = useIntl();
   if (!shop || !store) {
     return (
-      <section style={panelStyle} aria-label="Item shop">
+      <section
+        style={panelStyle}
+        aria-label={intl.formatMessage({
+          id: 'shop.panel.label',
+          defaultMessage: 'Item shop',
+        })}
+      >
         <header style={headerStyle}>
-          <span style={titleStyle}>🎒 SHOP</span>
+          <span style={titleStyle}>
+            🎒{' '}
+            {intl.formatMessage({
+              id: 'shop.panel.title',
+              defaultMessage: 'SHOP',
+            })}
+          </span>
         </header>
-        <p style={emptyStyle}>Opens when the next battle starts.</p>
+        <p style={emptyStyle}>
+          {intl.formatMessage({
+            id: 'shop.empty',
+            defaultMessage: 'Opens when the next battle starts.',
+          })}
+        </p>
       </section>
     );
   }
@@ -76,7 +95,12 @@ function ShopPanelBody({
   canBuy,
   onBuy,
   dense,
-}: Omit<ShopPanelProps, 'shop' | 'store' | 'dense'> & { shop: ShopSummary; store: SimStore; dense: boolean }) {
+}: Omit<ShopPanelProps, 'shop' | 'store' | 'dense'> & {
+  shop: ShopSummary;
+  store: SimStore;
+  dense: boolean;
+}) {
+  const intl = useIntl();
   const control = tapHeight(dense);
   const [picked, setPicked] = useState<ItemId | null>(null);
   const [buying, setBuying] = useState(false);
@@ -125,26 +149,56 @@ function ShopPanelBody({
   };
 
   return (
-    <section style={panelStyle} aria-label="Item shop">
+    <section
+      style={panelStyle}
+      aria-label={intl.formatMessage({
+        id: 'shop.panel.label',
+        defaultMessage: 'Item shop',
+      })}
+    >
       <header style={headerStyle}>
-        <span style={titleStyle}>🎒 SHOP</span>
+        <span style={titleStyle}>
+          🎒{' '}
+          {intl.formatMessage({
+            id: 'shop.panel.title',
+            defaultMessage: 'SHOP',
+          })}
+        </span>
         {canBuy && (
-          <span style={{ ...statusStyle, color: myItemUses >= MATCH_ITEM_LIMIT_PER_SESSION ? INK_MUTED : SUCCESS }}>
-            {myItemUses}/{MATCH_ITEM_LIMIT_PER_SESSION} used
+          <span
+            style={{
+              ...statusStyle,
+              color: myItemUses >= MATCH_ITEM_LIMIT_PER_SESSION ? INK_MUTED : SUCCESS,
+            }}
+          >
+            {intl.formatMessage(
+              { id: 'shop.used', defaultMessage: '{used}/{limit} used' },
+              { used: myItemUses, limit: MATCH_ITEM_LIMIT_PER_SESSION }
+            )}
           </span>
         )}
       </header>
 
       {balance !== null && (
         <div style={walletRowStyle}>
-          <span style={walletLabelStyle}>YOUR WALLET</span>
+          <span style={walletLabelStyle}>
+            {intl.formatMessage({
+              id: 'shop.wallet',
+              defaultMessage: 'YOUR WALLET',
+            })}
+          </span>
           <span style={walletValueStyle}>{formatDollars(balance)}</span>
         </div>
       )}
 
       {pickedItem === null || pickSoldOut ? (
         <>
-          <p style={captionStyle}>USE ON ANY FIGHTER · STOCK IS SHARED</p>
+          <p style={captionStyle}>
+            {intl.formatMessage({
+              id: 'shop.caption.shared',
+              defaultMessage: 'USE ON ANY FIGHTER · STOCK IS SHARED',
+            })}
+          </p>
           <div style={listStyle}>
             {ITEMS.map((item) => {
               const enabled = canBuyItem(state, shop, item, wallet, myItemUses, canBuy);
@@ -158,8 +212,22 @@ function ShopPanelBody({
                   onClick={() => setPicked(item.id)}
                   // The label is assembled from several spans (and the emoji
                   // is decorative), so spell it out — same as the bet buttons.
-                  aria-label={`${item.label}, ${formatDollars(item.price)}, ${stockLabel(shop, item)}`}
-                  style={{ ...itemStyle, minHeight: control + 4, ...(enabled ? null : disabledStyle) }}
+                  aria-label={intl.formatMessage(
+                    {
+                      id: 'shop.item.label',
+                      defaultMessage: '{name}, {price}, {stock}',
+                    },
+                    {
+                      name: item.label,
+                      price: formatDollars(item.price),
+                      stock: stockLabel(shop, item),
+                    }
+                  )}
+                  style={{
+                    ...itemStyle,
+                    minHeight: control + 4,
+                    ...(enabled ? null : disabledStyle),
+                  }}
                 >
                   <span style={itemEmojiStyle} aria-hidden>
                     {item.emoji}
@@ -171,7 +239,13 @@ function ShopPanelBody({
                   <span style={{ ...stockStyle, ...(color ? { color } : null) }}>{stockLabel(shop, item)}</span>
                   {/* How much of the shelf is gone, at a glance. */}
                   <span style={stockBarStyle} aria-hidden>
-                    <span style={{ ...stockFillStyle, width: `${(left / item.stock) * 100}%`, background: color ?? SUCCESS }} />
+                    <span
+                      style={{
+                        ...stockFillStyle,
+                        width: `${(left / item.stock) * 100}%`,
+                        background: color ?? SUCCESS,
+                      }}
+                    />
                   </span>
                 </button>
               );
@@ -182,13 +256,23 @@ function ShopPanelBody({
         <>
           <div style={stepHeaderStyle}>
             <button type="button" onClick={() => setPicked(null)} style={{ ...backStyle, minHeight: control }}>
-              ‹ BACK
+              ‹ {intl.formatMessage({ id: 'shop.back', defaultMessage: 'BACK' })}
             </button>
             <span style={stepTitleStyle}>
               {pickedItem.emoji} {pickedItem.label.toUpperCase()} · {formatDollars(pickedItem.price)}
             </span>
           </div>
-          <p style={captionStyle}>{pickedItem.effect === 'revive' ? 'CHOOSE A FAINTED FIGHTER' : 'CHOOSE A FIGHTER'}</p>
+          <p style={captionStyle}>
+            {pickedItem.effect === 'revive'
+              ? intl.formatMessage({
+                  id: 'shop.caption.chooseFainted',
+                  defaultMessage: 'CHOOSE A FAINTED FIGHTER',
+                })
+              : intl.formatMessage({
+                  id: 'shop.caption.choose',
+                  defaultMessage: 'CHOOSE A FIGHTER',
+                })}
+          </p>
           <div style={listStyle}>
             {targetRows(state, shop, pickedItem).map((row) => (
               <button
@@ -198,10 +282,32 @@ function ShopPanelBody({
                 onClick={() => void buy(pickedItem, row.instanceId)}
                 aria-label={
                   row.blocked === null
-                    ? `${pickedItem.effect === 'revive' ? 'Revive' : `Use ${pickedItem.label} on`} ${row.name}, restores ${row.heal} HP`
+                    ? pickedItem.effect === 'revive'
+                      ? intl.formatMessage(
+                          {
+                            id: 'shop.target.reviveLabel',
+                            defaultMessage: 'Revive {name}, restores {heal} HP',
+                          },
+                          { name: row.name, heal: row.heal }
+                        )
+                      : intl.formatMessage(
+                          {
+                            id: 'shop.target.useLabel',
+                            defaultMessage: 'Use {item} on {name}, restores {heal} HP',
+                          },
+                          {
+                            item: pickedItem.label,
+                            name: row.name,
+                            heal: row.heal,
+                          }
+                        )
                     : `${row.name}, ${targetBlockedLabel(row.blocked)}`
                 }
-                style={{ ...targetStyle, minHeight: control + 4, ...(row.blocked === null && !buying ? null : disabledStyle) }}
+                style={{
+                  ...targetStyle,
+                  minHeight: control + 4,
+                  ...(row.blocked === null && !buying ? null : disabledStyle),
+                }}
               >
                 <span style={targetNameStyle}>{row.name.toUpperCase()}</span>
                 <span style={hpBarStyle} aria-hidden>
@@ -216,13 +322,26 @@ function ShopPanelBody({
                 <span style={row.blocked === null ? healStyle : blockedStyle}>
                   {row.blocked === null
                     ? pickedItem.effect === 'revive'
-                      ? `REVIVE ${row.heal}`
+                      ? intl.formatMessage(
+                          {
+                            id: 'shop.target.revive',
+                            defaultMessage: 'REVIVE {heal}',
+                          },
+                          { heal: row.heal }
+                        )
                       : `+${row.heal}`
                     : targetBlockedLabel(row.blocked)}
                 </span>
               </button>
             ))}
-            {targetRows(state, shop, pickedItem).length === 0 && <p style={captionStyle}>NO FAINTED FIGHTERS</p>}
+            {targetRows(state, shop, pickedItem).length === 0 && (
+              <p style={captionStyle}>
+                {intl.formatMessage({
+                  id: 'shop.caption.noFainted',
+                  defaultMessage: 'NO FAINTED FIGHTERS',
+                })}
+              </p>
+            )}
           </div>
         </>
       )}

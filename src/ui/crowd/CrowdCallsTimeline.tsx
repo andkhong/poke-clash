@@ -1,10 +1,13 @@
+import { useIntl } from 'react-intl';
 import type { CrowdCallView } from '../../net/play/playProtocol';
 import { FONT_BODY, FONT_UI, INK, INK_MUTED } from '../theme';
 import { TEAM_A_COLOR_CSS, TEAM_B_COLOR_CSS } from '../teamColors';
-import { formatClock, winnerLabel } from './crowdModel';
+import { formatClock, sideName, winnerLabel } from './crowdModel';
 
 /** Results' "Crowd Calls this match": when each call landed and what each side got. */
 export function CrowdCallsTimeline({ history }: { history: CrowdCallView[] }) {
+  const intl = useIntl();
+  const title = intl.formatMessage({ id: 'crowd.timeline.title', defaultMessage: 'Crowd Calls this match' });
   const landed = history.filter((c) => c.sides.teamA.winner || c.sides.teamB.winner);
   const votes = landed.reduce(
     (sum, c) =>
@@ -15,18 +18,18 @@ export function CrowdCallsTimeline({ history }: { history: CrowdCallView[] }) {
   );
   return (
     <section
-      aria-label="Crowd Calls this match"
+      aria-label={title}
       style={{ display: 'flex', flexDirection: 'column', gap: 6, fontFamily: FONT_BODY, color: INK }}
     >
-      <h3 style={{ margin: 0, fontFamily: FONT_UI, fontSize: 20 }}>Crowd Calls this match</h3>
+      <h3 style={{ margin: 0, fontFamily: FONT_UI, fontSize: 20 }}>{title}</h3>
       {landed.length === 0 ? (
-        <p style={{ margin: 0, fontSize: 14, color: INK_MUTED }}>No calls landed this match.</p>
+        <p style={{ margin: 0, fontSize: 14, color: INK_MUTED }}>{intl.formatMessage({ id: 'crowd.timeline.empty', defaultMessage: 'No calls landed this match.' })}</p>
       ) : (
         <ol style={{ listStyle: 'none', margin: 0, padding: 0, display: 'flex', flexDirection: 'column', gap: 4, fontSize: 15 }}>
           <li style={{ ...row, color: INK_MUTED, fontSize: 13 }}>
             <span />
-            <span>Ruby</span>
-            <span>Sapphire</span>
+            <span>{sideName('teamA')}</span>
+            <span>{sideName('teamB')}</span>
           </li>
           {landed.map((c) => (
             <li key={c.index} style={row}>
@@ -37,7 +40,7 @@ export function CrowdCallsTimeline({ history }: { history: CrowdCallView[] }) {
           ))}
         </ol>
       )}
-      <span style={{ fontSize: 13, color: INK_MUTED }}>{votes} votes cast</span>
+      <span style={{ fontSize: 13, color: INK_MUTED }}>{intl.formatMessage({ id: 'crowd.timeline.votesCast', defaultMessage: '{votes, plural, one {# vote} other {# votes}} cast' }, { votes })}</span>
     </section>
   );
 }

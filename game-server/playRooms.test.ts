@@ -10,7 +10,7 @@ import {
   type PlayConn,
 } from './playRooms';
 import type { PlayRoomView, ServerMessage } from '../src/net/play/playProtocol';
-import { KANTO_IDS } from '../src/app/playMode';
+import { PLAY_IDS } from '../src/app/playMode';
 import { ActionEngine, type ActionSnapshot } from '../src/sim/action/ActionEngine';
 import { resetWalletsForTests } from './wallets';
 
@@ -63,21 +63,23 @@ describe('online Play Mode rooms', () => {
     expect(host.room().you).toBe(0);
   });
 
-  it('refuses a Pokémon someone else already picked, and anything outside the 151', () => {
+  it('refuses a Pokémon someone else already picked, and anything outside Gens 1–4', () => {
     const [host, guest] = lobbyOf(1, ['Ash', 'Gary']);
     host.say({ t: 'pick', speciesId: 25 });
     guest.say({ t: 'pick', speciesId: 25 });
     expect(guest.last('error')).toBeDefined();
-    guest.say({ t: 'pick', speciesId: 152 });
+    guest.say({ t: 'pick', speciesId: 494 });
     expect(guest.room().seats[1].speciesId).toBeNull();
+    guest.say({ t: 'pick', speciesId: 152 });
+    expect(guest.room().seats[1].speciesId).toBe(152);
     expect(host.room().seats[0].moves.length).toBeGreaterThan(0);
   });
 
   it('only starts once every seated player is ready, filling empty seats with bots', () => {
     const [host, guest] = lobbyOf(2, ['Ash', 'Brock']);
-    host.say({ t: 'pick', speciesId: KANTO_IDS[0] });
+    host.say({ t: 'pick', speciesId: PLAY_IDS[0] });
     host.say({ t: 'ready', ready: true });
-    guest.say({ t: 'pick', speciesId: KANTO_IDS[1] });
+    guest.say({ t: 'pick', speciesId: PLAY_IDS[1] });
     host.say({ t: 'start' });
     expect(host.last('start')).toBeUndefined();
     guest.say({ t: 'ready', ready: true });
@@ -85,7 +87,7 @@ describe('online Play Mode rooms', () => {
     const start = guest.last('start')!;
     expect(start.config.speciesIds).toHaveLength(4);
     expect(new Set(start.config.speciesIds).size).toBe(4);
-    expect(start.you).toBe(`p1-${KANTO_IDS[1]}`);
+    expect(start.you).toBe(`p1-${PLAY_IDS[1]}`);
     expect(Object.keys(start.names)).toHaveLength(2);
     expect(host.room().phase).toBe('battle');
   });
@@ -93,8 +95,8 @@ describe('online Play Mode rooms', () => {
   it('streams 30 Hz snapshots and faints a player who disconnects, for good', () => {
     const [host, guest] = lobbyOf(1, ['Ash', 'Gary']);
     for (const [p, id] of [
-      [host, KANTO_IDS[3]],
-      [guest, KANTO_IDS[4]],
+      [host, PLAY_IDS[3]],
+      [guest, PLAY_IDS[4]],
     ] as const) {
       p.say({ t: 'pick', speciesId: id });
       p.say({ t: 'ready', ready: true });
@@ -122,7 +124,7 @@ describe('online Play Mode rooms', () => {
   function humanDuel(): { host: FakeConn; me: string; snap: () => ActionSnapshot } {
     const [host, guest] = lobbyOf(1, ['Ash', 'Gary']);
     [host, guest].forEach((p, i) => {
-      p.say({ t: 'pick', speciesId: KANTO_IDS[5 + i] });
+      p.say({ t: 'pick', speciesId: PLAY_IDS[5 + i] });
       p.say({ t: 'ready', ready: true });
     });
     host.say({ t: 'start' });
@@ -163,7 +165,7 @@ describe('online Play Mode rooms', () => {
     const fan = connect('Brock');
     fan.say({ t: 'join', roomId: host.room().id, watch: true });
     fan.say({ t: 'signup', name: 'Brock' });
-    host.say({ t: 'pick', speciesId: KANTO_IDS[0] });
+    host.say({ t: 'pick', speciesId: PLAY_IDS[0] });
     host.say({ t: 'ready', ready: true });
     host.say({ t: 'start' });
     fan.say({ t: 'bet', optionId: 'teamB', amount: 30, req: 1 });
@@ -201,7 +203,7 @@ describe('online Play Mode rooms', () => {
     const fan = connect('Brock');
     fan.say({ t: 'join', roomId: host.room().id, watch: true });
     fan.say({ t: 'signup', name: 'Brock' });
-    host.say({ t: 'pick', speciesId: KANTO_IDS[0] });
+    host.say({ t: 'pick', speciesId: PLAY_IDS[0] });
     host.say({ t: 'ready', ready: true });
     host.say({ t: 'start' });
     fan.say({ t: 'bet', optionId: 'teamA', amount: 40, req: 1 });
@@ -363,7 +365,7 @@ describe('online Play Mode rooms', () => {
       fan.say({ t: 'join', roomId: host.room().id, watch: true });
       fan.say({ t: 'signup', name: 'Brock' });
       players.forEach((p, i) => {
-        p.say({ t: 'pick', speciesId: KANTO_IDS[i] });
+        p.say({ t: 'pick', speciesId: PLAY_IDS[i] });
         p.say({ t: 'ready', ready: true });
       });
       host.say({ t: 'start' });
@@ -504,17 +506,18 @@ describe('online Play Mode rooms', () => {
       expect(host.room().queued).toBe(false);
     });
 
-    it('opens 1v1, 2v2, 3v3 and FFA rooms already fighting, listed first, with no host', () => {
+    it('opens 1v1, 2v2, 3v3, 4v4 and FFA rooms already fighting, listed first, with no host', () => {
       openLiveRooms();
       const fan = connect('fan');
       fan.say({ t: 'create', mode: 1, arena: { width: 900, height: 1950 } });
       fan.say({ t: 'leave' });
       fan.say({ t: 'list' });
       const listed = fan.last('rooms')!.rooms;
-      expect(listed.slice(0, 4).map((r) => [r.id, r.mode, r.phase, r.live])).toEqual([
+      expect(listed.slice(0, 5).map((r) => [r.id, r.mode, r.phase, r.live])).toEqual([
         ['live1v1', 1, 'battle', true],
         ['live2v2', 2, 'battle', true],
         ['live3v3', 3, 'battle', true],
+        ['live4v4', 4, 'battle', true],
         ['liveffa', 'ffa', 'battle', true],
       ]);
       fan.say({ t: 'join', roomId: 'live2v2' });

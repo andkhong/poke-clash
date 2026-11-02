@@ -1,3 +1,4 @@
+import { useIntl } from 'react-intl';
 import { KO_FI_URL } from './assets';
 
 interface LandingFooterProps {
@@ -10,34 +11,70 @@ interface LandingFooterProps {
  * PMDCollab SpriteCollab credit that its CC BY-NC license asks for) and the
  * footer links. */
 export function LandingFooter({ onContact, onBackToTop }: LandingFooterProps) {
+  const intl = useIntl();
   return (
     <footer className="lp-footer">
       <div className="lp-container lp-footer-inner">
         <p className="lp-footer-copy">
-          Free, non-commercial fan project. Play money only, no cash value. Not affiliated with Nintendo, The Pokémon Company or Game Freak.
-          Sprites by the PMDCollab SpriteCollab community (CC BY-NC).
+          {intl.formatMessage({
+            id: 'landing.footer.legal',
+            defaultMessage:
+              'Free, non-commercial fan project. Play money only, no cash value. Not affiliated with Nintendo, The Pokémon Company or Game Freak. Sprites by the PMDCollab SpriteCollab community (CC BY-NC).',
+          })}
         </p>
-        <nav aria-label="Footer">
+        <nav
+          aria-label={intl.formatMessage({
+            id: 'landing.footer.navLabel',
+            defaultMessage: 'Footer',
+          })}
+        >
           <ul className="lp-footer-links">
             <li>
-              <a href="#/local">Play now</a>
+              <a href="#/local">
+                {intl.formatMessage({
+                  id: 'landing.footer.playNow',
+                  defaultMessage: 'Play now',
+                })}
+              </a>
             </li>
             <li>
-              <a href="#/play">Play online</a>
+              <a href="#/play">
+                {intl.formatMessage({
+                  id: 'landing.footer.playOnline',
+                  defaultMessage: 'Play online',
+                })}
+              </a>
             </li>
             <li>
-              <a href={KO_FI_URL} target="_blank" rel="noopener noreferrer" aria-label="Support on Ko-fi (opens in a new tab)">
-                Support on Ko-fi
+              <a
+                href={KO_FI_URL}
+                target="_blank"
+                rel="noopener noreferrer"
+                aria-label={intl.formatMessage({
+                  id: 'landing.footer.kofiLabel',
+                  defaultMessage: 'Support on Ko-fi (opens in a new tab)',
+                })}
+              >
+                {intl.formatMessage({
+                  id: 'landing.footer.kofi',
+                  defaultMessage: 'Support on Ko-fi',
+                })}
               </a>
             </li>
             <li>
               <button type="button" aria-haspopup="dialog" onClick={onContact}>
-                Contact
+                {intl.formatMessage({
+                  id: 'landing.footer.contact',
+                  defaultMessage: 'Contact',
+                })}
               </button>
             </li>
             <li>
               <button type="button" onClick={onBackToTop}>
-                Back to top
+                {intl.formatMessage({
+                  id: 'landing.footer.backToTop',
+                  defaultMessage: 'Back to top',
+                })}
               </button>
             </li>
           </ul>

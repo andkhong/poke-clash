@@ -1,3 +1,4 @@
+import { intl } from '../../i18n';
 import { CONTACT_EMAIL } from './assets';
 
 export type ContactTopic = 'bug' | 'feature';
@@ -32,27 +33,64 @@ export function mailtoUrl(subject: string, body: string): string {
 export function contactMailto(topic: ContactTopic, context: ContactContext): string {
   if (topic === 'bug') {
     return mailtoUrl(
-      'Bug report: Pokémon Brawl',
+      intl.formatMessage({
+        id: 'landing.mail.bug.subject',
+        defaultMessage: 'Bug report: Pokémon Brawl',
+      }),
       [
-        'What happened?',
+        intl.formatMessage({
+          id: 'landing.mail.bug.what',
+          defaultMessage: 'What happened?',
+        }),
         '',
         '',
-        'What did you expect to happen?',
+        intl.formatMessage({
+          id: 'landing.mail.bug.expected',
+          defaultMessage: 'What did you expect to happen?',
+        }),
         '',
         '',
-        'Steps to make it happen again (if you know them):',
+        intl.formatMessage({
+          id: 'landing.mail.bug.steps',
+          defaultMessage: 'Steps to make it happen again (if you know them):',
+        }),
         '',
         '',
         '---',
-        'Details to help track it down (delete anything you’d rather not share):',
-        `Page: ${context.pageUrl}`,
-        `Browser: ${context.userAgent}`,
-        `Screen: ${context.viewport}`,
+        intl.formatMessage({
+          id: 'landing.mail.bug.details',
+          defaultMessage: 'Details to help track it down (delete anything you’d rather not share):',
+        }),
+        intl.formatMessage({ id: 'landing.mail.bug.page', defaultMessage: 'Page: {value}' }, { value: context.pageUrl }),
+        intl.formatMessage(
+          {
+            id: 'landing.mail.bug.browser',
+            defaultMessage: 'Browser: {value}',
+          },
+          { value: context.userAgent }
+        ),
+        intl.formatMessage({ id: 'landing.mail.bug.screen', defaultMessage: 'Screen: {value}' }, { value: context.viewport }),
       ].join('\n')
     );
   }
   return mailtoUrl(
-    'Feature request: Pokémon Brawl',
-    ['What would you like to see?', '', '', 'How would it make the game more fun for you?', '', ''].join('\n')
+    intl.formatMessage({
+      id: 'landing.mail.feature.subject',
+      defaultMessage: 'Feature request: Pokémon Brawl',
+    }),
+    [
+      intl.formatMessage({
+        id: 'landing.mail.feature.what',
+        defaultMessage: 'What would you like to see?',
+      }),
+      '',
+      '',
+      intl.formatMessage({
+        id: 'landing.mail.feature.why',
+        defaultMessage: 'How would it make the game more fun for you?',
+      }),
+      '',
+      '',
+    ].join('\n')
   );
 }

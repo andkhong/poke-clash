@@ -14,11 +14,11 @@ Framing rules for every post:
 - Never ask for upvotes. It breaks Product Hunt rules and most subreddit rules.
 
 Gameplay facts the copy below relies on, as the code has them (check again if the rules change):
-- Play Mode: you control one Pokémon. Move (WASD or the touch joystick), aim, four moves, a dash, one KO and you're out (no respawns; a spectator's Revive can bring a fighter back), 3-minute matches (`ACTION_MATCH_LIMIT_MS`, src/sim/action/rules.ts). Original 151 only (`KANTO_IDS`, src/app/playMode.ts).
-- Modes: 1v1, 2v2, 3v3, 4v4 and FFA up to 8 (`PLAY_MODES`). Bots fill every empty seat when a match starts.
+- Play Mode: you control one Pokémon. Move (WASD or the touch joystick), aim, four moves, a dash, one KO and you're out (no respawns; a spectator's Revive can bring a fighter back), 3-minute matches (`ACTION_MATCH_LIMIT_MS`, src/sim/action/rules.ts). Gens 1–4, national dex up to 493 (`PLAY_IDS`, src/app/playMode.ts).
+- Modes: 1v1, 2v2, 3v3, 4v4 and Brawl, a free-for-all for up to 8 (`PLAY_MODES`, key `'ffa'`). Bots fill every empty seat when a match starts.
 - Solo vs bots needs no server (Play now). Online rooms are at `#/play`: pick a room or create one, share the link, and bots hold the open seats.
 - The crowd: anyone can watch a room, sign up with a display name (no account), chat, bet play money and buy potions.
-- Crowd Calls (src/net/play/playProtocol.ts): in team matches, every 30 seconds (first at 0:20) each side's crowd is offered three of four cards (Speed Burst, Shield, Energy Refill, Supply Drop) and votes for 10 seconds. The winner lands on that side's fighters 2 seconds after the vote closes. No votes means a random "house pick". Fighters never vote. FFA has no Crowd Calls yet, so don't promise any.
+- Crowd Calls (src/net/play/playProtocol.ts): in team matches, every 30 seconds (first at 0:20) each side's crowd is offered three of four cards (Speed Burst, Shield, Energy Refill, Supply Drop) and votes for 10 seconds. The winner lands on that side's fighters 2 seconds after the vote closes. No votes means a random "house pick". Fighters never vote. Brawl has no Crowd Calls yet, so don't promise any.
 - Every tab starts with $100 (`STARTING_BALANCE`, game-server/wallets.ts); everyone watching when a match ends gets $10 (`MATCH_WATCHED_REWARD`). The dev server shows a huge balance instead (`DEVELOPMENT_UNLIMITED_CASH`).
 
 ## G1. Product Hunt
@@ -27,7 +27,7 @@ PH limits: tagline max 60 chars, description ≤260 chars, thumbnail 240×240, g
 - **Name:** `Pokémon Brawl`
 - **Tagline (56/60):** `Real-time Pokémon brawls where the crowd calls the shots`
   - Alternative (30/60): `You fight. The crowd calls it.`
-- **Description (230/260):** `A free, fan-made browser game: control a Pokémon in real-time brawls, 1v1 to 4v4 or FFA up to 8. Play solo vs bots or online. Everyone watching votes every 30 seconds on what help lands on their side next. No account, no download.`
+- **Description (230/260):** `A free, fan-made browser game: control a Pokémon in real-time brawls, 1v1 to 4v4 or an 8-player Brawl. Play solo vs bots or online. Everyone watching votes every 30 seconds on what help lands on their side next. No account, no download.`
 - **Topics:** Games, Indie Games
 - **Link:** `https://pokemonbrawl.com/`
 - **Thumbnail (240×240):** pokeball.png at 6× (180×180, nearest-neighbor) centered on `#dde9f2`, 30px padding.
@@ -72,7 +72,7 @@ General caveats:
 - Caveat: check the sidebar for a required title tag or flair. Post as a **link post** straight to the game URL.
 - Title: `Pokémon Brawl: real-time Pokémon brawls in the browser, and the crowd votes on what lands next (free, no sign-up)`
 - First comment:
-> I made this! You control one Pokémon in a real-time match: move, dodge, aim four moves, dash, one KO and you're out. Play solo against bots, or open an online room (1v1 to 4v4, or FFA for 8) and share the link; bots fill any empty seats.
+> I made this! You control one Pokémon in a real-time match: move, dodge, aim four moves, dash, one KO and you're out. Play solo against bots, or open an online room (1v1 to 4v4, or an 8-player Brawl) and share the link; bots fill any empty seats.
 >
 > Anyone watching can join the crowd: pick a name, chat, bet play money (no real money, nothing to buy), and vote every 30 seconds on a card that lands on their side, like a Shield or a Speed Burst.
 >
@@ -84,7 +84,7 @@ General caveats:
 - Body:
 > **Play:** https://pokemonbrawl.com/ (browser, desktop or mobile, no sign-up)
 >
-> **What it is:** a real-time arena brawler with the original 151. WASD or a touch joystick to move, four moves to aim, a dash, one KO and you're out, three-minute matches. Solo vs bots or online rooms up to 4v4 or an 8-player FFA.
+> **What it is:** a real-time arena brawler with Pokémon from Gens 1–4. WASD or a touch joystick to move, four moves to aim, a dash, one KO and you're out, three-minute matches. Solo vs bots or online rooms up to 4v4 or an 8-player Brawl.
 >
 > **The twist:** spectators are part of the game. Every 30 seconds in a team match, each side's crowd votes on one of three cards (Speed Burst, Shield, Energy Refill, Supply Drop), and it lands on their fighters two seconds later.
 >
@@ -117,6 +117,6 @@ General caveats:
 - Body:
 > Huge thanks to the PMDCollab SpriteCollab contributors. Every fighter uses their sprites (CC BY-NC), and the walk, attack, hurt and faint animations are what make the fights readable.
 >
-> https://pokemonbrawl.com/ is a real-time arena brawler with the original 151: you control one Pokémon, solo vs bots or online, and spectators vote every 30 seconds on a card that lands on their team.
+> https://pokemonbrawl.com/ is a real-time arena brawler with Pokémon from Gens 1–4: you control one Pokémon, solo vs bots or online, and spectators vote every 30 seconds on a card that lands on their team.
 >
 > Free fan project, play money only, not affiliated with Nintendo, The Pokémon Company or Game Freak. If any sprite looks off in battle, tell me and I'll fix it.

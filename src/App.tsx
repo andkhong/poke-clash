@@ -35,7 +35,7 @@ export function App() {
           onExit={() => setPlayMatch(null)}
         />
       ) : (
-        <PlayModeScreen onStart={startPlayMatch} onBack={() => (window.location.hash = '#/')} />
+        <PlayModeScreen onStart={startPlayMatch} />
       )}
     </div>
   );
