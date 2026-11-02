@@ -1,6 +1,7 @@
 import Phaser from 'phaser';
 import { loopFadeEnvelope } from './loopFade';
 import { getWebAudioBus } from './masterBus';
+import { MUSIC_VOLUME } from './mix';
 
 // Picked server-side, not bundled — see sprite-server/server.ts's /soundtracks
 // routes. The mirror (sound-track/<pack>/*.mp3) is gitignored and can grow new
@@ -21,7 +22,7 @@ import { getWebAudioBus } from './masterBus';
 // the limiter (see mix.ts) still apply and the loop fade is a GainNode ramp;
 // with the HTML5/no-audio managers it just plays on its own. Level: the
 // tracks are loudness-normalized in the file (data-pipeline/build-soundtrack.ts),
-// so the element plays at unity.
+// so the element plays at MUSIC_VOLUME (1 = as mastered).
 const RANDOM_TRACK_URL = '/soundtracks/random';
 /** Time constant of the GainNode ramp that follows the loop-fade envelope
  * (see loopFade.ts) — timeupdate only fires ~4x/s, so the ramp is what
@@ -72,8 +73,12 @@ function startStreaming(scene: Phaser.Scene, url: string): void {
   if (bus) {
     source = bus.context.createMediaElementSource(element);
     gain = bus.context.createGain();
+    // Start at the configured level: timeupdate (which sets it from then on) first fires ~250 ms in.
+    gain.gain.value = MUSIC_VOLUME;
     source.connect(gain);
     gain.connect(bus.destination);
+  } else {
+    element.volume = MUSIC_VOLUME;
   }
 
   let loopedOnce = false;
@@ -83,7 +88,7 @@ function startStreaming(scene: Phaser.Scene, url: string): void {
     // backwards on a track nobody seeks.
     if (element.currentTime < lastTime - 1) loopedOnce = true;
     lastTime = element.currentTime;
-    const level = loopFadeEnvelope(element.currentTime, element.duration, loopedOnce);
+    const level = loopFadeEnvelope(element.currentTime, element.duration, loopedOnce) * MUSIC_VOLUME;
     if (gain && bus) gain.gain.setTargetAtTime(level, bus.context.currentTime, FADE_SMOOTHING_S);
     else element.volume = level;
   };

@@ -28,14 +28,18 @@
  * masterBus.ts.
  */
 export const MUSIC_TARGET_DB = -21;
+/** Background music level at playback, on top of MUSIC_TARGET_DB (which is
+ * baked into the files): 1 = as mastered, 0.5 ≈ -6 dB, 0 = off. The quick
+ * knob — changing it needs no soundtrack rebuild. */
+export const MUSIC_VOLUME = 0.6;
 export const CRY_TARGET_DB = -15;
 export const MOVE_SOUND_TARGET_DB = -13;
 
 /** Move SFX in a busy match (see moveVoices.ts): at most this many clips at
- * once, everyone else's moves at this gain (~-9 dB) under your own, and the
+ * once, everyone else's moves at this gain (~-14 dB) under your own, and the
  * same move's clip not restarted within this window. */
 export const MAX_MOVE_VOICES = 3;
-export const OTHER_MOVE_GAIN = 0.35;
+export const OTHER_MOVE_GAIN = 0.2;
 export const MOVE_REPEAT_WINDOW_MS = 150;
 
 /** Flat per-category gains for the HTML5-audio fallback, where there are no
