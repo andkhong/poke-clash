@@ -3,7 +3,8 @@ import type { MoveDefinition } from '../../sim/types';
 import type { MoveSoundIndex } from '../../data/types';
 import moveSoundIndexData from '../../data/generated/moveSounds.json';
 import { normalizedVolume } from './clipVolume';
-import { MOVE_SOUND_FALLBACK_VOLUME, MOVE_SOUND_TARGET_DB } from './mix';
+import { MOVE_SOUND_FALLBACK_VOLUME, MOVE_SOUND_TARGET_DB, OTHER_MOVE_GAIN } from './mix';
+import { admitMoveVoice, type MoveVoice } from './moveVoices';
 
 // Same "loaded on demand, cached forever" shape as cryAudio.ts — see that
 // file's comment. The clips are static files under public/move-sounds/
@@ -25,6 +26,9 @@ function moveSoundUrl(moveId: number): string {
 const DEFAULT_SOUND_KEY = 'move-sound-default';
 const DEFAULT_SOUND_URL = '/move-sounds/default.mp3';
 
+/** Move clips playing right now, for admitMoveVoice's cap; a clip leaves when it's destroyed (ended, stopped or cut). */
+const playing: (MoveVoice & { sound: Phaser.Sound.BaseSound })[] = [];
+
 /** Handle for a clip started by playMoveSound — lets a caller cut it short
  * (e.g. once the attack's on-screen animation has finished) instead of
  * always letting it play out to its natural end. */
@@ -36,9 +40,12 @@ export interface MoveSoundHandle {
  * for moves the mirrored SFX pack doesn't cover (mainly generation 8+
  * moves; see build-move-sound-index.ts's unmatched-move report) — so every
  * move makes *some* sound rather than playing silently. Called once per
- * move use, not once per hit target, same as showMoveLabel(). Returns a
- * handle the caller can use to stop the clip early. */
-export function playMoveSound(scene: Phaser.Scene, move: MoveDefinition): MoveSoundHandle {
+ * move use, not once per hit target, same as showMoveLabel(). `own` (the
+ * listener's own move, or a hit on them) plays at full volume and is never
+ * cut; anyone else's plays quieter and can be skipped or cut in a busy match
+ * (see moveVoices.ts). Returns a handle the caller can use to stop the clip
+ * early. */
+export function playMoveSound(scene: Phaser.Scene, move: MoveDefinition, own = true): MoveSoundHandle {
   const matched = MOVE_SOUND_INDEX[String(move.id)];
   const key = matched ? `move-sound-${move.id}` : DEFAULT_SOUND_KEY;
   const url = matched ? moveSoundUrl(move.id) : DEFAULT_SOUND_URL;
@@ -52,8 +59,18 @@ export function playMoveSound(scene: Phaser.Scene, move: MoveDefinition): MoveSo
 
   const startPlayback = (): void => {
     if (stopped) return;
-    sound = scene.sound.add(key, {
-      volume: normalizedVolume(scene, key, MOVE_SOUND_TARGET_DB, MOVE_SOUND_FALLBACK_VOLUME),
+    const admitted = admitMoveVoice(playing, key, own, performance.now());
+    if (!admitted.play) return;
+    admitted.evict?.sound.destroy();
+    const clip = scene.sound.add(key, {
+      volume: normalizedVolume(scene, key, MOVE_SOUND_TARGET_DB, MOVE_SOUND_FALLBACK_VOLUME) * (own ? 1 : OTHER_MOVE_GAIN),
+    });
+    sound = clip;
+    const voice = { key, own, startedMs: performance.now(), sound: clip };
+    playing.push(voice);
+    clip.once('destroy', () => {
+      const index = playing.indexOf(voice);
+      if (index >= 0) playing.splice(index, 1);
     });
     sound.once('complete', () => sound?.destroy());
     sound.play();

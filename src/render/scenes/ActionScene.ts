@@ -28,6 +28,8 @@ export interface ActionSceneData {
   engine: ActionEngine;
   /** Null for a spectator: no input, no aim line. */
   controller: PlayerController | null;
+  /** No music or sound effects (the landing page's live preview). */
+  muted?: boolean;
 }
 
 const spriteIndex = spriteIndexData as SpriteIndex;
@@ -72,6 +74,7 @@ const BLOCK_TEXT_COLOR = '#73bdf6';
 export class ActionScene extends Phaser.Scene {
   private engine!: ActionEngine;
   private controller: PlayerController | null = null;
+  private muted = false;
   private readonly sprites = new Map<string, PokemonSprite>();
   private readonly projectiles = new Map<number, Phaser.GameObjects.Image>();
   /** Every live (or just-finished) shot's ground position — what a move animation flies along. */
@@ -103,6 +106,7 @@ export class ActionScene extends Phaser.Scene {
     if (!data?.engine) return;
     this.engine = data.engine;
     this.controller = data.controller;
+    this.muted = data.muted ?? false;
     this.sprites.clear();
     this.projectiles.clear();
     this.shotPositions.clear();
@@ -140,7 +144,8 @@ export class ActionScene extends Phaser.Scene {
     this.cameras.main.setBackgroundColor('#182952');
     if (this.controller) this.bindKeyboardAndMouse(this.controller);
     installMasterLimiter(this);
-    playBattleMusic(this);
+    this.sound.mute = this.muted;
+    if (!this.muted) playBattleMusic(this);
     this.lastWallClockMs = performance.now();
   }
 
@@ -366,7 +371,8 @@ export class ActionScene extends Phaser.Scene {
         sprite.playPmdAttack(event.origin, event.kind === 'self' ? undefined : event.aim, event.kind !== 'physical');
         const hideLabel = sprite.showMoveLabel(move);
         this.time.delayedCall(MOVE_LABEL_MS, hideLabel);
-        if (event.attackerId === playerId) playMoveSound(this, move);
+        // Everyone's moves are audible; only the fighter's own play at full volume (and hits on them, below).
+        playMoveSound(this, move, event.attackerId === playerId);
         if (event.kind === 'aoe') this.playAoeRing(event.origin.x, event.origin.y, getMoveTypeColor(move.type));
         if (!event.failed) this.playMoveAnimation(event, move, sprite);
         return;

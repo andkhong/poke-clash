@@ -127,7 +127,7 @@ interface ActionMatchScreenProps {
   crowd?: ActionMatchCrowd;
   /** Online live rooms: whole seconds until the next match starts, shown on the results card. */
   nextMatchIn?: number | null;
-  /** The landing page's live embed: view-only, so no quit or results buttons. */
+  /** The landing page's live embed: view-only and silent, so no quit or results buttons, music or sound effects. */
   preview?: boolean;
 }
 
@@ -211,7 +211,7 @@ export function ActionMatchScreen({
           style={desktop ? { ...desktopStageStyle, aspectRatio: `${state.arena.width} / ${stadiumViewHeight(state.arena)}` } : fillStyle}
         >
           <Suspense fallback={null}>
-            <PhaserGame engine={engine} controller={controller} onStageRectChange={setStageRect} align={desktop ? 'bottom' : 'center'} />
+            <PhaserGame engine={engine} controller={controller} onStageRectChange={setStageRect} align={desktop ? 'bottom' : 'center'} muted={preview} />
           </Suspense>
           {stageRect && (
             <div

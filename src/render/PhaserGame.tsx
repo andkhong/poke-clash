@@ -23,10 +23,12 @@ interface PhaserGameProps {
   onStageRectChange?: (rect: StageRect) => void;
   /** Where a letterboxed canvas sits vertically: centred, or against the bottom (a HUD bar right below). */
   align?: 'center' | 'bottom';
+  /** No music or sound effects. */
+  muted?: boolean;
 }
 
 /** The Play Mode canvas: one Phaser game running ActionScene for a match. */
-export function PhaserGame({ engine, controller, onStageRectChange, align = 'center' }: PhaserGameProps) {
+export function PhaserGame({ engine, controller, onStageRectChange, align = 'center', muted = false }: PhaserGameProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const gameRef = useRef<Phaser.Game | null>(null);
   const onStageRectChangeRef = useRef(onStageRectChange);
@@ -99,7 +101,7 @@ export function PhaserGame({ engine, controller, onStageRectChange, align = 'cen
     gameInternals.onBlur = () => {};
 
     game.scene.add('Action', ActionScene, false);
-    game.scene.start('Action', { engine, controller });
+    game.scene.start('Action', { engine, controller, muted });
 
     const container = containerRef.current;
     const reportStageRect = (): void => {
